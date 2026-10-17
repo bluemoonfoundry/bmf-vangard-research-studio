@@ -16,6 +16,7 @@ import { findContradictions, openContradictions } from '@/bible/contradictions';
 import { ConflictQueue } from '@/components/bible/ConflictQueue';
 import { TimelineView } from '@/components/bible/TimelineView';
 import { resolveSource } from '@/bible/sources';
+import { factsCitingItems } from '@/bible/links';
 import { AddItemModal } from '@/components/workspace/AddItemModal';
 import { QuickRefPanel } from '@/components/workspace/QuickRefPanel';
 import { ExportModal } from '@/components/workspace/ExportModal';
@@ -292,7 +293,14 @@ export function Workspace({ project }: { project: ProjectController }) {
   );
 
   const deleting = confirmDelete ? byId.get(confirmDelete) : undefined;
-  const deletingCount = deleting ? descendantIds(items, deleting.id).size - 1 : 0;
+  const deletingIds = useMemo(() => (deleting ? descendantIds(items, deleting.id) : new Set<string>()), [deleting, items]);
+  const deletingCount = deleting ? deletingIds.size - 1 : 0;
+  const citing = deleting ? factsCitingItems(state.bible, deletingIds).length : 0;
+  const aboutIt = deleting ? state.bible.facts.filter(f => deletingIds.has(f.entityId)).length : 0;
+  const factWarning = [
+    citing ? ` ${citing === 1 ? "1 fact cites this item. It'll keep its quote." : `${citing} facts cite this item. They'll keep their quotes.`}` : '',
+    aboutIt ? ` This removes ${aboutIt} ${aboutIt === 1 ? 'fact' : 'facts'} about it.` : '',
+  ].join('');
 
   const startSplit = (orientation: SplitOrientation) => {
     if (split) {
@@ -445,6 +453,7 @@ export function Workspace({ project }: { project: ProjectController }) {
         <ExportModal
           projectName={state.manifest.name}
           items={items}
+          bible={state.bible}
           contentOf={contentOf}
           onExport={exportDossier}
           onClose={() => setExporting(false)}
@@ -453,7 +462,7 @@ export function Workspace({ project }: { project: ProjectController }) {
       {deleting && (
         <ConfirmDialog
           title="Delete item"
-          message={`Delete "${deleting.title || 'Untitled'}"${deletingCount ? ` and the ${deletingCount} ${deletingCount === 1 ? 'item' : 'items'} inside it` : ''}? Files are removed from disk when you save.`}
+          message={`Delete "${deleting.title || 'Untitled'}"${deletingCount ? ` and the ${deletingCount} ${deletingCount === 1 ? 'item' : 'items'} inside it` : ''}? Files are removed from disk when you save.${factWarning}`}
           confirmLabel="Delete"
           onCancel={() => setConfirmDelete(null)}
           onConfirm={() => {

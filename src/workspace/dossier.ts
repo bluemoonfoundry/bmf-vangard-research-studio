@@ -1,4 +1,5 @@
-import type { TreeItem } from '@/project/types';
+import type { Bible, TreeItem } from '@/project/types';
+import { storyBibleMarkdown } from '@/bible/exportMarkdown';
 import { childrenOf } from '@/workspace/treeOps';
 import { itemTypeName, labelOf, statusName } from '@/workspace/research';
 
@@ -11,6 +12,7 @@ export function generateDossier(
   items: TreeItem[],
   contentOf: (id: string) => string,
   exportedAt: Date = new Date(),
+  bible?: Bible,
 ): string {
   const titleOf = new Map(items.map(i => [i.id, i.title]));
   const out: string[] = [`# ${projectName}: research dossier`, '', `*Exported ${exportedAt.toLocaleString()}*`, ''];
@@ -57,5 +59,7 @@ export function generateDossier(
 
   const seen = new Set<string>();
   for (const root of childrenOf(items, null)) visit(root, 1, seen);
+  const bibleSection = bible ? storyBibleMarkdown(items, bible) : '';
+  if (bibleSection) out.push(bibleSection);
   return `${out.join('\n').trimEnd()}\n`;
 }

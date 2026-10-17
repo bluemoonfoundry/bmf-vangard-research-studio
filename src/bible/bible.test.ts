@@ -7,6 +7,8 @@ import {
   addDependency, addFact, keepAll, keepOne, removeDependency, removeEntities, reopen, setFactStatus, updateFact,
 } from '@/bible/ops';
 import { checkPosition, eventsInCycles, keptPositions, strictlyAfter } from '@/bible/ordering';
+import { storyBibleMarkdown } from '@/bible/exportMarkdown';
+import { generateDossier } from '@/workspace/dossier';
 import { buildTimeline } from '@/bible/timeline';
 import { resolveSource } from '@/bible/sources';
 import { eventsLinkingTo, factsCitingItems } from '@/bible/links';
@@ -341,5 +343,43 @@ describe('attributeSuggestions', () => {
   it('adds when for events only', () => {
     expect(attributeSuggestions(b, items, 'event')).toEqual(['when']);
     expect(attributeSuggestions(b, items, 'lore')).toEqual([]);
+  });
+});
+
+describe('storyBibleMarkdown', () => {
+  const ent = (id: string, title: string, entityKind: string): TreeItem =>
+    ({ id, parentId: null, type: 'entity', title, order: 0, keywords: [], entityKind }) as TreeItem;
+  const items = [ent('mira', 'Mira', 'character'), ent('hal', 'Hal', 'event'), ent('dawn', 'Dawn', 'event'), ent('x', 'Odd', 'mystery')];
+  const b = bibleOf([
+    fact({ entityId: 'mira', attribute: 'Death', value: 'Season 3 finale' }),
+    fact({ entityId: 'mira', attribute: 'Death', value: 'Pilot', status: 'proposed' }),
+    fact({ entityId: 'mira', attribute: 'eyes', value: 'green' }),
+    fact({ entityId: 'mira', attribute: 'Eyes', value: 'hazel' }),
+    fact({ entityId: 'hal', attribute: 'when', value: pos(3, 4) }),
+    fact({ entityId: 'dawn', attribute: 'when', value: pos(1) }),
+    fact({ entityId: 'dawn', attribute: 'when', value: pos(2) }),
+  ]);
+
+  it('exports kinds, kept facts, unresolved and timeline', () => {
+    const md = storyBibleMarkdown(items, b);
+    expect(md).toContain('## Story Bible');
+    expect(md.indexOf('### Character')).toBeLessThan(md.indexOf('### Event'));
+    expect(md.indexOf('### Event')).toBeLessThan(md.indexOf('### Other'));
+    expect(md).toContain('#### Mira');
+    expect(md).toContain('- **Death:** Season 3 finale');
+    expect(md.slice(0, md.indexOf('### Unresolved'))).not.toContain('Pilot');
+    expect(md).toContain('- **Mira · Death:** Season 3 finale / Pilot');
+    expect(md).toContain('- **eyes:** green\n- **eyes:** hazel\n  *(multiple versions kept)*');
+    expect(md).toContain('### Unresolved');
+    expect(md).toContain('- **Dawn · when:** Season 1 / Season 2');
+    expect(md).toContain('- **Mira · eyes:** green / hazel');
+    expect(md).toContain('### Timeline\n\n- S3 · E4: Hal\n- Timing contested: Dawn');
+  });
+  it('is empty without entities and leaves the dossier unchanged', () => {
+    expect(storyBibleMarkdown([], b)).toBe('');
+    const plain = [{ id: 'd', parentId: null, type: 'document', title: 'D', order: 0, keywords: [] }] as TreeItem[];
+    const d = new Date(0);
+    expect(generateDossier('P', plain, () => '', d, b)).toBe(generateDossier('P', plain, () => '', d));
+    expect(generateDossier('P', items, () => '', d, b)).toContain('## Story Bible');
   });
 });

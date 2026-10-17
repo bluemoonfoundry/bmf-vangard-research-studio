@@ -446,3 +446,23 @@ describe('conflict queue', () => {
     expect(screen.queryByRole('article')).toBeNull();
   });
 });
+
+describe('delete warning for story bible facts', () => {
+  const src = (n: string) => ({ itemId: 'c', quote: 'q', start: 0, end: 1 + n.length });
+  const f = (id: string, entityId: string, withSource: boolean) => ({
+    id, entityId, attribute: 'death', value: 'x', status: 'kept' as const, origin: 'manual', createdAt: 'T0', updatedAt: 'T0',
+    ...(withSource && { source: src(id) }),
+  });
+
+  it('tells how many facts cite a chat', async () => {
+    const mara = item('m', 'Mara', { type: 'entity', entityKind: 'character' } as Partial<TreeItem>);
+    await open([item('c', 'Session', { type: 'chat' }), mara], {}, {
+      facts: [f('a', 'm', true), f('b', 'm', true)], dependencies: [], decisions: [],
+    });
+    fireEvent.click(within(tree()).getByRole('button', { name: 'Delete Session' }));
+    expect(screen.getByRole('dialog', { name: 'Delete item' })).toHaveTextContent("2 facts cite this item. They'll keep their quotes.");
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Delete item' })).getByRole('button', { name: 'Cancel' }));
+    fireEvent.click(within(tree()).getByRole('button', { name: 'Delete Mara' }));
+    expect(screen.getByRole('dialog', { name: 'Delete item' })).toHaveTextContent('This removes 2 facts about it.');
+  });
+});
