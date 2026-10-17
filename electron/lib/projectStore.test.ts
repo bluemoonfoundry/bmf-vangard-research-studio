@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
-import { createProject, importAsset, openProject, readAsset, readDoc, saveProject } from './projectStore.js';
+import { createProject, importAsset, openProject, readAsset, readDoc, readStructure, saveProject } from './projectStore.js';
 import { CURRENT_SCHEMA_VERSION } from './projectSchema.js';
 
 const NOW = '2026-10-17T12:00:00.000Z';
@@ -34,6 +34,11 @@ describe('createProject', () => {
         }
     });
 
+    it('returns an empty bible, so a brand-new project can hold facts', async () => {
+        const created = await createProject(root, { id: 'p1', name: 'X', now: NOW });
+        expect(created.bible).toEqual({ facts: [], dependencies: [], decisions: [] });
+    });
+
     it('accepts an existing empty folder', async () => {
         await fs.mkdir(root);
         await expect(createProject(root, { id: 'p1', name: 'X', now: NOW })).resolves.toBeDefined();
@@ -52,7 +57,7 @@ describe('openProject', () => {
     it('round-trips a created project', async () => {
         const created = await createProject(root, { id: 'p1', name: 'X', now: NOW });
         const opened = await openProject(root);
-        expect(opened).toEqual({ manifest: created.manifest, tree: { items: [] }, migratedFrom: null });
+        expect(opened).toEqual({ manifest: created.manifest, tree: { items: [] }, bible: { facts: [], dependencies: [], decisions: [] }, migratedFrom: null });
     });
 
     it('rejects a folder without vrs.json', async () => {
@@ -82,13 +87,32 @@ describe('openProject', () => {
 
     it('migrates an older project, keeping a backup of the original files', async () => {
         await createProject(root, { id: 'p1', name: 'X', now: NOW });
-        const migrations = { 1: (p: { manifest: object; tree: object }) => ({ ...p, manifest: { ...p.manifest, upgraded: true } }) };
-        const opened = await openProject(root, { migrations, currentVersion: 2 });
+        const from = CURRENT_SCHEMA_VERSION;
+        const migrations = { [from]: (p: { manifest: object; tree: object }) => ({ ...p, manifest: { ...p.manifest, upgraded: true } }) };
+        const opened = await openProject(root, { migrations, currentVersion: from + 1 });
 
+        expect(opened.migratedFrom).toBe(from);
+        expect(await readJson(path.join(root, 'vrs.json'))).toMatchObject({ schemaVersion: from + 1, upgraded: true });
+        expect(await readJson(path.join(root, `vrs.json.v${from}.bak`))).toMatchObject({ schemaVersion: from });
+        expect(await readJson(path.join(root, `tree.json.v${from}.bak`))).toEqual({ items: [] });
+    });
+
+    it('opens a v1 folder without bible.json as an empty bible and migrates it to v2', async () => {
+        await createProject(root, { id: 'p1', name: 'X', now: NOW });
+        const manifest = await readJson(path.join(root, 'vrs.json'));
+        await fs.writeFile(path.join(root, 'vrs.json'), JSON.stringify({ ...manifest, schemaVersion: 1 }));
+        const opened = await openProject(root);
         expect(opened.migratedFrom).toBe(1);
-        expect(await readJson(path.join(root, 'vrs.json'))).toMatchObject({ schemaVersion: 2, upgraded: true });
-        expect(await readJson(path.join(root, 'vrs.json.v1.bak'))).toMatchObject({ schemaVersion: 1 });
-        expect(await readJson(path.join(root, 'tree.json.v1.bak'))).toEqual({ items: [] });
+        expect(opened.manifest.schemaVersion).toBe(2);
+        expect(opened.bible).toEqual({ facts: [], dependencies: [], decisions: [] });
+    });
+
+    it('rejects a corrupt bible.json', async () => {
+        await createProject(root, { id: 'p1', name: 'X', now: NOW });
+        await fs.writeFile(path.join(root, 'bible', 'bible.json'), '{"facts": "x"}');
+        await expect(openProject(root)).rejects.toMatchObject({ code: 'CORRUPT' });
+        await fs.writeFile(path.join(root, 'bible', 'bible.json'), '{nope');
+        await expect(openProject(root)).rejects.toMatchObject({ code: 'CORRUPT' });
     });
 });
 
@@ -210,5 +234,43 @@ describe('assets', () => {
         await saveProject(root, { tree: { items: [{ ...docItem('a'), asset: 'kept.png' }] } }, { now: LATER });
         await saveProject(root, { deletedAssets: ['kept.png'] }, { now: LATER });
         expect(await fs.readdir(path.join(root, 'assets'))).toEqual(['kept.png']);
+    });
+});
+
+
+describe('bible persistence', () => {
+    const bible = {
+        facts: [{ id: 'f1', entityId: 'e1', attribute: 'hair', value: 'red', status: 'kept' }],
+        dependencies: [],
+        decisions: [],
+    };
+
+    beforeEach(async () => {
+        await createProject(root, { id: 'p1', name: 'X', now: NOW });
+    });
+
+    it('writes bible/bible.json between the tree and the manifest', async () => {
+        const writes: string[] = [];
+        await saveProject(root, { docs: { a: 'text' }, tree: { items: [docItem('a')] }, bible },
+            { now: LATER, onWrite: (rel) => writes.push(rel) });
+        expect(writes).toEqual(['docs/a.md', 'tree.json', 'bible/bible.json', 'vrs.json']);
+        expect(await readJson(path.join(root, 'bible', 'bible.json'))).toEqual(bible);
+    });
+
+    it('readStructure returns the saved bible', async () => {
+        await saveProject(root, { bible }, { now: LATER });
+        expect((await readStructure(root)).bible).toEqual(bible);
+    });
+
+    it('creates bible/ when a cloned project lacks the empty folder', async () => {
+        await fs.rm(path.join(root, 'bible'), { recursive: true, force: true });
+        await saveProject(root, { bible }, { now: LATER });
+        expect(await readJson(path.join(root, 'bible', 'bible.json'))).toEqual(bible);
+    });
+
+    it('leaves bible.json alone when the save has no bible', async () => {
+        await saveProject(root, { bible }, { now: LATER });
+        await saveProject(root, { manifest: { name: 'Y' } }, { now: LATER });
+        expect(await readJson(path.join(root, 'bible', 'bible.json'))).toEqual(bible);
     });
 });

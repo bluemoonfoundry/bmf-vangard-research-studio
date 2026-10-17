@@ -12,9 +12,16 @@ export const ITEM_TYPES: ItemTypeInfo[] = [
   { id: 'image', name: 'Image' },
   { id: 'webpage', name: 'Web clip' },
   { id: 'audio', name: 'Audio' },
+  { id: 'entity', name: 'Entity' },
 ];
 
-const KNOWN_TYPES = new Set<string>(ITEM_TYPES.map(t => t.id));
+/** Chat items are created only by Import chat, so chat isn't offered in the Add Item list. */
+const CHAT_TYPE: ItemTypeInfo = { id: 'chat', name: 'Chat' };
+const TYPE_NAMES = new Map<string, string>([...ITEM_TYPES, CHAT_TYPE].map(t => [t.id, t.name]));
+const KNOWN_TYPES = new Set<string>(TYPE_NAMES.keys());
+
+/** The display name of an item's type (covers chat as well as the Add Item types). */
+export const itemTypeName = (item: Pick<TreeItem, 'type'>): string => TYPE_NAMES.get(itemType(item)) ?? 'Document';
 
 /** Unknown types (from a newer VRS, or a hand-edited tree) are shown as documents. */
 export function itemType(item: Pick<TreeItem, 'type'>): ItemType {

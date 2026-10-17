@@ -9,7 +9,7 @@ export interface ProjectManifest {
   settings: Record<string, unknown>;
 }
 
-export type ItemType = 'folder' | 'document' | 'image' | 'webpage' | 'audio';
+export type ItemType = 'folder' | 'document' | 'image' | 'webpage' | 'audio' | 'entity' | 'chat';
 
 export type LabelId =
   | 'concept' | 'character' | 'setting' | 'plot' | 'verified_fact' | 'unverified' | 'primary_source' | 'lore';
@@ -67,8 +67,47 @@ export interface TreeItem {
   /** Source page of a web clipping. */
   url?: string;
   mediaMetadata?: MediaMetadata;
+  entityKind?: string;
+  importedFrom?: string;
   [extra: string]: unknown;
 }
+
+export type EntityKind = 'character' | 'location' | 'faction' | 'item' | 'lore' | 'event' | 'plotline';
+
+export interface StoryPosition { season: number; episode?: number; order?: number }
+
+export type FactStatus = 'proposed' | 'kept' | 'set_aside';
+
+export interface FactSource { itemId: string; quote: string; start: number; end: number }
+
+export interface Fact {
+  id: string;
+  entityId: string;
+  attribute: string;
+  value: string | StoryPosition;
+  status: FactStatus;
+  source?: FactSource;
+  origin: string;
+  note?: string;
+  createdAt: string;
+  updatedAt: string;
+  [extra: string]: unknown;
+}
+
+export interface Dependency { id: string; eventId: string; afterEventId: string }
+
+export interface Decision {
+  id: string;
+  entityId: string;
+  attribute: string;
+  kind: 'kept_one' | 'kept_all';
+  factIds: string[];
+  setAsideIds: string[];
+  note?: string;
+  at: string;
+}
+
+export interface Bible { facts: Fact[]; dependencies: Dependency[]; decisions: Decision[] }
 
 export interface ProjectTree {
   items: TreeItem[];
@@ -80,11 +119,20 @@ export interface SavePayload {
   tree?: ProjectTree;
   /** Document bodies by item id; null deletes the document file. */
   docs?: Record<string, string | null>;
+  bible?: Bible;
   /** Asset files to remove; the main process keeps any the saved tree still references. */
   deletedAssets?: string[];
 }
 
 export type MediaKind = 'image' | 'audio';
+
+export interface TextImport {
+  /** The picked file's name without its extension. */
+  title: string;
+  /** File contents with the BOM removed and LF line endings. */
+  text: string;
+  fileName: string;
+}
 
 export interface ImportedAsset {
   /** File name under assets/. */
@@ -102,6 +150,7 @@ export interface OpenedProject {
   root: string;
   manifest: ProjectManifest;
   tree: ProjectTree;
+  bible: Bible;
   /** Schema version the project was upgraded from on open, or null. */
   migratedFrom: number | null;
   recovery: RecoverySnapshot | null;

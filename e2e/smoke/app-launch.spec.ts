@@ -39,8 +39,8 @@ test('the preload bridge exposes only the intended API', async ({ window }) => {
   expect(surface).toEqual({
     app: ['closeConfirmed', 'getVersion', 'onSaveBeforeClose', 'openExternal'],
     project: [
-      'close', 'confirmUnsaved', 'create', 'discardRecovery', 'exportDossier', 'importMedia', 'listRecent',
-      'onExternalChange', 'open', 'openRecent', 'readAsset', 'readDoc', 'readStructure', 'removeRecent', 'save',
+      'close', 'confirmUnsaved', 'create', 'discardRecovery', 'exportDossier', 'importMedia', 'importText',
+      'listRecent', 'onExternalChange', 'open', 'openRecent', 'readAsset', 'readDoc', 'readStructure', 'removeRecent', 'save',
       'setDirty', 'writeRecovery',
     ],
   });

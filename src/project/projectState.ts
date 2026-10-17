@@ -1,4 +1,5 @@
-import type { OpenedProject, ProjectManifest, ProjectTree, RecoverySnapshot, SavePayload, TreeItem } from '@/project/types';
+import type { Bible, OpenedProject, ProjectManifest, ProjectTree, RecoverySnapshot, SavePayload, TreeItem } from '@/project/types';
+import { pruneOrphans, removeEntities } from '@/bible/ops';
 import { descendantIds, moveItem, type DropPosition } from '@/workspace/treeOps';
 
 /** A document body the renderer has loaded. `saved` is null for a document that has never been written. */
@@ -18,6 +19,8 @@ export interface ProjectState {
   savedName: string;
   tree: ProjectTree;
   savedTree: ProjectTree;
+  bible: Bible;
+  savedBible: Bible;
   /** Loaded documents only; bodies are read on demand. */
   docs: Record<string, DocEntry>;
   /** Ids removed from the tree since the last save whose files may exist on disk. */
@@ -42,13 +45,15 @@ export type ProjectAction =
   | { type: 'itemUpdated'; id: string; patch: Partial<TreeItem> }
   | { type: 'itemMoved'; id: string; targetId: string | null; position: DropPosition }
   | { type: 'itemDeleted'; id: string }
+  | { type: 'bibleUpdated'; update: (b: Bible) => Bible }
   | { type: 'assetDiscarded'; asset: string }
   | { type: 'projectRenamed'; name: string }
   | { type: 'saved'; payload: SavePayload; manifest: ProjectManifest }
   | { type: 'recoveryRestored'; snapshot: RecoverySnapshot; diskDocs: Record<string, string> }
   | { type: 'docReloaded'; id: string; content: string }
   | { type: 'docDiskChanged'; id: string; content: string }
-  | { type: 'structureReloaded'; manifest: ProjectManifest; tree: ProjectTree };
+  | { type: 'structureKeptMine' }
+  | { type: 'structureReloaded'; manifest: ProjectManifest; tree: ProjectTree; bible: Bible };
 
 const withAsset = (list: string[], asset: string | undefined) =>
   asset && !list.includes(asset) ? [...list, asset] : list;
@@ -71,8 +76,8 @@ function updateItems(state: ProjectState, update: (item: TreeItem) => TreeItem):
 
 export function projectReducer(state: ProjectState | null, action: ProjectAction): ProjectState | null {
   if (action.type === 'opened') {
-    const { root, manifest, tree } = action.project;
-    return { root, manifest, savedName: manifest.name, tree, savedTree: tree, docs: {}, deletedDocs: [], deletedAssets: [] };
+    const { root, manifest, tree, bible } = action.project;
+    return { root, manifest, savedName: manifest.name, tree, savedTree: tree, bible, savedBible: bible, docs: {}, deletedDocs: [], deletedAssets: [] };
   }
   if (!state) return state;
 
@@ -121,8 +126,10 @@ export function projectReducer(state: ProjectState | null, action: ProjectAction
       const docs = { ...state.docs };
       const deletedDocs = [...state.deletedDocs];
       let deletedAssets = state.deletedAssets;
+      const removedEntities = new Set<string>();
       for (const item of state.tree.items) {
         if (!removed.has(item.id)) continue;
+        if (item.type === 'entity') removedEntities.add(item.id);
         // A document that was never loaded may still exist on disk.
         if (docs[item.id]?.saved !== null && !deletedDocs.includes(item.id)) deletedDocs.push(item.id);
         delete docs[item.id];
@@ -133,7 +140,13 @@ export function projectReducer(state: ProjectState | null, action: ProjectAction
         .map(i => (i.references?.some(r => removed.has(r.targetId))
           ? { ...i, references: i.references.filter(r => !removed.has(r.targetId)) }
           : i));
-      return { ...state, tree: { ...state.tree, items }, docs, deletedDocs, deletedAssets };
+      const bible = removedEntities.size ? removeEntities(state.bible, removedEntities) : state.bible;
+      return { ...state, tree: { ...state.tree, items }, bible, docs, deletedDocs, deletedAssets };
+    }
+
+    case 'bibleUpdated': {
+      const bible = action.update(state.bible);
+      return bible === state.bible ? state : { ...state, bible };
     }
 
     case 'assetDiscarded':
@@ -148,11 +161,19 @@ export function projectReducer(state: ProjectState | null, action: ProjectAction
       for (const [id, body] of Object.entries(payload.docs ?? {})) {
         if (body !== null && docs[id]) docs[id] = { ...docs[id], saved: body };
       }
+      // The saved bible had its orphans pruned; adopt it when that's what is still in memory.
+      let { bible } = state;
+      if (payload.bible) {
+        const pruned = pruneOrphans(state.bible, state.tree.items);
+        if (pruned === payload.bible || JSON.stringify(pruned) === JSON.stringify(payload.bible)) bible = payload.bible;
+      }
       return {
         ...state,
         manifest: { ...action.manifest, name: state.manifest.name },
         savedName: payload.manifest?.name ?? state.savedName,
         savedTree: payload.tree ?? state.savedTree,
+        bible,
+        savedBible: payload.bible ?? state.savedBible,
         docs,
         deletedDocs: state.deletedDocs.filter(id => payload.docs?.[id] !== null),
         deletedAssets: state.deletedAssets.filter(name => !payload.deletedAssets?.includes(name)),
@@ -175,6 +196,7 @@ export function projectReducer(state: ProjectState | null, action: ProjectAction
         ...state,
         manifest: snapshot.manifest ? { ...state.manifest, name: snapshot.manifest.name } : state.manifest,
         tree: snapshot.tree ?? state.tree,
+        bible: snapshot.bible ?? state.bible,
         docs,
         deletedDocs,
         deletedAssets: (snapshot.deletedAssets ?? []).reduce(withAsset, state.deletedAssets),
@@ -190,6 +212,12 @@ export function projectReducer(state: ProjectState | null, action: ProjectAction
       return { ...state, docs: { ...state.docs, [action.id]: { ...doc, saved: action.content } } };
     }
 
+    case 'structureKeptMine':
+      // The disk copy changed under unsaved work. Mark every structure part
+      // unsaved (fresh sentinels never equal the current values) so the next
+      // save writes the user's whole structure, not just the part that was dirty.
+      return { ...state, savedName: ' ', savedTree: { items: [] }, savedBible: { facts: [], dependencies: [], decisions: [] } };
+
     case 'structureReloaded': {
       const ids = new Set(action.tree.items.map(i => i.id));
       const docs = Object.fromEntries(Object.entries(state.docs).filter(([id]) => ids.has(id)));
@@ -199,6 +227,8 @@ export function projectReducer(state: ProjectState | null, action: ProjectAction
         savedName: action.manifest.name,
         tree: action.tree,
         savedTree: action.tree,
+        bible: action.bible,
+        savedBible: action.bible,
         docs,
         deletedDocs: [],
         deletedAssets: [],
@@ -213,7 +243,7 @@ export const isDocDirty = (state: ProjectState, id: string) => {
 };
 
 export const isStructureDirty = (state: ProjectState) =>
-  state.manifest.name !== state.savedName || state.tree !== state.savedTree || state.deletedDocs.length > 0;
+  state.manifest.name !== state.savedName || state.tree !== state.savedTree || state.bible !== state.savedBible || state.deletedDocs.length > 0;
 
 export const isDirty = (state: ProjectState | null) =>
   !!state && (isStructureDirty(state) || Object.keys(state.docs).some(id => isDocDirty(state, id)));
@@ -223,6 +253,9 @@ export function buildSavePayload(state: ProjectState): SavePayload {
   const payload: SavePayload = {};
   if (state.manifest.name !== state.savedName) payload.manifest = { name: state.manifest.name };
   if (state.tree !== state.savedTree) payload.tree = state.tree;
+  // Facts about missing entities are tolerated on load and dropped here.
+  const bible = pruneOrphans(state.bible, state.tree.items);
+  if (state.bible !== state.savedBible || bible !== state.bible) payload.bible = bible;
 
   const docs: Record<string, string | null> = {};
   for (const [id, doc] of Object.entries(state.docs)) {

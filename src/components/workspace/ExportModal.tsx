@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Download } from 'lucide-react';
-import type { TreeItem } from '@/project/types';
+import type { Bible, TreeItem } from '@/project/types';
 import { generateDossier } from '@/workspace/dossier';
 import { Modal } from '@/components/workspace/Modal';
 import { btn, btnPrimary } from '@/components/workspace/ui';
@@ -8,19 +8,20 @@ import { btn, btnPrimary } from '@/components/workspace/ui';
 interface ExportModalProps {
   projectName: string;
   items: TreeItem[];
+  bible: Bible;
   contentOf(id: string): string | undefined;
   onExport(markdown: string): Promise<string | null>;
   onClose(): void;
 }
 
 /** Previews the compiled Markdown dossier and saves it to a file the user picks. */
-export function ExportModal({ projectName, items, contentOf, onExport, onClose }: ExportModalProps) {
+export function ExportModal({ projectName, items, bible, contentOf, onExport, onClose }: ExportModalProps) {
   const [savedTo, setSavedTo] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const loading = items.some(i => contentOf(i.id) === undefined);
   const markdown = useMemo(
-    () => (loading ? '' : generateDossier(projectName, items, id => contentOf(id) ?? '')),
-    [loading, projectName, items, contentOf],
+    () => (loading ? '' : generateDossier(projectName, items, id => contentOf(id) ?? '', new Date(), bible)),
+    [loading, projectName, items, bible, contentOf],
   );
 
   const save = async () => {

@@ -88,6 +88,8 @@ src/                    React renderer (App.tsx, index.css theme tokens, vite-en
 src/project/             project types, IPC unwrapping (api.ts), pure reducer (projectState.ts), useProject hook
 src/workspace/           pure workspace logic: treeOps (move/duplicate), search, stats, dossier export, markdown, asset cache
 src/components/workspace/ binder, document editor, inspector, corkboard, outliner, split pane, dialogs (Workspace.tsx is the root)
+src/bible/              pure story-bible logic: ops, contradictions, ordering, timeline, sources, export (no React, no IPC)
+src/components/bible/   entity facts panel, chat view + capture popover, conflict queue, timeline view
 e2e/                    Playwright Electron tests (electron-launch.ts fixture: isolated userData, dialog stubs)
 ```
 
@@ -119,6 +121,30 @@ A project is a folder (`Name.vrs/`) of plain files: `vrs.json` (manifest + `sche
   intercept link clicks.
 - **E2E** must stub every native dialog (`stubFolderDialogs`, `stubMessageBox`); an unstubbed dialog hangs
   the run on the developer's screen. Use `crashApp()`, not `process().kill()`, to simulate a crash.
+
+## Story Bible
+
+Structured canon lives in `bible/bible.json`: `{ facts, dependencies, decisions }`. Unknown fields are kept. The file has no
+version field; the project's `schemaVersion` in `vrs.json` (now 2) covers it.
+
+- **Facts** are `{ id, entityId, attribute, value, status, source?, origin, note?, createdAt, updatedAt }`. `status` is
+  `proposed` (unreviewed), `kept` or `set_aside`. Manual facts are created `kept` with origin "manual"; AI (a later
+  phase) writes `proposed`. A `when` attribute holds a story position `{ season, episode?, order? }` instead of text.
+- **Dependencies** (`eventId` must come after `afterEventId`) order events; they are checked against kept `when` facts.
+  A cycle or a violated order is flagged, never blocked.
+- **Decisions** (`kept_one`, `kept_all`) are stored with the `factIds` kept and `setAsideIds` changed, so Reopen undoes
+  exactly one decision and nothing else.
+- **Contradictions** are derived (never stored): the same entity + attribute with 2+ distinct non-set-aside values
+  (proposed or kept; `when` compared as compatible positions). A `kept_all` decision covering exactly that live fact
+  set acknowledges it; `kept_one` resolves it by setting the other versions aside; adding a new differing fact
+  reopens an acknowledged one.
+- **Save order**: docs, `tree.json`, `bible/bible.json`, `vrs.json`, then deletions.
+- **Pure logic in `src/bible/`**, state changes as `Bible -> Bible` functions applied through `updateBible`. No React or IPC there.
+- **No routes.** Canon is global; route-scoped canon is out of scope for this phase.
+- **Sources**: a fact's `source` is `{ itemId, quote, start, end }`. Offsets are taken from the plain text shown (the
+  read-only chat `<pre>` or the editor textarea), in the same text that is stored. Later they are resolved by
+  `resolveSource`: exact match at the offsets, else the first occurrence of the quote, else missing (or deleted item).
+- **Entities** are binder items (`type: 'entity'`, `entityKind`); events show When / Must come after instead of plain facts.
 
 ## Security Rules (non-negotiable)
 

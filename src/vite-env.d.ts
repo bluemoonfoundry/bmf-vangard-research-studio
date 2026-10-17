@@ -21,9 +21,11 @@ interface VrsApi {
     readStructure(): Promise<VrsIpcResult<{
       manifest: import('@/project/types').ProjectManifest;
       tree: import('@/project/types').ProjectTree;
+      bible: import('@/project/types').Bible;
     }>>;
     readAsset(name: string): Promise<VrsIpcResult<Uint8Array>>;
     importMedia(kind: import('@/project/types').MediaKind): Promise<VrsIpcResult<import('@/project/types').ImportedAsset | null>>;
+    importText(): Promise<VrsIpcResult<import('@/project/types').TextImport | null>>;
     exportDossier(markdown: string): Promise<VrsIpcResult<string | null>>;
     save(payload: import('@/project/types').SavePayload): Promise<VrsIpcResult<{ manifest: import('@/project/types').ProjectManifest }>>;
     writeRecovery(snapshot: import('@/project/types').SavePayload): Promise<VrsIpcResult<void>>;

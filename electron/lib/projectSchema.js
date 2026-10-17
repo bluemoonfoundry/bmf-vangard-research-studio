@@ -7,10 +7,11 @@
  * Markdown and never need migrating.
  */
 
-export const CURRENT_SCHEMA_VERSION = 1;
+export const CURRENT_SCHEMA_VERSION = 2;
 
 export const MANIFEST_FILE = 'vrs.json';
 export const TREE_FILE = 'tree.json';
+export const BIBLE_FILE = 'bible/bible.json';
 export const PROJECT_DIRS = ['docs', 'chats', 'assets', 'bible', 'maps'];
 
 /**
@@ -18,7 +19,11 @@ export const PROJECT_DIRS = ['docs', 'chats', 'assets', 'bible', 'maps'];
  * deep copy and returns the upgraded `{ manifest, tree }`; migrateProject
  * stamps the new schemaVersion itself.
  */
-export const MIGRATIONS = {};
+export const MIGRATIONS = {
+    // v1 -> v2: the story bible arrives as bible/bible.json. A missing file reads as an empty bible,
+    // so there is nothing to rewrite.
+    1: (p) => p,
+};
 
 export class ProjectFormatError extends Error {
     /** @param {'NOT_A_PROJECT'|'CORRUPT'|'TOO_NEW'|'INVALID'|'EXISTS'|'NO_PROJECT'|'NOT_RECENT'|'NOT_FOUND'|'UNSUPPORTED'|'TOO_LARGE'} code */
@@ -35,6 +40,10 @@ export function createManifest({ id, name, now }) {
 
 export function createEmptyTree() {
     return { items: [] };
+}
+
+export function createEmptyBible() {
+    return { facts: [], dependencies: [], decisions: [] };
 }
 
 const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[0-9]|lpt[0-9])$/i;
@@ -68,6 +77,11 @@ export function referencedAssets(tree) {
 
 function isPlainObject(value) {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** Matching rule for attribute names and values: trim, collapse whitespace runs, lower-case. */
+export function normalizeText(s) {
+    return String(s).trim().replace(/\s+/g, ' ').toLowerCase();
 }
 
 /**
@@ -126,9 +140,81 @@ export function normalizeTree(raw) {
     return { ...raw, items };
 }
 
+const FACT_STATUSES = ['proposed', 'kept', 'set_aside'];
+const DECISION_KINDS = ['kept_one', 'kept_all'];
+
+const isPositiveInt = (n) => Number.isInteger(n) && n >= 1;
+
+function isValidPosition(value) {
+    return isPlainObject(value)
+        && isPositiveInt(value.season)
+        && (value.episode === undefined || isPositiveInt(value.episode))
+        && (value.order === undefined || (typeof value.order === 'number' && Number.isFinite(value.order)));
+}
+
+const corruptBible = (where, msg) => new ProjectFormatError('CORRUPT', `bible.json ${where} ${msg}`);
+
+function checkFact(fact, where) {
+    if (!isPlainObject(fact)) throw corruptBible(where, 'is not an object.');
+    if (!isValidItemId(fact.id)) throw corruptBible(where, 'has an invalid id.');
+    if (!isValidItemId(fact.entityId)) throw corruptBible(where, 'has an invalid entityId.');
+    if (typeof fact.attribute !== 'string' || !fact.attribute.trim()) throw corruptBible(where, 'needs a non-empty attribute.');
+    if (!FACT_STATUSES.includes(fact.status)) throw corruptBible(where, `has an unknown status: ${JSON.stringify(fact.status)}.`);
+    if (normalizeText(fact.attribute) === 'when') {
+        if (!isValidPosition(fact.value)) throw corruptBible(where, 'needs a story position (season, optional episode and order) as its "when" value.');
+    } else if (typeof fact.value !== 'string') {
+        throw corruptBible(where, 'needs a string value.');
+    }
+    if (fact.source !== undefined) {
+        const src = fact.source;
+        if (!isPlainObject(src) || !isValidItemId(src.itemId) || typeof src.quote !== 'string'
+            || !Number.isInteger(src.start) || !Number.isInteger(src.end) || src.start > src.end) {
+            throw corruptBible(where, 'has an invalid source.');
+        }
+    }
+}
+
+function checkDependency(dep, where) {
+    if (!isPlainObject(dep)) throw corruptBible(where, 'is not an object.');
+    for (const key of ['id', 'eventId', 'afterEventId']) {
+        if (!isValidItemId(dep[key])) throw corruptBible(where, `has an invalid ${key}.`);
+    }
+}
+
+function checkDecision(decision, where) {
+    if (!isPlainObject(decision)) throw corruptBible(where, 'is not an object.');
+    if (!isValidItemId(decision.id)) throw corruptBible(where, 'has an invalid id.');
+    if (!isValidItemId(decision.entityId)) throw corruptBible(where, 'has an invalid entityId.');
+    if (typeof decision.attribute !== 'string') throw corruptBible(where, 'needs a string attribute.');
+    if (!DECISION_KINDS.includes(decision.kind)) throw corruptBible(where, `has an unknown kind: ${JSON.stringify(decision.kind)}.`);
+    for (const key of ['factIds', 'setAsideIds']) {
+        if (!Array.isArray(decision[key]) || !decision[key].every(isValidItemId)) throw corruptBible(where, `needs ${key} as a list of ids.`);
+    }
+}
+
+/** Validates bible/bible.json. Unknown fields are preserved, like normalizeTree. */
+export function normalizeBible(raw) {
+    if (raw === undefined) return createEmptyBible();
+    if (!isPlainObject(raw)) throw new ProjectFormatError('CORRUPT', 'bible.json must be an object.');
+    const lists = {};
+    for (const [key, check] of [['facts', checkFact], ['dependencies', checkDependency], ['decisions', checkDecision]]) {
+        const list = raw[key] ?? [];
+        if (!Array.isArray(list)) throw new ProjectFormatError('CORRUPT', `bible.json "${key}" must be an array.`);
+        const seen = new Set();
+        lists[key] = list.map((entry, index) => {
+            const where = `${key} entry ${index}`;
+            check(entry, where);
+            if (seen.has(entry.id)) throw corruptBible(where, `duplicates id ${entry.id}.`);
+            seen.add(entry.id);
+            return entry;
+        });
+    }
+    return { ...raw, ...lists };
+}
+
 /**
  * Validates a save (or recovery snapshot) request from the renderer. The
- * renderer may change the project name, settings, tree and document bodies,
+ * renderer may change the project name, settings, tree, bible and document bodies,
  * and ask for assets to be deleted;
  * identity fields (id, schemaVersion, timestamps) are owned by the main process.
  */
@@ -151,6 +237,14 @@ export function validateSavePayload(payload) {
     if (payload.tree !== undefined) {
         try {
             result.tree = normalizeTree(payload.tree);
+        } catch (err) {
+            throw new ProjectFormatError('INVALID', err.message);
+        }
+    }
+
+    if (payload.bible !== undefined) {
+        try {
+            result.bible = normalizeBible(payload.bible);
         } catch (err) {
             throw new ProjectFormatError('INVALID', err.message);
         }

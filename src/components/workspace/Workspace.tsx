@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { BookOpen, Columns2, LayoutGrid, Plus, Rows2, SlidersHorizontal, Square, Table, Download, X } from 'lucide-react';
-import type { ItemType, MediaKind, TreeItem } from '@/project/types';
+import { AlertTriangle, BookOpen, CalendarRange, MessageSquare, Columns2, LayoutGrid, Plus, Rows2, SlidersHorizontal, Square, Table, Download, X } from 'lucide-react';
+import type { FactSource, ItemType, MediaKind, TreeItem } from '@/project/types';
 import type { ProjectController } from '@/project/useProject';
 import { openExternal } from '@/project/api';
 import { ancestorsOf, descendantIds, isFolder } from '@/workspace/treeOps';
@@ -10,11 +10,21 @@ import { CorkboardView, type ContainerViewProps } from '@/components/workspace/C
 import { OutlinerView } from '@/components/workspace/OutlinerView';
 import { Inspector } from '@/components/workspace/Inspector';
 import { SplitPane, type SplitOrientation } from '@/components/workspace/SplitPane';
+import { ImportChatModal } from '@/components/bible/ImportChatModal';
+import { normalizeChatText } from '@/bible/entities';
+import { findContradictions, openContradictions } from '@/bible/contradictions';
+import { ConflictQueue } from '@/components/bible/ConflictQueue';
+import { TimelineView } from '@/components/bible/TimelineView';
+import { resolveSource } from '@/bible/sources';
+import { factsCitingItems } from '@/bible/links';
 import { AddItemModal } from '@/components/workspace/AddItemModal';
 import { QuickRefPanel } from '@/components/workspace/QuickRefPanel';
 import { ExportModal } from '@/components/workspace/ExportModal';
 import { ConfirmDialog } from '@/components/workspace/ConfirmDialog';
 import { btn, btnGhost, btnPrimary, input, segment, segmentGroup } from '@/components/workspace/ui';
+
+/** What the content area shows: the research panes, the conflict queue, or the timeline. */
+export type WorkspaceMode = 'research' | 'conflicts' | 'timeline';
 
 /** How a folder (or the top level) is shown. Non-folder items always open in the editor. */
 export type FolderView = 'corkboard' | 'outliner' | 'editor';
@@ -38,8 +48,8 @@ export function Workspace({ project }: { project: ProjectController }) {
   const items = state.tree.items;
   const { docs } = state;
   const {
-    addItem, updateItem, editDoc, moveItem, deleteItem, duplicateItem, loadAllDocs, importMedia, discardAsset,
-    renameProject, exportDossier, reportError, assets,
+    addItem, updateItem, editDoc, moveItem, deleteItem, duplicateItem, loadAllDocs, importMedia, importText, discardAsset,
+    renameProject, exportDossier, reportError, assets, updateBible,
   } = project;
 
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -51,6 +61,11 @@ export function Workspace({ project }: { project: ProjectController }) {
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
   const [quickRefId, setQuickRefId] = useState<string | null>(null);
   const [adding, setAdding] = useState<{ type: ItemType; parentId: string | null } | null>(null);
+  const [importingChat, setImportingChat] = useState<{ parentId: string | null } | null>(null);
+  /** A fact's passage to show once its source opens; cleared by any other navigation. */
+  const [highlight, setHighlight] = useState<{ itemId: string; start: number; end: number } | null>(null);
+  const [mode, setMode] = useState<WorkspaceMode>('research');
+  const [conflictKey, setConflictKey] = useState<string | undefined>(undefined);
   const [exporting, setExporting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
@@ -80,11 +95,31 @@ export function Workspace({ project }: { project: ProjectController }) {
     });
   }, []);
 
+  const openContradictionCount = useMemo(() => {
+    const ids = new Set(items.filter(i => i.type === 'entity').map(i => i.id));
+    return openContradictions(findContradictions(state.bible, ids)).length;
+  }, [items, state.bible]);
+
+  const showConflict = useCallback((key: string) => {
+    setConflictKey(key);
+    setMode('conflicts');
+  }, []);
+
   const navigate = useCallback((id: string | null) => {
+    setMode('research');
     setActiveId(id);
     setInspectedId(null);
+    setHighlight(null);
     if (id) for (const a of ancestorsOf(items, id)) expand(a.id);
   }, [items, expand]);
+
+  const openSource = useCallback((source: FactSource) => {
+    const resolved = resolveSource(source, docs[source.itemId]?.current, items.some(i => i.id === source.itemId));
+    navigate(source.itemId);
+    if (resolved.status === 'exact' || resolved.status === 'relocated') {
+      setHighlight({ itemId: source.itemId, start: resolved.start, end: resolved.end });
+    }
+  }, [docs, items, navigate]);
 
   const toggleFolder = useCallback((id: string, open?: boolean) => {
     setCollapsed(c => {
@@ -173,6 +208,17 @@ export function Workspace({ project }: { project: ProjectController }) {
           onUpdate={updateItem}
           onAttachMedia={(i, kind) => void attachMedia(i, kind)}
           onOpenLink={openLink}
+          addEntity={(entityKind, title, parentId) => addItem({ type: 'entity', entityKind, title, parentId })}
+          highlight={highlight?.itemId === item.id ? highlight : null}
+          bible={{
+            items,
+            bible: state.bible,
+            bodyOf: contentOf,
+            updateBible,
+            onShowConflict: showConflict,
+            onOpenSource: openSource,
+            onOpenEntity: navigate,
+          }}
         />
       );
     }
@@ -247,7 +293,18 @@ export function Workspace({ project }: { project: ProjectController }) {
   );
 
   const deleting = confirmDelete ? byId.get(confirmDelete) : undefined;
-  const deletingCount = deleting ? descendantIds(items, deleting.id).size - 1 : 0;
+  const deletingIds = useMemo(() => (deleting ? descendantIds(items, deleting.id) : new Set<string>()), [deleting, items]);
+  const deletingCount = deleting ? deletingIds.size - 1 : 0;
+  const entityIds = new Set(items.filter(i => i.type === 'entity').map(i => i.id));
+  // Facts about a removed entity go with it, and orphans are dropped on save: neither is "kept".
+  const citing = deleting
+    ? factsCitingItems(state.bible, deletingIds).filter(f => entityIds.has(f.entityId) && !deletingIds.has(f.entityId)).length
+    : 0;
+  const aboutIt = deleting ? state.bible.facts.filter(f => deletingIds.has(f.entityId)).length : 0;
+  const factWarning = [
+    citing ? ` ${citing === 1 ? "1 fact cites this item. It'll keep its quote." : `${citing} facts cite this item. They'll keep their quotes.`}` : '',
+    aboutIt ? ` This removes ${aboutIt} ${aboutIt === 1 ? 'fact' : 'facts'} about it.` : '',
+  ].join('');
 
   const startSplit = (orientation: SplitOrientation) => {
     if (split) {
@@ -284,8 +341,18 @@ export function Workspace({ project }: { project: ProjectController }) {
           <button type="button" className={btnPrimary} onClick={() => openAdd(newItemParentId)}>
             <Plus className="h-3.5 w-3.5" /> New item
           </button>
+          <button type="button" className={btn} onClick={() => setImportingChat({ parentId: newItemParentId })}>
+            <MessageSquare className="h-3.5 w-3.5" /> Import chat
+          </button>
           <button type="button" className={btn} onClick={() => setExporting(true)}>
             <Download className="h-3.5 w-3.5" /> Export
+          </button>
+          <button type="button" className={segment(mode === 'conflicts')} aria-pressed={mode === 'conflicts'} onClick={() => { setConflictKey(undefined); setMode(m => (m === 'conflicts' ? 'research' : 'conflicts')); }}>
+            <AlertTriangle className="h-3.5 w-3.5" /> Conflicts
+            <span className="rounded-full bg-surface-sunken px-1.5 text-[11px] text-content" aria-label={`${openContradictionCount} open`}>{openContradictionCount}</span>
+          </button>
+          <button type="button" className={segment(mode === 'timeline')} aria-pressed={mode === 'timeline'} onClick={() => setMode(m => (m === 'timeline' ? 'research' : 'timeline'))}>
+            <CalendarRange className="h-3.5 w-3.5" /> Timeline
           </button>
           <div className={segmentGroup} role="group" aria-label="Layout">
             <button type="button" className={segment(!splitOpen)} aria-pressed={!splitOpen} aria-label="Single pane" title="Single pane" onClick={() => setSplit(null)}>
@@ -330,7 +397,19 @@ export function Workspace({ project }: { project: ProjectController }) {
           onMove={moveItem}
         />
         <main className="flex min-h-0 min-w-0 flex-1 flex-col bg-surface">
-          {splitOpen ? <SplitPane orientation={split!.orientation} first={primaryPane} second={secondaryPane} /> : primaryPane}
+          {mode === 'conflicts' ? (
+            <ConflictQueue
+              bible={state.bible}
+              items={items}
+              contentOf={contentOf}
+              focusKey={conflictKey}
+              onUpdate={updateBible}
+              onOpenSource={openSource}
+              onOpenEntity={navigate}
+            />
+          ) : mode === 'timeline' ? (
+            <TimelineView bible={state.bible} items={items} onOpenEntity={navigate} onShowConflict={showConflict} />
+          ) : splitOpen ? <SplitPane orientation={split!.orientation} first={primaryPane} second={secondaryPane} /> : primaryPane}
         </main>
         {inspected ? (
           <Inspector
@@ -364,10 +443,21 @@ export function Workspace({ project }: { project: ProjectController }) {
           onClose={() => setAdding(null)}
         />
       )}
+      {importingChat && (
+        <ImportChatModal
+          importText={importText}
+          onCreate={(fields, text) => {
+            expand(importingChat.parentId);
+            navigate(addItem({ type: 'chat', parentId: importingChat.parentId, ...fields }, normalizeChatText(text)));
+          }}
+          onClose={() => setImportingChat(null)}
+        />
+      )}
       {exporting && (
         <ExportModal
           projectName={state.manifest.name}
           items={items}
+          bible={state.bible}
           contentOf={contentOf}
           onExport={exportDossier}
           onClose={() => setExporting(false)}
@@ -376,7 +466,7 @@ export function Workspace({ project }: { project: ProjectController }) {
       {deleting && (
         <ConfirmDialog
           title="Delete item"
-          message={`Delete "${deleting.title || 'Untitled'}"${deletingCount ? ` and the ${deletingCount} ${deletingCount === 1 ? 'item' : 'items'} inside it` : ''}? Files are removed from disk when you save.`}
+          message={`Delete "${deleting.title || 'Untitled'}"${deletingCount ? ` and the ${deletingCount} ${deletingCount === 1 ? 'item' : 'items'} inside it` : ''}? Files are removed from disk when you save.${factWarning}`}
           confirmLabel="Delete"
           onCancel={() => setConfirmDelete(null)}
           onConfirm={() => {

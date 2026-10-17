@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { ArrowDown, ArrowUp, BookOpen, Columns2, Plus, Trash2 } from 'lucide-react';
 import type { LabelId, StatusId, TreeItem } from '@/project/types';
-import { ITEM_TYPES, LABEL_LIST, LABELS, STATUSES, STATUS_LIST, itemType } from '@/workspace/research';
+import { LABEL_LIST, LABELS, STATUSES, STATUS_LIST, itemTypeName } from '@/workspace/research';
 import { wordCount } from '@/workspace/stats';
 import { byOrder } from '@/workspace/treeOps';
 import { ItemIcon } from '@/components/workspace/ItemIcon';
@@ -10,7 +10,6 @@ import { btnGhost, btnPrimary } from '@/components/workspace/ui';
 
 type SortKey = 'order' | 'title' | 'type' | 'label' | 'status' | 'words';
 
-const typeName = new Map(ITEM_TYPES.map(t => [t.id, t.name]));
 const cellInput = 'w-full rounded border border-transparent bg-transparent px-1 py-0.5 hover:border-line focus:border-accent focus:outline-none';
 
 /** A sortable table of a folder's children with inline editing. */
@@ -22,7 +21,7 @@ export function OutlinerView(props: ContainerViewProps) {
   const sortValue: Record<SortKey, (i: TreeItem) => string | number> = {
     order: i => i.order,
     title: i => i.title.toLocaleLowerCase(),
-    type: i => typeName.get(itemType(i)) ?? '',
+    type: i => itemTypeName(i),
     label: i => (i.label && LABELS[i.label]?.name) || '￿',
     status: i => (i.status && STATUSES[i.status]) || '￿',
     words,
@@ -96,7 +95,7 @@ export function OutlinerView(props: ContainerViewProps) {
                   <td className="px-3 py-1.5">
                     <input aria-label={`Synopsis of ${title}`} className={`${cellInput} text-content-muted`} value={item.synopsis ?? ''} placeholder="Add synopsis…" onChange={(e) => onUpdate(item.id, { synopsis: e.target.value })} />
                   </td>
-                  <td className="px-3 py-1.5 text-[10px] uppercase tracking-wider text-content-muted">{typeName.get(itemType(item))}</td>
+                  <td className="px-3 py-1.5 text-[10px] uppercase tracking-wider text-content-muted">{itemTypeName(item)}</td>
                   <td className="px-3 py-1.5">
                     <select aria-label={`Label of ${title}`} className={`${cellInput} min-w-32`} value={item.label ?? ''} onChange={(e) => onUpdate(item.id, { label: (e.target.value || null) as LabelId | null })}>
                       <option value="">—</option>

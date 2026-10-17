@@ -5,14 +5,17 @@ import { validateProjectPath } from './ipcSecurity.js';
 import {
     MANIFEST_FILE,
     TREE_FILE,
+    BIBLE_FILE,
     PROJECT_DIRS,
     ProjectFormatError,
     createManifest,
     createEmptyTree,
+    createEmptyBible,
     isValidAssetName,
     isValidItemId,
     migrateProject,
     normalizeTree,
+    normalizeBible,
     referencedAssets,
     validateSavePayload,
 } from './projectSchema.js';
@@ -78,7 +81,7 @@ export async function createProject(root, { id, name, now }) {
     await atomicWriteFile(path.join(root, TREE_FILE), toJson(tree));
     // vrs.json last: a folder is only recognised as a project once it's complete.
     await atomicWriteFile(path.join(root, MANIFEST_FILE), toJson(manifest));
-    return { manifest, tree };
+    return { manifest, tree, bible: createEmptyBible() };
 }
 
 export async function openProject(root, migrationOptions) {
@@ -90,11 +93,13 @@ export async function openProject(root, migrationOptions) {
         throw new ProjectFormatError('NOT_A_PROJECT', `${root} is not a VRS project (no ${MANIFEST_FILE}).`);
     }
     const rawTree = await readJsonFile(treePath, { optional: true });
+    const rawBible = await readJsonFile(path.join(root, BIBLE_FILE), { optional: true });
 
     await cleanupStaleTempFiles(root);
 
     const { project, migratedFrom } = migrateProject({ manifest: rawManifest, tree: rawTree ?? createEmptyTree() }, migrationOptions);
     const tree = normalizeTree(project.tree);
+    const bible = normalizeBible(rawBible);
 
     if (migratedFrom !== null) {
         // Keep the pre-migration files so an upgrade is always reversible by hand.
@@ -104,7 +109,7 @@ export async function openProject(root, migrationOptions) {
         await atomicWriteFile(manifestPath, toJson(project.manifest));
     }
 
-    return { manifest: project.manifest, tree, migratedFrom };
+    return { manifest: project.manifest, tree, bible, migratedFrom };
 }
 
 export async function readDoc(root, id) {
@@ -151,16 +156,16 @@ export async function importAsset(root, sourcePath, { kind, newId }) {
 
 /** Re-reads only the structure files, for picking up changes made outside VRS. */
 export async function readStructure(root) {
-    const { manifest, tree } = await openProject(root);
-    return { manifest, tree };
+    const { manifest, tree, bible } = await openProject(root);
+    return { manifest, tree, bible };
 }
 
 /**
- * Saves the parts of a project named in `payload` ({ manifest?, tree?, docs?, deletedAssets? }).
+ * Saves the parts of a project named in `payload` ({ manifest?, tree?, bible?, docs?, deletedAssets? }).
  *
  * Each file is written atomically, and the order keeps the folder consistent
  * if the save is interrupted part-way: document bodies first, then the tree
- * that references them, then vrs.json, and deletions only once nothing
+ * that references them, then bible/bible.json, then vrs.json, and deletions only once nothing
  * references the deleted documents. The worst case is an orphaned docs/*.md,
  * never a tree entry pointing at a missing or half-written file. Assets the
  * saved tree still references (e.g. shared by a duplicated item) are kept.
@@ -179,6 +184,8 @@ export async function saveProject(root, payload, { now, onWrite = () => {} } = {
     const write = async (relPath, content) => {
         const full = await resolveInside(root, relPath);
         onWrite(relPath, content);
+        // bible/ is empty in git, so a cloned project may not have it yet.
+        await fs.mkdir(path.dirname(full), { recursive: true });
         await atomicWriteFile(full, content);
     };
 
@@ -186,6 +193,7 @@ export async function saveProject(root, payload, { now, onWrite = () => {} } = {
         if (body !== null) await write(docRelPath(id), body);
     }
     if (request.tree) await write(TREE_FILE, toJson(request.tree));
+    if (request.bible) await write(BIBLE_FILE, toJson(request.bible));
 
     const current = await readJsonFile(path.join(root, MANIFEST_FILE));
     const manifest = { ...current, ...request.manifest, updatedAt: now };

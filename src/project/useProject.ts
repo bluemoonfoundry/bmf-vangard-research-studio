@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { buildSavePayload, isDirty, isDocDirty, isStructureDirty, projectReducer, type ProjectState } from '@/project/projectState';
 import type { ProjectApi } from '@/project/api';
-import type { ExternalChange, MediaKind, OpenedProject, RecentProject, RecoverySnapshot, TreeItem } from '@/project/types';
+import type { Bible, ExternalChange, MediaKind, OpenedProject, RecentProject, RecoverySnapshot, TreeItem } from '@/project/types';
 import { createAssetCache } from '@/workspace/assetCache';
 import { descendantIds, duplicateSubtree, nextOrder, type DropPosition } from '@/workspace/treeOps';
 
@@ -197,6 +197,14 @@ export function useProject(api: ProjectApi | null, bridge: Pick<VrsApi['app'], '
     return (await run(() => api.importMedia(kind))) ?? null;
   }, [api, run]);
 
+  /** Lets the user pick a text file to import; null if they cancel or it fails. */
+  const importText = useCallback(async () => {
+    if (!api) return null;
+    return (await run(() => api.importText())) ?? null;
+  }, [api, run]);
+
+  const updateBible = useCallback((update: (b: Bible) => Bible) => dispatch({ type: 'bibleUpdated', update }), []);
+
   /** Saves Markdown to a file the user picks; resolves to its path, or null if cancelled or failed. */
   const exportDossier = useCallback(async (markdown: string) => {
     if (!api) return null;
@@ -248,6 +256,9 @@ export function useProject(api: ProjectApi | null, bridge: Pick<VrsApi['app'], '
       // Rebase on the new disk content so "dirty" still means "differs from disk".
       const content = await run(() => api.readDoc(doc[1]));
       if (content !== undefined) dispatch({ type: 'docDiskChanged', id: doc[1], content });
+    } else {
+      // Disk has changed under us: write all of my structure, not just the dirty part.
+      dispatch({ type: 'structureKeptMine' });
     }
     setConflicts(c => c.filter(p => p !== conflict));
   }, [api, run]);
@@ -275,7 +286,7 @@ export function useProject(api: ProjectApi | null, bridge: Pick<VrsApi['app'], '
               const content = change.deleted ? '' : await run(() => api.readDoc(id));
               if (content !== undefined) dispatch({ type: 'docReloaded', id, content });
             }
-          } else if (change.path === 'tree.json' || change.path === 'vrs.json') {
+          } else if (change.path === 'tree.json' || change.path === 'vrs.json' || change.path === 'bible/bible.json') {
             if (isStructureDirty(current)) {
               setConflicts(c => (c.includes(STRUCTURE_CONFLICT) ? c : [...c, STRUCTURE_CONFLICT]));
             } else {
@@ -319,7 +330,7 @@ export function useProject(api: ProjectApi | null, bridge: Pick<VrsApi['app'], '
     state, dirty, saving, error, recents, recovery, migratedFrom, conflicts, assets,
     createProject, openProject, openRecent, removeRecent, closeProject, save,
     loadDoc, loadAllDocs, addDocument, addItem, updateItem, moveItem, duplicateItem, editDoc, renameItem, deleteItem,
-    renameProject, discardAsset, importMedia, exportDossier,
+    renameProject, discardAsset, importMedia, importText, updateBible, exportDossier,
     restoreRecovery, discardRecovery, reloadFromDisk, keepMine, reportError,
     dismissError: () => setError(null),
     dismissMigration: () => setMigratedFrom(null),
@@ -327,7 +338,7 @@ export function useProject(api: ProjectApi | null, bridge: Pick<VrsApi['app'], '
     state, dirty, saving, error, recents, recovery, migratedFrom, conflicts, assets,
     createProject, openProject, openRecent, removeRecent, closeProject, save,
     loadDoc, loadAllDocs, addDocument, addItem, updateItem, moveItem, duplicateItem, editDoc, renameItem, deleteItem,
-    renameProject, discardAsset, importMedia, exportDossier,
+    renameProject, discardAsset, importMedia, importText, updateBible, exportDossier,
     restoreRecovery, discardRecovery, reloadFromDisk, keepMine, reportError,
   ]);
 }

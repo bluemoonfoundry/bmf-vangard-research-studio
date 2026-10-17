@@ -1,12 +1,15 @@
-import { Fragment, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import {
   Bold, Code, Eye, Heading1, Heading2, Italic, List, ListOrdered, Minus, Pencil, Quote, Upload,
 } from 'lucide-react';
-import type { MediaKind, TreeItem } from '@/project/types';
+import type { EntityKind, MediaKind, TreeItem } from '@/project/types';
 import type { AssetCache } from '@/workspace/assetCache';
 import { itemType } from '@/workspace/research';
 import { textStats } from '@/workspace/stats';
 import { AudioPlayer, ImageViewer, WebClipBanner } from '@/components/workspace/MediaViews';
+import { ChatView } from '@/components/bible/ChatView';
+import { CaptureHost, type CaptureSelection } from '@/components/bible/CapturePopover';
+import { EntityPanel, type EntityPanelProps } from '@/components/bible/EntityPanel';
 import { MarkdownView } from '@/components/workspace/MarkdownView';
 import { btn, btnGhost, segment, segmentGroup } from '@/components/workspace/ui';
 
@@ -21,6 +24,12 @@ export interface DocumentEditorProps {
   onUpdate(id: string, patch: Partial<TreeItem>): void;
   onAttachMedia(item: TreeItem, kind: MediaKind): void;
   onOpenLink(url: string): void;
+  /** Story Bible wiring; entity items show their facts above the body. */
+  bible?: Omit<EntityPanelProps, 'entity'>;
+  /** Creates an entity for a captured fact; returns its id. Capture is off without it. */
+  addEntity?(kind: EntityKind, title: string, parentId: string | null): string;
+  /** A passage to show: selected in the text box, or marked in a chat. */
+  highlight?: { start: number; end: number } | null;
 }
 
 type Format = { label: string; icon: typeof Bold; before: string; after?: string; line?: boolean };
@@ -45,12 +54,46 @@ const FORMATS: (Format | 'divider')[] = [
  * per-document view state (preview, cursor) never leaks between items.
  */
 export function DocumentEditor(props: DocumentEditorProps) {
-  const { item, content, breadcrumbs, assets, onNavigate, onChangeContent, onUpdate, onAttachMedia, onOpenLink } = props;
+  const { item, content, breadcrumbs, assets, onNavigate, onChangeContent, onUpdate, onAttachMedia, onOpenLink, bible, addEntity, highlight } = props;
   const [preview, setPreview] = useState(false);
   const textarea = useRef<HTMLTextAreaElement>(null);
+  const [capture, setCapture] = useState<CaptureSelection | null>(null);
+  const fromTextarea = useRef(false);
+  const appliedHighlight = useRef<unknown>(null);
   const stats = textStats(content ?? '');
   const type = itemType(item);
+  const isChat = type === 'chat';
   const mediaKind: MediaKind | null = type === 'image' ? 'image' : type === 'audio' ? 'audio' : null;
+
+  const canCapture = bible !== undefined && addEntity !== undefined;
+  const closeCapture = () => {
+    setCapture(null);
+    const el = textarea.current;
+    if (fromTextarea.current && el) el.setSelectionRange(el.selectionEnd, el.selectionEnd);
+    fromTextarea.current = false;
+  };
+  const select = (r: CaptureSelection) =>
+    setCapture(c => (c && c.start === r.start && c.end === r.end ? c : r));
+
+  const captureFromTextarea = () => {
+    const el = textarea.current;
+    if (!canCapture || !el || content === undefined || el.selectionStart === el.selectionEnd) return;
+    const { selectionStart: start, selectionEnd: end, value } = el;
+    fromTextarea.current = true;
+    // Textareas expose no caret rectangle, so the popover sits at the top of the box.
+    select({ start, end, quote: value.slice(start, end), anchor: el.getBoundingClientRect() });
+  };
+
+  // Shows a passage opened from a fact's source: leave the preview, then select it in the text box.
+  useEffect(() => {
+    if (!highlight || isChat || content === undefined || appliedHighlight.current === highlight) return;
+    if (preview) { setPreview(false); return; }
+    const el = textarea.current;
+    if (!el) return;
+    appliedHighlight.current = highlight;
+    el.focus();
+    el.setSelectionRange(highlight.start, highlight.end);
+  }, [highlight, isChat, content, preview]);
 
   // Uses this editor's own textarea: a split view can show two editors at once.
   const applyFormat = ({ before, after = '', line }: Format) => {
@@ -102,14 +145,14 @@ export function DocumentEditor(props: DocumentEditorProps) {
               placeholder="Untitled"
               onChange={(e) => onUpdate(item.id, { title: e.target.value })}
             />
-            <div className={segmentGroup} role="group" aria-label="Editor mode">
+            {!isChat && <div className={segmentGroup} role="group" aria-label="Editor mode">
               <button type="button" className={segment(!preview)} aria-pressed={!preview} onClick={() => setPreview(false)}>
                 <Pencil className="h-3 w-3" /> Edit
               </button>
               <button type="button" className={segment(preview)} aria-pressed={preview} onClick={() => setPreview(true)}>
                 <Eye className="h-3 w-3" /> Preview
               </button>
-            </div>
+            </div>}
           </div>
 
           <label className="flex flex-col gap-1 rounded-md border border-line bg-surface-raised p-2.5">
@@ -145,7 +188,9 @@ export function DocumentEditor(props: DocumentEditorProps) {
           )}
           {type === 'webpage' && <WebClipBanner item={item} onOpenLink={onOpenLink} />}
 
-          {!preview && (
+          {bible && item.type === 'entity' && <EntityPanel entity={item} {...bible} />}
+
+          {!preview && !isChat && (
             <div className="flex flex-wrap items-center gap-0.5 border-y border-line py-1" role="toolbar" aria-label="Formatting">
               {FORMATS.map((f, i) => (f === 'divider'
                 ? <span key={i} className="mx-1 h-4 w-px bg-line" aria-hidden />
@@ -167,6 +212,8 @@ export function DocumentEditor(props: DocumentEditorProps) {
 
           {content === undefined ? (
             <p className="text-sm text-content-muted">Loading…</p>
+          ) : isChat ? (
+            <ChatView text={content} highlight={highlight} onSelectRange={canCapture ? (r) => { fromTextarea.current = false; select({ ...r, anchor: r.rect }); } : undefined} />
           ) : preview ? (
             <MarkdownView text={content} onOpenLink={onOpenLink} empty="Nothing written yet. Switch to Edit to start." />
           ) : (
@@ -175,12 +222,26 @@ export function DocumentEditor(props: DocumentEditorProps) {
               aria-label="Document text"
               value={content}
               onChange={(e) => onChangeContent(item.id, e.target.value)}
+              onMouseUp={captureFromTextarea}
+              onKeyUp={captureFromTextarea}
               placeholder="Notes, excerpts, transcripts… Markdown works."
               className="min-h-[50vh] w-full resize-none bg-transparent text-sm leading-relaxed focus:outline-none"
             />
           )}
         </div>
       </div>
+      {bible && addEntity && (
+        <CaptureHost
+          itemId={item.id}
+          parentId={item.parentId}
+          items={bible.items}
+          bible={bible.bible}
+          updateBible={bible.updateBible}
+          addEntity={addEntity}
+          selection={capture}
+          onClose={closeCapture}
+        />
+      )}
     </div>
   );
 }

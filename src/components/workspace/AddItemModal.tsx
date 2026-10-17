@@ -3,6 +3,7 @@ import { Upload } from 'lucide-react';
 import type { ImportedAsset, ItemType, LabelId, MediaKind, StatusId, TreeItem } from '@/project/types';
 import type { NewItem } from '@/project/useProject';
 import type { AssetCache } from '@/workspace/assetCache';
+import { ENTITY_KINDS } from '@/bible/entities';
 import { ITEM_TYPES, LABEL_LIST, STATUS_LIST } from '@/workspace/research';
 import { ancestorsOf, isFolder } from '@/workspace/treeOps';
 import { useAssetUrl } from '@/workspace/useAssetUrl';
@@ -45,6 +46,7 @@ export function AddItemModal(props: AddItemModalProps) {
   const [status, setStatus] = useState<StatusId | null>(null);
   const [url, setUrl] = useState('');
   const [author, setAuthor] = useState('');
+  const [entityKind, setEntityKind] = useState<string>('character');
   const [imported, setImported] = useState<ImportedAsset | null>(null);
   const [importing, setImporting] = useState(false);
 
@@ -87,6 +89,7 @@ export function AddItemModal(props: AddItemModalProps) {
     if (!name) return;
     const fields: NewItem = { type, title: name, parentId, label, status };
     if (synopsis.trim()) fields.synopsis = synopsis.trim();
+    if (type === 'entity') fields.entityKind = entityKind;
     if (imported) fields.asset = imported.asset;
     if (type === 'webpage') {
       if (url.trim()) fields.url = url.trim();
@@ -110,7 +113,7 @@ export function AddItemModal(props: AddItemModalProps) {
       <form id="add-item-form" onSubmit={submit} className="flex flex-col gap-4 text-xs">
         <fieldset>
           <legend className={`${fieldLabel} mb-2`}>Type</legend>
-          <div className="grid grid-cols-5 gap-2" role="radiogroup" aria-label="Type">
+          <div className="grid grid-cols-3 gap-2 sm:grid-cols-6" role="radiogroup" aria-label="Type">
             {ITEM_TYPES.map(t => (
               <button
                 key={t.id}
@@ -139,6 +142,15 @@ export function AddItemModal(props: AddItemModalProps) {
             {folders.map(f => <option key={f.id} value={f.id}>{folderPath(f)}</option>)}
           </select>
         </label>
+
+        {type === 'entity' && (
+          <label className="flex flex-col gap-1">
+            <span className={fieldLabel}>Kind</span>
+            <select className={input} value={entityKind} onChange={(e) => setEntityKind(e.target.value)}>
+              {ENTITY_KINDS.map(k => <option key={k.id} value={k.id}>{k.name}</option>)}
+            </select>
+          </label>
+        )}
 
         {kind && (
           <div className="flex items-center justify-between gap-3 rounded-md border border-line bg-surface-sunken p-3">

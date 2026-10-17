@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { useProject } from '@/project/useProject';
+import { useProject, STRUCTURE_CONFLICT } from '@/project/useProject';
 import { createProjectApi } from '@/project/api';
 import { createFakeBridge, makeOpened } from '@/test/fakeBridge';
 
@@ -56,5 +56,57 @@ describe('useProject: switching projects with unsaved changes', () => {
     await act(() => ctx.hook.result.current.openProject());
     expect(ctx.bridge.project.open.mock.calls.length).toBe(openCalls);
     await waitFor(() => expect(ctx.hook.result.current.error).toMatch('Disk full'));
+  });
+});
+
+describe('useProject: bible external changes', () => {
+  it('flags a conflict when bible/bible.json changes while the bible is dirty', async () => {
+    const ctx = setup();
+    ctx.fake.nextDialogResult = makeOpened();
+    await act(() => ctx.hook.result.current.openProject());
+    act(() => ctx.hook.result.current.updateBible(b => ({ ...b, decisions: [...b.decisions] })));
+    expect(ctx.hook.result.current.dirty).toBe(true);
+    act(() => ctx.fake.emitExternalChange([{ path: 'bible/bible.json', deleted: false }]));
+    await waitFor(() => expect(ctx.hook.result.current.conflicts).toContain(STRUCTURE_CONFLICT));
+  });
+
+  it('reloads when the bible is clean', async () => {
+    const ctx = setup();
+    ctx.fake.nextDialogResult = makeOpened();
+    await act(() => ctx.hook.result.current.openProject());
+    const bible = { facts: [], dependencies: [], decisions: [] };
+    ctx.fake.disk.bible = { ...bible, dependencies: [{ id: 'd', eventId: 'a', afterEventId: 'b' }] };
+    act(() => ctx.fake.emitExternalChange([{ path: 'bible/bible.json', deleted: false }]));
+    await waitFor(() => expect(ctx.hook.result.current.state?.bible.dependencies).toHaveLength(1));
+    expect(ctx.hook.result.current.dirty).toBe(false);
+  });
+
+  it('Keep mine on a structure conflict makes the next save write the whole structure', async () => {
+    const ctx = setup();
+    ctx.fake.nextDialogResult = makeOpened();
+    await act(() => ctx.hook.result.current.openProject());
+    act(() => ctx.hook.result.current.renameItem('nope', 'x'));
+    act(() => ctx.hook.result.current.renameProject('Mine'));
+    act(() => ctx.fake.emitExternalChange([{ path: 'bible/bible.json', deleted: false }]));
+    await waitFor(() => expect(ctx.hook.result.current.conflicts).toContain(STRUCTURE_CONFLICT));
+    await act(() => ctx.hook.result.current.keepMine(STRUCTURE_CONFLICT));
+    await act(async () => { await ctx.hook.result.current.save(); });
+    const payload = ctx.fake.saves.at(-1)!;
+    expect(payload.manifest).toEqual({ name: 'Mine' });
+    expect(payload.tree).toBeDefined();
+    expect(payload.bible).toBeDefined();
+  });
+
+  it('importText returns the picked text, or null on cancel', async () => {
+    const ctx = setup();
+    ctx.fake.nextDialogResult = makeOpened();
+    await act(() => ctx.hook.result.current.openProject());
+    ctx.fake.nextTextImport = { title: 'T', text: 'x', fileName: 'T.txt' };
+    let r: unknown;
+    await act(async () => { r = await ctx.hook.result.current.importText(); });
+    expect(r).toEqual({ title: 'T', text: 'x', fileName: 'T.txt' });
+    ctx.fake.nextTextImport = null;
+    await act(async () => { r = await ctx.hook.result.current.importText(); });
+    expect(r).toBeNull();
   });
 });

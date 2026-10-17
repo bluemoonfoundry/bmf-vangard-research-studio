@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import App from '@/App';
-import type { TreeItem } from '@/project/types';
+import type { Bible, TreeItem } from '@/project/types';
 import { createFakeBridge, makeOpened } from '@/test/fakeBridge';
 
 type Fake = ReturnType<typeof createFakeBridge>;
@@ -21,8 +21,8 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-async function open(items: TreeItem[] = [], docs: Record<string, string> = {}) {
-  const project = makeOpened({ tree: { items } });
+async function open(items: TreeItem[] = [], docs: Record<string, string> = {}, bible?: Bible) {
+  const project = makeOpened({ tree: { items }, ...(bible && { bible }) });
   fake.load(project, docs);
   fake.nextDialogResult = project;
   render(<App />);
@@ -320,6 +320,48 @@ describe('add item dialog', () => {
   });
 });
 
+describe('story bible items', () => {
+  it('imports pasted chat as a read-only chat item with LF text', async () => {
+    await open();
+    fireEvent.click(screen.getByRole('button', { name: 'Import chat' }));
+    const dialog = screen.getByRole('dialog', { name: 'Import chat' });
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Chat text' }), { target: { value: 'You: hi\r\nAI: hello' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Import' }));
+    expect(treeItem('Imported chat')).toBeInTheDocument();
+    expect(await screen.findByText(/You: hi/)).toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: 'Document text' })).toBeNull();
+    const saved = await save();
+    expect(saved.tree!.items).toEqual([expect.objectContaining({ type: 'chat', title: 'Imported chat' })]);
+    const body = Object.values(fake.disk.docs).join('');
+    expect(body).toContain('You: hi\nAI: hello');
+    expect(body).not.toContain('\r');
+  });
+
+  it('imports a chat file with its title', async () => {
+    await open();
+    fake.nextTextImport = { title: 'Session 3', text: 'a\nb', fileName: 'Session 3.txt' };
+    fireEvent.click(screen.getByRole('button', { name: 'Import chat' }));
+    const dialog = screen.getByRole('dialog', { name: 'Import chat' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'From file…' }));
+    await waitFor(() => expect(within(dialog).getByRole('textbox', { name: 'Title' })).toHaveValue('Session 3'));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Import' }));
+    expect(await screen.findByRole('treeitem', { name: 'Session 3' })).toBeInTheDocument();
+    expect((await save()).tree!.items).toEqual([expect.objectContaining({ type: 'chat', importedFrom: 'Session 3.txt' })]);
+  });
+
+  it('creates an entity of a chosen kind', async () => {
+    await open();
+    fireEvent.click(screen.getByRole('button', { name: 'New item' }));
+    const dialog = screen.getByRole('dialog', { name: 'Add to binder' });
+    fireEvent.click(within(dialog).getByRole('radio', { name: 'Entity' }));
+    fireEvent.change(within(dialog).getByRole('combobox', { name: 'Kind' }), { target: { value: 'event' } });
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Title' }), { target: { value: 'The Siege' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Create' }));
+    expect(await screen.findByRole('treeitem', { name: 'The Siege' })).toBeInTheDocument();
+    expect((await save()).tree!.items).toEqual([expect.objectContaining({ type: 'entity', entityKind: 'event' })]);
+  });
+});
+
 describe('media', () => {
   it('plays audio from the project and reloads an asset changed on disk', async () => {
     fake.disk.assets['tape.mp3'] = new Uint8Array([1]);
@@ -367,5 +409,91 @@ describe('quick reference and export', () => {
     expect(await within(dialog).findByRole('status')).toHaveTextContent('Saved to C:\\Exports\\Saga dossier.md');
     expect(fake.exports[0]).toMatch(/^# Saga: research dossier/);
     expect(fake.exports[0]).toContain('> Navigator\n\nCharts the coast.');
+  });
+});
+
+describe('conflict queue', () => {
+  const mara = item('m', 'Mara', { type: 'entity', entityKind: 'character' } as Partial<TreeItem>);
+  const fact = (id: string, value: string) => ({
+    id, entityId: 'm', attribute: 'death', value, status: 'kept' as const, origin: 'manual', createdAt: 'T0', updatedAt: 'T0',
+  });
+  const bible = (): Bible => ({ facts: [fact('a', 'Season 3 finale'), fact('b', 'Pilot')], dependencies: [], decisions: [] });
+  const badge = () => within(screen.getByRole('button', { name: /Conflicts/ })).getByText(/^\d+$/);
+
+  it('counts open contradictions and shows two cards', async () => {
+    await open([mara], {}, bible());
+    expect(badge()).toHaveTextContent('1');
+    fireEvent.click(screen.getByRole('button', { name: /Conflicts/ }));
+    expect(screen.getAllByRole('article')).toHaveLength(2);
+  });
+
+  it('drops the badge to 0 after Keep this one, and Reopen restores it', async () => {
+    await open([mara], {}, bible());
+    fireEvent.click(screen.getByRole('button', { name: /Conflicts/ }));
+    fireEvent.click(within(screen.getAllByRole('article')[0]).getByRole('button', { name: 'Keep this one' }));
+    expect(badge()).toHaveTextContent('0');
+    fireEvent.click(screen.getByRole('button', { name: 'Decided' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Reopen' }));
+    expect(badge()).toHaveTextContent('1');
+  });
+
+  it('opens from an entity page and returns to research on a binder pick', async () => {
+    await open([mara], {}, bible());
+    fireEvent.click(treeItem('Mara'));
+    fireEvent.click(await screen.findByRole('button', { name: /conflict queue/i }));
+    expect(screen.getAllByRole('article')).toHaveLength(2);
+    fireEvent.click(treeItem('Mara'));
+    expect(screen.queryByRole('article')).toBeNull();
+  });
+});
+
+describe('delete warning for story bible facts', () => {
+  const src = (n: string) => ({ itemId: 'c', quote: 'q', start: 0, end: 1 + n.length });
+  const f = (id: string, entityId: string, withSource: boolean) => ({
+    id, entityId, attribute: 'death', value: 'x', status: 'kept' as const, origin: 'manual', createdAt: 'T0', updatedAt: 'T0',
+    ...(withSource && { source: src(id) }),
+  });
+
+  it('tells how many facts cite a chat', async () => {
+    const mara = item('m', 'Mara', { type: 'entity', entityKind: 'character' } as Partial<TreeItem>);
+    await open([item('c', 'Session', { type: 'chat' }), mara], {}, {
+      facts: [f('a', 'm', true), f('b', 'm', true)], dependencies: [], decisions: [],
+    });
+    fireEvent.click(within(tree()).getByRole('button', { name: 'Delete Session' }));
+    expect(screen.getByRole('dialog', { name: 'Delete item' })).toHaveTextContent("2 facts cite this item. They'll keep their quotes.");
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Delete item' })).getByRole('button', { name: 'Cancel' }));
+    fireEvent.click(within(tree()).getByRole('button', { name: 'Delete Mara' }));
+    expect(screen.getByRole('dialog', { name: 'Delete item' })).toHaveTextContent('This removes 2 facts about it.');
+  });
+
+  it('does not count a fact twice when it is about a deleted entity and cites a deleted item', async () => {
+    const mara = item('m', 'Mara', { type: 'entity', entityKind: 'character' } as Partial<TreeItem>);
+    await open([mara], {}, {
+      facts: [{ ...f('a', 'm', false), source: { itemId: 'm', quote: 'q', start: 0, end: 1 } }], dependencies: [], decisions: [],
+    });
+    fireEvent.click(within(tree()).getByRole('button', { name: 'Delete Mara' }));
+    const dialog = screen.getByRole('dialog', { name: 'Delete item' });
+    expect(dialog).toHaveTextContent('This removes 1 fact about it.');
+    expect(dialog).not.toHaveTextContent('cite');
+  });
+
+  it('ignores orphan facts in the delete warning', async () => {
+    await open([item('c', 'Session', { type: 'chat' })], {}, {
+      facts: [f('a', 'missing', true)], dependencies: [], decisions: [],
+    });
+    fireEvent.click(within(tree()).getByRole('button', { name: 'Delete Session' }));
+    expect(screen.getByRole('dialog', { name: 'Delete item' })).not.toHaveTextContent('cite');
+  });
+
+  it('uses singular wording for one fact', async () => {
+    const mara = item('m', 'Mara', { type: 'entity', entityKind: 'character' } as Partial<TreeItem>);
+    await open([item('c', 'Session', { type: 'chat' }), mara], {}, {
+      facts: [f('a', 'm', true)], dependencies: [], decisions: [],
+    });
+    fireEvent.click(within(tree()).getByRole('button', { name: 'Delete Session' }));
+    expect(screen.getByRole('dialog', { name: 'Delete item' })).toHaveTextContent("1 fact cites this item. It'll keep its quote.");
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Delete item' })).getByRole('button', { name: 'Cancel' }));
+    fireEvent.click(within(tree()).getByRole('button', { name: 'Delete Mara' }));
+    expect(screen.getByRole('dialog', { name: 'Delete item' })).toHaveTextContent('This removes 1 fact about it.');
   });
 });
