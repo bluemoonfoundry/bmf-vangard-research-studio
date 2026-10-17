@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import type { Bible, Decision, Fact, StoryPosition } from '@/project/types';
+import type { Bible, Decision, Fact, StoryPosition, TreeItem } from '@/project/types';
 import {
   comparePositions, emptyBible, formatPosition, isWhenAttribute, normalizeText, positionsCompatible, specificity,
 } from '@/bible/normalize';
 import {
   addDependency, addFact, keepAll, keepOne, removeDependency, removeEntities, reopen, setFactStatus, updateFact,
 } from '@/bible/ops';
+import { checkPosition, eventsInCycles, keptPositions, strictlyAfter } from '@/bible/ordering';
+import { buildTimeline } from '@/bible/timeline';
+import { resolveSource } from '@/bible/sources';
+import { eventsLinkingTo, factsCitingItems } from '@/bible/links';
 import { contradictionKey, findContradictions, groupVersions, openContradictions } from '@/bible/contradictions';
 
 let n = 0;
@@ -180,5 +184,125 @@ describe('ops', () => {
     expect(out.facts.map(f => f.id)).toEqual(['b']);
     expect(out.dependencies.map(d => d.id)).toEqual(['d3']);
     expect(out.decisions.map(d => d.id)).toEqual(['k2']);
+  });
+});
+
+const ent = (id: string, title: string, entityKind = 'event', refs: string[] = []): TreeItem => ({
+  id, parentId: null, type: 'entity', title, order: 0, keywords: [], entityKind,
+  references: refs.map((targetId, i) => ({ id: `r${i}`, targetId })),
+});
+const when = (entityId: string, value: StoryPosition, over: Partial<Fact> = {}): Fact =>
+  fact({ entityId, attribute: 'when', value, ...over });
+const dep = (id: string, eventId: string, afterEventId: string) => ({ id, eventId, afterEventId });
+
+describe('ordering', () => {
+  it('strictlyAfter', () => {
+    expect(strictlyAfter({ season: 3 }, { season: 3, episode: 4 })).toBe('unknown');
+    expect(strictlyAfter({ season: 5, episode: 2 }, { season: 4, episode: 1 })).toBe('yes');
+    expect(strictlyAfter({ season: 2 }, { season: 3 })).toBe('no');
+    expect(strictlyAfter({ season: 3, episode: 4 }, { season: 3, episode: 4 })).toBe('unknown');
+    expect(strictlyAfter({ season: 3, episode: 4, order: 1 }, { season: 3, episode: 4, order: 1 })).toBe('no');
+    expect(strictlyAfter({ season: 3, episode: 4, order: 2 }, { season: 3, episode: 4, order: 1 })).toBe('yes');
+  });
+  const mira = (): Bible => ({
+    facts: [
+      when('hal', { season: 3, episode: 4 }), when('ren', { season: 4, episode: 1 }),
+      when('mira', { season: 3, episode: 10 }, { id: 'm1' }),
+      when('mira', { season: 5, episode: 2 }, { id: 'm2', status: 'proposed' }),
+    ],
+    dependencies: [dep('d1', 'mira', 'hal'), dep('d2', 'ren', 'mira')],
+    decisions: [],
+  });
+  it('keptPositions ignores proposed facts', () => {
+    const b = mira();
+    expect(keptPositions(b, 'mira')).toEqual([{ season: 3, episode: 10 }]);
+    expect(keptPositions(b, 'nobody')).toEqual([]);
+  });
+  it('checkPosition on the Mira scenario', () => {
+    const b = mira();
+    expect(checkPosition(b, 'mira', { season: 3, episode: 10 }).map(c => c.result)).toEqual(['ok', 'ok']);
+    const bad = checkPosition(b, 'mira', { season: 5, episode: 2 });
+    expect(bad.find(c => c.direction === 'before')).toMatchObject({ otherEventId: 'ren', result: 'violated' });
+    expect(bad.find(c => c.direction === 'after')?.result).toBe('ok');
+    expect(checkPosition(b, 'hal', { season: 3, episode: 4 }).map(c => c.direction)).toEqual(['before']);
+  });
+  it('is unknown with no kept positions or mixed results', () => {
+    const b: Bible = {
+      facts: [when('x', { season: 1 }), when('x', { season: 9 }, { id: 'x2' })],
+      dependencies: [dep('d', 'y', 'x'), dep('e', 'y', 'z')], decisions: [],
+    };
+    const r = checkPosition(b, 'y', { season: 5 });
+    expect(r.find(c => c.otherEventId === 'z')?.result).toBe('unknown');
+    expect(r.find(c => c.otherEventId === 'x')?.result).toBe('unknown');
+  });
+  it('detects cycles', () => {
+    const b: Bible = { facts: [], dependencies: [dep('1', 'a', 'b'), dep('2', 'b', 'a'), dep('3', 'c', 'a')], decisions: [] };
+    expect([...eventsInCycles(b)].sort()).toEqual(['a', 'b']);
+  });
+});
+
+describe('timeline', () => {
+  const items = [ent('a', 'Alpha'), ent('b', 'beta'), ent('c', 'Gamma'), ent('d', 'Delta'), ent('ch', 'Char', 'character')];
+  it('places kept_all events once per version, with contested and unplaced lists', () => {
+    let b: Bible = {
+      facts: [
+        when('a', { season: 1, episode: 1 }, { id: 'a1' }), when('a', { season: 2, episode: 1 }, { id: 'a2' }),
+        when('b', { season: 1, episode: 1 }), when('c', { season: 1 }, { id: 'c1' }), when('c', { season: 2 }, { id: 'c2' }),
+        when('d', { season: 7 }, { status: 'proposed' }), when('ch', { season: 1 }),
+      ],
+      dependencies: [], decisions: [],
+    };
+    const cs = findContradictions(b, new Set(['a', 'b', 'c', 'd', 'ch']));
+    const aCs = cs.find(c => c.entityId === 'a');
+    if (!aCs) throw new Error('expected a contradiction');
+    b = keepAll(b, aCs, { id: 'dk', now: 'T1' });
+    const t = buildTimeline(b, items);
+    expect(t.contested).toEqual(['c']);
+    expect(t.unplaced).toEqual(['d']);
+    expect(t.placed.map(e => [e.eventId, e.versionIndex, e.versionCount])).toEqual([['a', 0, 2], ['b', 0, 1], ['a', 1, 2]]);
+    expect(t.placed.some(e => e.eventId === 'ch')).toBe(false);
+  });
+  it('flags violations and cycles, and drops them when the event is removed', () => {
+    const b: Bible = {
+      facts: [when('a', { season: 1, episode: 1 }), when('b', { season: 3, episode: 1 })],
+      dependencies: [dep('d1', 'a', 'b')], decisions: [],
+    };
+    expect(buildTimeline(b, items).placed.every(e => e.violated)).toBe(true);
+    const cyc = buildTimeline({ ...b, dependencies: [dep('d1', 'a', 'b'), dep('d2', 'b', 'a')] }, items);
+    expect(cyc.placed.every(e => e.inCycle)).toBe(true);
+    const t2 = buildTimeline(removeEntities(b, new Set(['b'])), items);
+    expect(t2.placed.some(e => e.violated)).toBe(false);
+  });
+});
+
+describe('sources', () => {
+  const src = { itemId: 'i', quote: 'the cat', start: 4, end: 11 };
+  it('resolves exact, relocated, missing and deleted', () => {
+    expect(resolveSource(src, 'See the cat sat', true)).toEqual({ status: 'exact', start: 4, end: 11 });
+    expect(resolveSource(src, 'XXSee the cat sat', true)).toEqual({ status: 'relocated', start: 6, end: 13 });
+    expect(resolveSource(src, 'no felines', true)).toEqual({ status: 'missing' });
+    expect(resolveSource(src, 'See the cat', false)).toEqual({ status: 'deleted' });
+    expect(resolveSource(src, undefined, false)).toEqual({ status: 'deleted' });
+    expect(resolveSource(src, undefined, true)).toEqual({ status: 'exact', start: 4, end: 11 });
+    expect(resolveSource({ ...src, quote: '' }, 'abc', true)).toEqual({ status: 'missing' });
+  });
+  it('picks the nearest occurrence when relocating', () => {
+    expect(resolveSource({ ...src, start: 20, end: 27 }, 'the cat ... the cat', true))
+      .toEqual({ status: 'relocated', start: 12, end: 19 });
+  });
+});
+
+describe('links', () => {
+  it('finds events linking to an entity in binder order', () => {
+    const items = [
+      ent('e2', 'Two', 'event', ['x']), ent('c', 'C', 'character', ['x']),
+      ent('e1', 'One', 'event', ['x', 'y']), ent('e3', 'Three', 'event', ['y']),
+    ];
+    expect(eventsLinkingTo(items, 'x').map(i => i.id)).toEqual(['e2', 'e1']);
+  });
+  it('finds facts citing items', () => {
+    const a = fact({ source: { itemId: 'i1', quote: 'q', start: 0, end: 1 } });
+    const b = fact({ source: { itemId: 'i2', quote: 'q', start: 0, end: 1 } });
+    expect(factsCitingItems(bibleOf([a, b, fact()]), new Set(['i1']))).toEqual([a]);
   });
 });
