@@ -34,6 +34,11 @@ describe('createProject', () => {
         }
     });
 
+    it('returns an empty bible, so a brand-new project can hold facts', async () => {
+        const created = await createProject(root, { id: 'p1', name: 'X', now: NOW });
+        expect(created.bible).toEqual({ facts: [], dependencies: [], decisions: [] });
+    });
+
     it('accepts an existing empty folder', async () => {
         await fs.mkdir(root);
         await expect(createProject(root, { id: 'p1', name: 'X', now: NOW })).resolves.toBeDefined();

@@ -10,6 +10,7 @@ import {
     ProjectFormatError,
     createManifest,
     createEmptyTree,
+    createEmptyBible,
     isValidAssetName,
     isValidItemId,
     migrateProject,
@@ -80,7 +81,7 @@ export async function createProject(root, { id, name, now }) {
     await atomicWriteFile(path.join(root, TREE_FILE), toJson(tree));
     // vrs.json last: a folder is only recognised as a project once it's complete.
     await atomicWriteFile(path.join(root, MANIFEST_FILE), toJson(manifest));
-    return { manifest, tree };
+    return { manifest, tree, bible: createEmptyBible() };
 }
 
 export async function openProject(root, migrationOptions) {
