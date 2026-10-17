@@ -51,20 +51,60 @@ bd close <id>         # Complete work
 <!-- END BEADS INTEGRATION -->
 
 
+## Project Overview
+
+Vangard Research Studio (VRS) is a standalone Electron + React 19 + TypeScript desktop app for visual-novel
+writers. It's a workspace for collecting and creating story research (documents, images, audio, web clips,
+maps, chat transcripts), plus a story bible: structured entities and facts, route-scoped canon, and conflict
+detection.
+
+- **Standalone by design.** VRS shares no code with Vangard Studio (`bmf-vangard-renpy-ide`) or
+  `bmf-vangard-vnstorybible`. Infrastructure *copied* from Vangard (path guards, atomic writes, logger) lives
+  in `electron/lib/` and is owned here from now on.
+- **AI is strictly opt-in.** Every AI feature must stay hidden and inert until the user enables AI in Settings
+  and provides an API key. Main-process AI handlers must refuse calls while AI is disabled. Never make a
+  non-AI feature depend on AI.
+
 ## Build & Test
 
-_Add your build and test commands here_
-
 ```bash
-# Example:
-# npm install
-# npm test
+npm run build           # Vite renderer build -> dist/
+npm run electron:start  # build + launch Electron
+npm run dev             # renderer only, in a browser (no preload bridge: window.vrs is undefined)
+npm test                # Vitest: 'main' project (Node) + 'renderer' project (jsdom)
+npm run test:e2e        # builds, then Playwright drives the real Electron app
+npm run typecheck
+npm run lint
+npm run gate            # typecheck + lint + unit + e2e -- run before closing an issue
 ```
 
-## Architecture Overview
+## Architecture
 
-_Add a brief overview of your project architecture_
+```
+electron/main.js        main process: window, CSP, IPC handlers
+electron/preload.js     sandboxed preload; exposes window.vrs (CommonJS by necessity)
+electron/lib/           main-process modules, each with a co-located *.test.ts
+src/                    React renderer (App.tsx, index.css theme tokens, vite-env.d.ts declares window.vrs)
+e2e/                    Playwright Electron smoke tests (electron-launch.ts fixture)
+```
 
-## Conventions & Patterns
+## Security Rules (non-negotiable)
 
-_Add your project-specific conventions here_
+- Windows use `secureWebPreferences()` (contextIsolation, sandbox, no nodeIntegration) and `applyNavigationGuards()`.
+- CSP (`electron/lib/csp.js`) keeps `connect-src 'self'`. All network access (LLM providers included) goes
+  through the main process, and API keys never reach the renderer.
+- Every IPC handler that touches a path calls `validateProjectPath()` against the open project root.
+- Disk writes use `atomicWriteFile()`.
+- The preload exposes narrow, named functions. Never expose `ipcRenderer` itself. When the bridge changes,
+  update `src/vite-env.d.ts` and the bridge-surface e2e test.
+- Markdown from users or LLMs must be sanitized (DOMPurify) before it's rendered as HTML.
+- `.env` is gitignored and must never be committed.
+
+## Conventions
+
+- `@/` import alias for renderer code (`src/`).
+- Use theme-token utilities (`bg-surface`, `text-content`, `text-content-muted`, `border-line`, `text-accent`)
+  rather than raw palette colors, so light and dark themes keep working.
+- Main process logs through `electron/lib/logger.main.js`. `no-console` is enforced.
+- Write tests first. Main-process logic goes in small, pure-ish modules under `electron/lib/` so it can be unit-tested.
+- Commit locally. Ask the user before pushing to any remote.
