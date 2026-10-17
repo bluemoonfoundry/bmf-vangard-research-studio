@@ -1,7 +1,20 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { createProjectApi } from '@/project/api';
+import { useProject } from '@/project/useProject';
+import { WelcomeScreen } from '@/components/WelcomeScreen';
+import { ProjectWorkspace } from '@/components/ProjectWorkspace';
+import { ProjectNotices } from '@/components/ProjectNotices';
+
+const APP_NAME = 'Vangard Research Studio';
+const headerButton = 'rounded border border-line px-2 py-1 text-xs hover:border-accent disabled:opacity-50';
 
 export default function App() {
   const [version, setVersion] = useState<string | null>(null);
+  const bridge = window.vrs;
+  const api = useMemo(() => (bridge ? createProjectApi(bridge) : null), [bridge]);
+  const project = useProject(api, bridge?.app ?? null);
+  const { state, dirty, saving, save } = project;
+  const projectName = state?.manifest.name;
 
   useEffect(() => {
     let cancelled = false;
@@ -13,14 +26,58 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    document.title = projectName ? `${dirty ? '● ' : ''}${projectName} — ${APP_NAME}` : APP_NAME;
+  }, [projectName, dirty]);
+
+  useEffect(() => {
+    if (!state) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        void save();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [state, save]);
+
   return (
     <div className="flex h-screen flex-col bg-surface text-content">
-      <header className="flex h-12 shrink-0 items-center justify-between border-b border-line px-4">
-        <h1 className="text-sm font-semibold tracking-tight">Vangard Research Studio</h1>
-        {version && <span className="text-xs text-content-muted">v{version}</span>}
+      <header className="flex h-12 shrink-0 items-center gap-4 border-b border-line px-4">
+        <h1 className="text-sm font-semibold tracking-tight">{APP_NAME}</h1>
+        {state && (
+          <>
+            <span className="truncate text-sm text-content-muted" title={state.root}>{state.manifest.name}</span>
+            <span className="text-xs text-content-muted" aria-live="polite">
+              {saving ? 'Saving…' : dirty ? 'Unsaved changes' : 'Saved'}
+            </span>
+            <div className="ml-auto flex gap-2">
+              <button type="button" className={headerButton} onClick={() => void save()} disabled={!dirty || saving}>
+                Save
+              </button>
+              <button type="button" className={headerButton} onClick={() => void project.closeProject()}>
+                Close project
+              </button>
+            </div>
+          </>
+        )}
+        {version && <span className={`text-xs text-content-muted ${state ? '' : 'ml-auto'}`}>v{version}</span>}
       </header>
-      <main className="flex flex-1 items-center justify-center">
-        <p className="text-sm text-content-muted">Create or open a research project to get started.</p>
+      <ProjectNotices project={project} />
+      <main className="flex min-h-0 flex-1">
+        {state ? (
+          <ProjectWorkspace key={state.root} project={project} />
+        ) : (
+          <WelcomeScreen
+            recents={project.recents}
+            available={api !== null}
+            onCreate={() => void project.createProject()}
+            onOpen={() => void project.openProject()}
+            onOpenRecent={(root) => void project.openRecent(root)}
+            onRemoveRecent={(root) => void project.removeRecent(root)}
+          />
+        )}
       </main>
     </div>
   );

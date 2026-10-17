@@ -85,8 +85,30 @@ electron/main.js        main process: window, CSP, IPC handlers
 electron/preload.js     sandboxed preload; exposes window.vrs (CommonJS by necessity)
 electron/lib/           main-process modules, each with a co-located *.test.ts
 src/                    React renderer (App.tsx, index.css theme tokens, vite-env.d.ts declares window.vrs)
-e2e/                    Playwright Electron smoke tests (electron-launch.ts fixture)
+src/project/             project types, IPC unwrapping (api.ts), pure reducer (projectState.ts), useProject hook
+e2e/                    Playwright Electron tests (electron-launch.ts fixture: isolated userData, dialog stubs)
 ```
+
+## Projects and Storage
+
+A project is a folder (`Name.vrs/`) of plain files: `vrs.json` (manifest + `schemaVersion`), `tree.json`
+(binder items), `docs/<id>.md`, plus `chats/ assets/ bible/ maps/` for later phases.
+
+- **Main process owns the disk.** `electron/lib/projectStore.js` reads/writes a root; `projectSession.js` holds
+  the one open root. Roots come only from native dialogs or the recent list (`recentProjects.js`) -- the
+  renderer can never name a folder.
+- **Schema changes** bump `CURRENT_SCHEMA_VERSION` and add a step to `MIGRATIONS` in `projectSchema.js`.
+  Opening an older project migrates it and keeps `*.v<N>.bak` copies. Newer formats are refused (`TOO_NEW`).
+- **Item ids become file names**: always validate with `isValidItemId()`.
+- **Save order** is docs, then `tree.json`, then `vrs.json`, then deletions, so an interrupted save never leaves
+  the tree pointing at a missing file.
+- **Crash recovery** snapshots (same shape as a save payload) live in `userData/recovery/`, never in the project
+  folder, and are cleared on save or an explicit discard.
+- **External edits**: `projectWatcher.js` filters VRS's own writes by content hash (not timing). The renderer
+  reloads clean files and asks before replacing unsaved ones.
+- **IPC results** are `{ ok, value | error: { code, message } }` envelopes; `src/project/api.ts` unwraps them.
+- **E2E** must stub every native dialog (`stubFolderDialogs`, `stubMessageBox`); an unstubbed dialog hangs
+  the run on the developer's screen. Use `crashApp()`, not `process().kill()`, to simulate a crash.
 
 ## Security Rules (non-negotiable)
 

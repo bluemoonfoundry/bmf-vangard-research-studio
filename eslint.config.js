@@ -13,6 +13,7 @@ const nodeGlobals = {
   module: 'readonly',
   Buffer: 'readonly',
   URL: 'readonly',
+  structuredClone: 'readonly',
 };
 
 export default tseslint.config(
