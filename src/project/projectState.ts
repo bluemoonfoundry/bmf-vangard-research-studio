@@ -1,4 +1,5 @@
-import type { OpenedProject, ProjectManifest, ProjectTree, RecoverySnapshot, SavePayload, TreeItem } from '@/project/types';
+import type { Bible, OpenedProject, ProjectManifest, ProjectTree, RecoverySnapshot, SavePayload, TreeItem } from '@/project/types';
+import { removeEntities } from '@/bible/ops';
 import { descendantIds, moveItem, type DropPosition } from '@/workspace/treeOps';
 
 /** A document body the renderer has loaded. `saved` is null for a document that has never been written. */
@@ -18,6 +19,8 @@ export interface ProjectState {
   savedName: string;
   tree: ProjectTree;
   savedTree: ProjectTree;
+  bible: Bible;
+  savedBible: Bible;
   /** Loaded documents only; bodies are read on demand. */
   docs: Record<string, DocEntry>;
   /** Ids removed from the tree since the last save whose files may exist on disk. */
@@ -42,13 +45,14 @@ export type ProjectAction =
   | { type: 'itemUpdated'; id: string; patch: Partial<TreeItem> }
   | { type: 'itemMoved'; id: string; targetId: string | null; position: DropPosition }
   | { type: 'itemDeleted'; id: string }
+  | { type: 'bibleUpdated'; update: (b: Bible) => Bible }
   | { type: 'assetDiscarded'; asset: string }
   | { type: 'projectRenamed'; name: string }
   | { type: 'saved'; payload: SavePayload; manifest: ProjectManifest }
   | { type: 'recoveryRestored'; snapshot: RecoverySnapshot; diskDocs: Record<string, string> }
   | { type: 'docReloaded'; id: string; content: string }
   | { type: 'docDiskChanged'; id: string; content: string }
-  | { type: 'structureReloaded'; manifest: ProjectManifest; tree: ProjectTree };
+  | { type: 'structureReloaded'; manifest: ProjectManifest; tree: ProjectTree; bible: Bible };
 
 const withAsset = (list: string[], asset: string | undefined) =>
   asset && !list.includes(asset) ? [...list, asset] : list;
@@ -71,8 +75,8 @@ function updateItems(state: ProjectState, update: (item: TreeItem) => TreeItem):
 
 export function projectReducer(state: ProjectState | null, action: ProjectAction): ProjectState | null {
   if (action.type === 'opened') {
-    const { root, manifest, tree } = action.project;
-    return { root, manifest, savedName: manifest.name, tree, savedTree: tree, docs: {}, deletedDocs: [], deletedAssets: [] };
+    const { root, manifest, tree, bible } = action.project;
+    return { root, manifest, savedName: manifest.name, tree, savedTree: tree, bible, savedBible: bible, docs: {}, deletedDocs: [], deletedAssets: [] };
   }
   if (!state) return state;
 
@@ -121,8 +125,10 @@ export function projectReducer(state: ProjectState | null, action: ProjectAction
       const docs = { ...state.docs };
       const deletedDocs = [...state.deletedDocs];
       let deletedAssets = state.deletedAssets;
+      const removedEntities = new Set<string>();
       for (const item of state.tree.items) {
         if (!removed.has(item.id)) continue;
+        if (item.type === 'entity') removedEntities.add(item.id);
         // A document that was never loaded may still exist on disk.
         if (docs[item.id]?.saved !== null && !deletedDocs.includes(item.id)) deletedDocs.push(item.id);
         delete docs[item.id];
@@ -133,7 +139,13 @@ export function projectReducer(state: ProjectState | null, action: ProjectAction
         .map(i => (i.references?.some(r => removed.has(r.targetId))
           ? { ...i, references: i.references.filter(r => !removed.has(r.targetId)) }
           : i));
-      return { ...state, tree: { ...state.tree, items }, docs, deletedDocs, deletedAssets };
+      const bible = removedEntities.size ? removeEntities(state.bible, removedEntities) : state.bible;
+      return { ...state, tree: { ...state.tree, items }, bible, docs, deletedDocs, deletedAssets };
+    }
+
+    case 'bibleUpdated': {
+      const bible = action.update(state.bible);
+      return bible === state.bible ? state : { ...state, bible };
     }
 
     case 'assetDiscarded':
@@ -153,6 +165,7 @@ export function projectReducer(state: ProjectState | null, action: ProjectAction
         manifest: { ...action.manifest, name: state.manifest.name },
         savedName: payload.manifest?.name ?? state.savedName,
         savedTree: payload.tree ?? state.savedTree,
+        savedBible: payload.bible ?? state.savedBible,
         docs,
         deletedDocs: state.deletedDocs.filter(id => payload.docs?.[id] !== null),
         deletedAssets: state.deletedAssets.filter(name => !payload.deletedAssets?.includes(name)),
@@ -175,6 +188,7 @@ export function projectReducer(state: ProjectState | null, action: ProjectAction
         ...state,
         manifest: snapshot.manifest ? { ...state.manifest, name: snapshot.manifest.name } : state.manifest,
         tree: snapshot.tree ?? state.tree,
+        bible: snapshot.bible ?? state.bible,
         docs,
         deletedDocs,
         deletedAssets: (snapshot.deletedAssets ?? []).reduce(withAsset, state.deletedAssets),
@@ -199,6 +213,8 @@ export function projectReducer(state: ProjectState | null, action: ProjectAction
         savedName: action.manifest.name,
         tree: action.tree,
         savedTree: action.tree,
+        bible: action.bible,
+        savedBible: action.bible,
         docs,
         deletedDocs: [],
         deletedAssets: [],
@@ -213,7 +229,7 @@ export const isDocDirty = (state: ProjectState, id: string) => {
 };
 
 export const isStructureDirty = (state: ProjectState) =>
-  state.manifest.name !== state.savedName || state.tree !== state.savedTree || state.deletedDocs.length > 0;
+  state.manifest.name !== state.savedName || state.tree !== state.savedTree || state.bible !== state.savedBible || state.deletedDocs.length > 0;
 
 export const isDirty = (state: ProjectState | null) =>
   !!state && (isStructureDirty(state) || Object.keys(state.docs).some(id => isDocDirty(state, id)));
@@ -223,6 +239,7 @@ export function buildSavePayload(state: ProjectState): SavePayload {
   const payload: SavePayload = {};
   if (state.manifest.name !== state.savedName) payload.manifest = { name: state.manifest.name };
   if (state.tree !== state.savedTree) payload.tree = state.tree;
+  if (state.bible !== state.savedBible) payload.bible = state.bible;
 
   const docs: Record<string, string | null> = {};
   for (const [id, doc] of Object.entries(state.docs)) {

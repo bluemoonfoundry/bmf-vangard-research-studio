@@ -125,7 +125,7 @@ describe('projectReducer', () => {
 
   it('reloads the structure from disk, dropping documents no longer in the tree', () => {
     let s = projectReducer(open([item('a'), item('b')]), { type: 'docLoaded', id: 'b', content: 'x' })!;
-    s = projectReducer(s, { type: 'structureReloaded', manifest: { ...s.manifest, name: 'Renamed outside' }, tree: { items: [item('a')] } })!;
+    s = projectReducer(s, { type: 'structureReloaded', manifest: { ...s.manifest, name: 'Renamed outside' }, tree: { items: [item('a')] }, bible: emptyBible() })!;
     expect(s.manifest.name).toBe('Renamed outside');
     expect(s.docs.b).toBeUndefined();
     expect(isDirty(s)).toBe(false);
@@ -177,5 +177,61 @@ describe('projectReducer', () => {
 
   it('closes', () => {
     expect(projectReducer(open(), { type: 'closed' })).toBeNull();
+  });
+});
+
+describe('projectReducer: story bible', () => {
+  const fact = (id: string, entityId: string, itemId?: string) => ({
+    id, entityId, attribute: 'eyes', value: 'green', status: 'kept' as const, origin: 'user',
+    createdAt: 'T', updatedAt: 'T', ...(itemId ? { source: { itemId, quote: 'q', start: 0, end: 1 } } : {}),
+  });
+  const entity = (id: string): TreeItem => ({ ...item(id), type: 'entity' });
+  const chat = (id: string): TreeItem => ({ ...item(id), type: 'chat' });
+
+  it('opens with bible and savedBible set and clean', () => {
+    const s = open();
+    expect(s.bible).toBe(s.savedBible);
+    expect(isDirty(s)).toBe(false);
+  });
+
+  it('bibleUpdated marks dirty, is in the save payload, and saved cleans it', () => {
+    let s = projectReducer(open(), { type: 'bibleUpdated', update: b => ({ ...b, facts: [fact('f', 'e')] }) })!;
+    expect(isDirty(s)).toBe(true);
+    const payload = buildSavePayload(s);
+    expect(payload.bible?.facts).toHaveLength(1);
+    s = projectReducer(s, { type: 'saved', payload, manifest: s.manifest })!;
+    expect(isDirty(s)).toBe(false);
+    expect(buildSavePayload(s)).toEqual({});
+  });
+
+  it('bibleUpdated returning the same bible leaves state unchanged', () => {
+    const s = open();
+    expect(projectReducer(s, { type: 'bibleUpdated', update: b => b })).toBe(s);
+  });
+
+  it('deleting an entity removes its facts; deleting a chat keeps facts citing it', () => {
+    let s = projectReducer(open([entity('e'), chat('c')]), {
+      type: 'bibleUpdated', update: b => ({ ...b, facts: [fact('f1', 'e'), fact('f2', 'e2', 'c')] }),
+    })!;
+    s = projectReducer(s, { type: 'itemDeleted', id: 'c' })!;
+    expect(s.bible.facts.map(f => f.id)).toEqual(['f1', 'f2']);
+    s = projectReducer(s, { type: 'itemDeleted', id: 'e' })!;
+    expect(s.bible.facts.map(f => f.id)).toEqual(['f2']);
+  });
+
+  it('structureReloaded replaces the bible', () => {
+    const s = open();
+    const bible = { ...emptyBible(), facts: [fact('f', 'e')] };
+    const r = projectReducer(s, { type: 'structureReloaded', manifest: s.manifest, tree: s.tree, bible })!;
+    expect(r.bible).toBe(bible);
+    expect(r.savedBible).toBe(bible);
+  });
+
+  it('recoveryRestored takes the snapshot bible as a dirty edit', () => {
+    const s = open();
+    const bible = { ...emptyBible(), facts: [fact('f', 'e')] };
+    const r = projectReducer(s, { type: 'recoveryRestored', snapshot: { savedAt: 'T', bible }, diskDocs: {} })!;
+    expect(r.bible).toBe(bible);
+    expect(isDirty(r)).toBe(true);
   });
 });

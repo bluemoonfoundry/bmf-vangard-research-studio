@@ -115,6 +115,7 @@ export function createFakeBridge() {
           else fake.disk.docs[id] = body;
         }
         if (payload.tree) fake.disk.tree = payload.tree;
+        if (payload.bible) fake.disk.bible = payload.bible;
         for (const name of payload.deletedAssets ?? []) delete fake.disk.assets[name];
         fake.disk.manifest = { ...fake.disk.manifest!, ...payload.manifest, updatedAt: `T${fake.saves.length}` };
         return ok({ manifest: fake.disk.manifest });
