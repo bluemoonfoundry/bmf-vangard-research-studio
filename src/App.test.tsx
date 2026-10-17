@@ -13,7 +13,6 @@ const docItem = (id: string, title: string, order = 0) =>
 beforeEach(() => {
   ({ bridge, fake } = createFakeBridge());
   vi.stubGlobal('vrs', bridge);
-  vi.spyOn(window, 'confirm').mockReturnValue(true);
 });
 
 afterEach(() => {
@@ -30,7 +29,7 @@ async function openProject(project = makeOpened(), docs: Record<string, string> 
 }
 
 async function selectDocument(title: string) {
-  fireEvent.click(within(screen.getByRole('list', { name: 'Documents' })).getByRole('button', { name: new RegExp(title) }));
+  fireEvent.click(await within(screen.getByRole('tree', { name: 'Binder items' })).findByRole('treeitem', { name: title }));
   return screen.findByRole('textbox', { name: 'Document text' });
 }
 
@@ -103,11 +102,11 @@ describe('editing and saving', () => {
     expect(bridge.project.setDirty).toHaveBeenLastCalledWith(false);
   });
 
-  it('loads document bodies on demand and saves only what changed', async () => {
+  it('loads every document body once and saves only what changed', async () => {
     await openProject(makeOpened({ tree: { items: [docItem('a', 'Alpha'), docItem('b', 'Beta', 1)] } }), { a: 'alpha text', b: 'beta text' });
     const editor = await selectDocument('Alpha');
     expect(editor).toHaveValue('alpha text');
-    expect(bridge.project.readDoc).toHaveBeenCalledTimes(1);
+    expect(bridge.project.readDoc.mock.calls.map(([id]) => id).sort()).toEqual(['a', 'b']);
 
     fireEvent.change(editor, { target: { value: 'alpha edited' } });
     fireEvent.keyDown(window, { key: 's', ctrlKey: true });
@@ -118,7 +117,8 @@ describe('editing and saving', () => {
   it('deletes documents on save', async () => {
     await openProject(makeOpened({ tree: { items: [docItem('a', 'Alpha')] } }), { a: 'x' });
     await selectDocument('Alpha');
-    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Alpha' }));
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Delete item' })).getByRole('button', { name: 'Delete' }));
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     await screen.findByText('Saved');
     expect(fake.saves).toEqual([{ tree: { items: [] }, docs: { a: null } }]);
@@ -208,7 +208,7 @@ describe('external changes', () => {
     await openProject(project, { a: 'x' });
     fake.disk.tree = { items: [docItem('a', 'Alpha'), docItem('b', 'Added in git', 1)] };
     act(() => fake.emitExternalChange([{ path: 'tree.json', deleted: false }]));
-    expect(await screen.findByRole('button', { name: /Added in git/ })).toBeInTheDocument();
+    expect(await screen.findByRole('treeitem', { name: 'Added in git' })).toBeInTheDocument();
   });
 });
 

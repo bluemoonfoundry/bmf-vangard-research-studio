@@ -86,6 +86,8 @@ electron/preload.js     sandboxed preload; exposes window.vrs (CommonJS by neces
 electron/lib/           main-process modules, each with a co-located *.test.ts
 src/                    React renderer (App.tsx, index.css theme tokens, vite-env.d.ts declares window.vrs)
 src/project/             project types, IPC unwrapping (api.ts), pure reducer (projectState.ts), useProject hook
+src/workspace/           pure workspace logic: treeOps (move/duplicate), search, stats, dossier export, markdown, asset cache
+src/components/workspace/ binder, document editor, inspector, corkboard, outliner, split pane, dialogs (Workspace.tsx is the root)
 e2e/                    Playwright Electron tests (electron-launch.ts fixture: isolated userData, dialog stubs)
 ```
 
@@ -107,6 +109,14 @@ A project is a folder (`Name.vrs/`) of plain files: `vrs.json` (manifest + `sche
 - **External edits**: `projectWatcher.js` filters VRS's own writes by content hash (not timing). The renderer
   reloads clean files and asks before replacing unsaved ones.
 - **IPC results** are `{ ok, value | error: { code, message } }` envelopes; `src/project/api.ts` unwraps them.
+- **Binder items** are `tree.json` entries (synopsis, label, status, notes, citations, references by id, `asset`);
+  every item's body is `docs/<id>.md`. All bodies are loaded on open (search, word counts and export need them).
+- **Media** is copied into `assets/<id>.<ext>` by `project:import-media` (native dialog; name chosen in main,
+  allowlist in `electron/lib/media.js`). The renderer reads bytes via `project:read-asset` and shows them through
+  `blob:` URLs (`src/workspace/assetCache.ts`), never by path. Unwanted assets ride along in a save's
+  `deletedAssets`; the main process keeps any the saved tree still references.
+- **Links** go through `app:open-external` (http/https only). Never navigate the app window; Markdown previews
+  intercept link clicks.
 - **E2E** must stub every native dialog (`stubFolderDialogs`, `stubMessageBox`); an unstubbed dialog hangs
   the run on the developer's screen. Use `crashApp()`, not `process().kill()`, to simulate a crash.
 

@@ -26,6 +26,12 @@ export type ProjectApi = {
     : RawProjectApi[K];
 };
 
+/** Opens an http(s) link in the system browser, via the main process. */
+export function openExternal(bridge: VrsApi | undefined, url: string): Promise<void> {
+  if (!bridge) return Promise.reject(new ProjectError('UNAVAILABLE', 'Links open only in the desktop app.'));
+  return unwrap(bridge.app.openExternal(url));
+}
+
 export function createProjectApi(bridge: VrsApi): ProjectApi {
   const raw = bridge.project;
   return {
@@ -37,6 +43,9 @@ export function createProjectApi(bridge: VrsApi): ProjectApi {
     close: (options) => unwrap(raw.close(options)),
     readDoc: (id) => unwrap(raw.readDoc(id)),
     readStructure: () => unwrap(raw.readStructure()),
+    readAsset: (name) => unwrap(raw.readAsset(name)),
+    importMedia: (kind) => unwrap(raw.importMedia(kind)),
+    exportDossier: (markdown) => unwrap(raw.exportDossier(markdown)),
     save: (payload) => unwrap(raw.save(payload)),
     writeRecovery: (snapshot) => unwrap(raw.writeRecovery(snapshot)),
     discardRecovery: () => unwrap(raw.discardRecovery()),

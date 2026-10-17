@@ -148,6 +148,27 @@ describe('projectSession', () => {
     });
 });
 
+describe('projectSession assets', () => {
+    it('imports media into the open project and reads it back', async () => {
+        const root = path.join(tmp, 'A.vrs');
+        await createProject(root, { id: 'p', name: 'A', now: 'T' });
+        const source = path.join(tmp, 'tape.wav');
+        await fs.writeFile(source, 'RIFF');
+        const session = makeSession();
+        await session.open(root);
+
+        const imported = await session.importAsset(source, 'audio');
+        expect(imported).toEqual({ asset: 'id1.wav', originalName: 'tape', bytes: 4 });
+        expect((await session.readAsset('id1.wav')).toString()).toBe('RIFF');
+    });
+
+    it('refuses asset operations when nothing is open', async () => {
+        const session = makeSession();
+        await expect(session.readAsset('a.png')).rejects.toMatchObject({ code: 'NO_PROJECT' });
+        await expect(session.importAsset('/x.png', 'image')).rejects.toMatchObject({ code: 'NO_PROJECT' });
+    });
+});
+
 describe('toIpcResult', () => {
     it('wraps values and errors in a serialisable envelope', async () => {
         expect(await toIpcResult(async () => 5)).toEqual({ ok: true, value: 5 });

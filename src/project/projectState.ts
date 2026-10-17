@@ -1,4 +1,5 @@
 import type { OpenedProject, ProjectManifest, ProjectTree, RecoverySnapshot, SavePayload, TreeItem } from '@/project/types';
+import { descendantIds, moveItem, type DropPosition } from '@/workspace/treeOps';
 
 /** A document body the renderer has loaded. `saved` is null for a document that has never been written. */
 export interface DocEntry {
@@ -21,6 +22,12 @@ export interface ProjectState {
   docs: Record<string, DocEntry>;
   /** Ids removed from the tree since the last save whose files may exist on disk. */
   deletedDocs: string[];
+  /**
+   * Asset files no longer wanted (deleted items, replaced or abandoned imports).
+   * They ride along with the next save, which keeps any still referenced; they
+   * don't make the project dirty on their own.
+   */
+  deletedAssets: string[];
 }
 
 export type ProjectAction =
@@ -28,9 +35,14 @@ export type ProjectAction =
   | { type: 'closed' }
   | { type: 'docLoaded'; id: string; content: string }
   | { type: 'docEdited'; id: string; content: string }
+  | { type: 'docsLoaded'; docs: Record<string, string> }
   | { type: 'docAdded'; item: TreeItem }
+  | { type: 'itemsAdded'; items: TreeItem[]; docs: Record<string, string> }
   | { type: 'itemRenamed'; id: string; title: string }
+  | { type: 'itemUpdated'; id: string; patch: Partial<TreeItem> }
+  | { type: 'itemMoved'; id: string; targetId: string | null; position: DropPosition }
   | { type: 'itemDeleted'; id: string }
+  | { type: 'assetDiscarded'; asset: string }
   | { type: 'projectRenamed'; name: string }
   | { type: 'saved'; payload: SavePayload; manifest: ProjectManifest }
   | { type: 'recoveryRestored'; snapshot: RecoverySnapshot; diskDocs: Record<string, string> }
@@ -38,25 +50,29 @@ export type ProjectAction =
   | { type: 'docDiskChanged'; id: string; content: string }
   | { type: 'structureReloaded'; manifest: ProjectManifest; tree: ProjectTree };
 
-function descendantsOf(items: TreeItem[], id: string): Set<string> {
-  const ids = new Set([id]);
-  let grew = true;
-  while (grew) {
-    grew = false;
-    for (const item of items) {
-      if (item.parentId !== null && ids.has(item.parentId) && !ids.has(item.id)) {
-        ids.add(item.id);
-        grew = true;
-      }
-    }
-  }
-  return ids;
+const withAsset = (list: string[], asset: string | undefined) =>
+  asset && !list.includes(asset) ? [...list, asset] : list;
+
+function addItems(state: ProjectState, items: TreeItem[], bodies: Record<string, string>): ProjectState {
+  const docs = { ...state.docs };
+  for (const item of items) docs[item.id] = { saved: null, current: bodies[item.id] ?? '' };
+  return { ...state, tree: { ...state.tree, items: [...state.tree.items, ...items] }, docs };
+}
+
+function updateItems(state: ProjectState, update: (item: TreeItem) => TreeItem): ProjectState {
+  let changed = false;
+  const items = state.tree.items.map((item) => {
+    const next = update(item);
+    if (next !== item) changed = true;
+    return next;
+  });
+  return changed ? { ...state, tree: { ...state.tree, items } } : state;
 }
 
 export function projectReducer(state: ProjectState | null, action: ProjectAction): ProjectState | null {
   if (action.type === 'opened') {
     const { root, manifest, tree } = action.project;
-    return { root, manifest, savedName: manifest.name, tree, savedTree: tree, docs: {}, deletedDocs: [] };
+    return { root, manifest, savedName: manifest.name, tree, savedTree: tree, docs: {}, deletedDocs: [], deletedAssets: [] };
   }
   if (!state) return state;
 
@@ -74,37 +90,54 @@ export function projectReducer(state: ProjectState | null, action: ProjectAction
       return { ...state, docs: { ...state.docs, [action.id]: { ...doc, current: action.content } } };
     }
 
+    case 'docsLoaded': {
+      const ids = new Set(state.tree.items.map(i => i.id));
+      const docs = { ...state.docs };
+      for (const [id, content] of Object.entries(action.docs)) {
+        if (ids.has(id) && !docs[id]) docs[id] = { saved: content, current: content };
+      }
+      return { ...state, docs };
+    }
+
     case 'docAdded':
-      return {
-        ...state,
-        tree: { ...state.tree, items: [...state.tree.items, action.item] },
-        docs: { ...state.docs, [action.item.id]: { saved: null, current: '' } },
-      };
+      return addItems(state, [action.item], {});
+
+    case 'itemsAdded':
+      return addItems(state, action.items, action.docs);
 
     case 'itemRenamed':
-      return {
-        ...state,
-        tree: {
-          ...state.tree,
-          items: state.tree.items.map(i => (i.id === action.id ? { ...i, title: action.title } : i)),
-        },
-      };
+      return updateItems(state, i => (i.id === action.id ? { ...i, title: action.title } : i));
+
+    case 'itemUpdated':
+      return updateItems(state, i => (i.id === action.id ? { ...i, ...action.patch, id: i.id } : i));
+
+    case 'itemMoved': {
+      const items = moveItem(state.tree.items, action.id, action.targetId, action.position);
+      return items ? { ...state, tree: { ...state.tree, items } } : state;
+    }
 
     case 'itemDeleted': {
-      const removed = descendantsOf(state.tree.items, action.id);
+      const removed = descendantIds(state.tree.items, action.id);
       const docs = { ...state.docs };
       const deletedDocs = [...state.deletedDocs];
-      for (const id of removed) {
-        if (docs[id]?.saved !== null && !deletedDocs.includes(id)) deletedDocs.push(id);
-        delete docs[id];
+      let deletedAssets = state.deletedAssets;
+      for (const item of state.tree.items) {
+        if (!removed.has(item.id)) continue;
+        // A document that was never loaded may still exist on disk.
+        if (docs[item.id]?.saved !== null && !deletedDocs.includes(item.id)) deletedDocs.push(item.id);
+        delete docs[item.id];
+        deletedAssets = withAsset(deletedAssets, item.asset);
       }
-      return {
-        ...state,
-        tree: { ...state.tree, items: state.tree.items.filter(i => !removed.has(i.id)) },
-        docs,
-        deletedDocs,
-      };
+      const items = state.tree.items
+        .filter(i => !removed.has(i.id))
+        .map(i => (i.references?.some(r => removed.has(r.targetId))
+          ? { ...i, references: i.references.filter(r => !removed.has(r.targetId)) }
+          : i));
+      return { ...state, tree: { ...state.tree, items }, docs, deletedDocs, deletedAssets };
     }
+
+    case 'assetDiscarded':
+      return { ...state, deletedAssets: withAsset(state.deletedAssets, action.asset) };
 
     case 'projectRenamed':
       return { ...state, manifest: { ...state.manifest, name: action.name } };
@@ -122,6 +155,7 @@ export function projectReducer(state: ProjectState | null, action: ProjectAction
         savedTree: payload.tree ?? state.savedTree,
         docs,
         deletedDocs: state.deletedDocs.filter(id => payload.docs?.[id] !== null),
+        deletedAssets: state.deletedAssets.filter(name => !payload.deletedAssets?.includes(name)),
       };
     }
 
@@ -143,6 +177,7 @@ export function projectReducer(state: ProjectState | null, action: ProjectAction
         tree: snapshot.tree ?? state.tree,
         docs,
         deletedDocs,
+        deletedAssets: (snapshot.deletedAssets ?? []).reduce(withAsset, state.deletedAssets),
       };
     }
 
@@ -166,6 +201,7 @@ export function projectReducer(state: ProjectState | null, action: ProjectAction
         savedTree: action.tree,
         docs,
         deletedDocs: [],
+        deletedAssets: [],
       };
     }
   }
@@ -194,5 +230,6 @@ export function buildSavePayload(state: ProjectState): SavePayload {
   }
   for (const id of state.deletedDocs) docs[id] = null;
   if (Object.keys(docs).length) payload.docs = docs;
+  if (state.deletedAssets.length) payload.deletedAssets = state.deletedAssets;
   return payload;
 }

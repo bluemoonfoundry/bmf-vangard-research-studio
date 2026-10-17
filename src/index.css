@@ -9,10 +9,25 @@
   color-scheme: light;
   --vrs-surface: #fafaf9;
   --vrs-surface-raised: #ffffff;
+  --vrs-surface-sunken: #f2f0ed;
   --vrs-line: #e7e5e4;
   --vrs-content: #1c1917;
   --vrs-content-muted: #57534e;
   --vrs-accent: #b45309;
+  --vrs-on-accent: #ffffff;
+  --vrs-accent-soft: rgb(180 83 9 / 0.12);
+  --vrs-danger: #b91c1c;
+  --vrs-highlight: rgb(251 191 36 / 0.45);
+  /* Index cards and the corkboard they sit on. */
+  --vrs-card: #fffdf8;
+  --vrs-card-header: #f7f2e8;
+  --vrs-card-line: #e2d9c6;
+  --vrs-card-content: #292524;
+  --vrs-card-muted: #78716c;
+  --vrs-board-cork: #d9c7a7;
+  --vrs-board-cork-dot: #c8b38f;
+  --vrs-board-grid: #ece8e1;
+  --vrs-board-grid-line: #ddd7cd;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -20,10 +35,24 @@
     color-scheme: dark;
     --vrs-surface: #0c0a09;
     --vrs-surface-raised: #1c1917;
+    --vrs-surface-sunken: #151210;
     --vrs-line: #292524;
     --vrs-content: #f5f5f4;
     --vrs-content-muted: #a8a29e;
     --vrs-accent: #fbbf24;
+    --vrs-on-accent: #0c0a09;
+    --vrs-accent-soft: rgb(251 191 36 / 0.14);
+    --vrs-danger: #f87171;
+    --vrs-highlight: rgb(251 191 36 / 0.4);
+    --vrs-card: #26211d;
+    --vrs-card-header: #2e2823;
+    --vrs-card-line: #3d352e;
+    --vrs-card-content: #f0ebe3;
+    --vrs-card-muted: #a8a29e;
+    --vrs-board-cork: #2b2520;
+    --vrs-board-cork-dot: #3a322c;
+    --vrs-board-grid: #1c1b1a;
+    --vrs-board-grid-line: #252321;
   }
 }
 
@@ -31,21 +60,47 @@
   color-scheme: dark;
   --vrs-surface: #0c0a09;
   --vrs-surface-raised: #1c1917;
+  --vrs-surface-sunken: #151210;
   --vrs-line: #292524;
   --vrs-content: #f5f5f4;
   --vrs-content-muted: #a8a29e;
   --vrs-accent: #fbbf24;
+  --vrs-on-accent: #0c0a09;
+  --vrs-accent-soft: rgb(251 191 36 / 0.14);
+  --vrs-danger: #f87171;
+  --vrs-highlight: rgb(251 191 36 / 0.4);
+  --vrs-card: #26211d;
+  --vrs-card-header: #2e2823;
+  --vrs-card-line: #3d352e;
+  --vrs-card-content: #f0ebe3;
+  --vrs-card-muted: #a8a29e;
+  --vrs-board-cork: #2b2520;
+  --vrs-board-cork-dot: #3a322c;
+  --vrs-board-grid: #1c1b1a;
+  --vrs-board-grid-line: #252321;
 }
 
 @theme inline {
   --color-surface: var(--vrs-surface);
   --color-surface-raised: var(--vrs-surface-raised);
+  --color-surface-sunken: var(--vrs-surface-sunken);
   --color-line: var(--vrs-line);
   --color-content: var(--vrs-content);
   --color-content-muted: var(--vrs-content-muted);
   --color-accent: var(--vrs-accent);
+  --color-on-accent: var(--vrs-on-accent);
+  --color-accent-soft: var(--vrs-accent-soft);
+  --color-danger: var(--vrs-danger);
+  --color-highlight: var(--vrs-highlight);
+  --color-card: var(--vrs-card);
+  --color-card-header: var(--vrs-card-header);
+  --color-card-line: var(--vrs-card-line);
+  --color-card-content: var(--vrs-card-content);
+  --color-card-muted: var(--vrs-card-muted);
   /* Bundled/system fonts only: the CSP blocks remote font CDNs. */
   --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  --font-mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
 }
 
 body {
@@ -53,4 +108,123 @@ body {
   background: var(--vrs-surface);
   color: var(--vrs-content);
   font-family: var(--font-sans);
+}
+
+/* Slim scrollbars that follow the theme. */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--vrs-content-muted) 35%, transparent);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--vrs-content-muted) 60%, transparent);
+}
+
+.corkboard-cork {
+  background-color: var(--vrs-board-cork);
+  background-image: radial-gradient(var(--vrs-board-cork-dot) 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+.corkboard-grid {
+  background-color: var(--vrs-board-grid);
+  background-image:
+    linear-gradient(to right, var(--vrs-board-grid-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--vrs-board-grid-line) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+.corkboard-plain {
+  background-color: var(--vrs-surface-sunken);
+}
+
+/* Rendered (sanitized) Markdown in the document preview and QuickRef. */
+.markdown-body {
+  line-height: 1.65;
+  font-size: 0.9rem;
+}
+.markdown-body > * + * {
+  margin-top: 0.75em;
+}
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3 {
+  font-family: var(--font-serif);
+  font-weight: 700;
+  line-height: 1.25;
+  margin-top: 1.4em;
+}
+.markdown-body h1 {
+  font-size: 1.6rem;
+  border-bottom: 1px solid var(--vrs-line);
+  padding-bottom: 0.3em;
+}
+.markdown-body h2 {
+  font-size: 1.3rem;
+}
+.markdown-body h3 {
+  font-size: 1.1rem;
+}
+.markdown-body h4,
+.markdown-body h5,
+.markdown-body h6 {
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 0.8rem;
+  color: var(--vrs-content-muted);
+}
+.markdown-body ul {
+  list-style: disc;
+  padding-left: 1.5em;
+}
+.markdown-body ol {
+  list-style: decimal;
+  padding-left: 1.5em;
+}
+.markdown-body blockquote {
+  border-left: 3px solid var(--vrs-accent);
+  padding: 0.2em 1em;
+  color: var(--vrs-content-muted);
+  font-style: italic;
+}
+.markdown-body code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  background: var(--vrs-surface-sunken);
+  padding: 0.1em 0.3em;
+  border-radius: 3px;
+}
+.markdown-body pre {
+  background: var(--vrs-surface-sunken);
+  padding: 0.75em 1em;
+  border-radius: 6px;
+  overflow-x: auto;
+}
+.markdown-body pre code {
+  background: none;
+  padding: 0;
+}
+.markdown-body a {
+  color: var(--vrs-accent);
+  text-decoration: underline;
+}
+.markdown-body hr {
+  border: 0;
+  border-top: 1px solid var(--vrs-line);
+}
+.markdown-body table {
+  border-collapse: collapse;
+}
+.markdown-body th,
+.markdown-body td {
+  border: 1px solid var(--vrs-line);
+  padding: 0.3em 0.6em;
+}
+.markdown-body img {
+  max-width: 100%;
 }

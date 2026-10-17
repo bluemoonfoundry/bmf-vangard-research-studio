@@ -15,6 +15,8 @@ contextBridge.exposeInMainWorld('vrs', {
     getVersion: () => ipcRenderer.invoke('app:get-version'),
     onSaveBeforeClose: (callback) => subscribe('app:save-before-close', callback),
     closeConfirmed: () => ipcRenderer.invoke('app:close-confirmed'),
+    // Only http(s) URLs; the main process validates and hands them to the system browser.
+    openExternal: (url) => ipcRenderer.invoke('app:open-external', url),
   },
   // Project roots only ever come from native dialogs or the recent list (see
   // electron/lib/projectSession.js); the renderer can't name an arbitrary folder.
@@ -27,6 +29,11 @@ contextBridge.exposeInMainWorld('vrs', {
     close: (options) => ipcRenderer.invoke('project:close', options),
     readDoc: (id) => ipcRenderer.invoke('project:read-doc', id),
     readStructure: () => ipcRenderer.invoke('project:read-structure'),
+    readAsset: (name) => ipcRenderer.invoke('project:read-asset', name),
+    // Shows a native open dialog; the main process copies the pick into assets/.
+    importMedia: (kind) => ipcRenderer.invoke('project:import-media', kind),
+    // Shows a native save dialog for a Markdown export outside the project.
+    exportDossier: (markdown) => ipcRenderer.invoke('project:export-dossier', markdown),
     save: (payload) => ipcRenderer.invoke('project:save', payload),
     writeRecovery: (snapshot) => ipcRenderer.invoke('project:write-recovery', snapshot),
     discardRecovery: () => ipcRenderer.invoke('project:discard-recovery'),

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
-import { createProject, openProject, readDoc, saveProject } from './projectStore.js';
+import { createProject, importAsset, openProject, readAsset, readDoc, saveProject } from './projectStore.js';
 import { CURRENT_SCHEMA_VERSION } from './projectSchema.js';
 
 const NOW = '2026-10-17T12:00:00.000Z';
@@ -160,5 +160,55 @@ describe('saveProject', () => {
 
     it('ignores deleting a document that is already gone', async () => {
         await expect(saveProject(root, { docs: { ghost: null } }, { now: LATER })).resolves.toBeDefined();
+    });
+});
+
+describe('assets', () => {
+    let source: string;
+
+    beforeEach(async () => {
+        await createProject(root, { id: 'p1', name: 'X', now: NOW });
+        source = path.join(tmp, 'Harbour Map.PNG');
+        await fs.writeFile(source, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 1, 2]));
+    });
+
+    it('copies an imported file into assets/ under a name it picks', async () => {
+        const imported = await importAsset(root, source, { kind: 'image', newId: 'abc' });
+        expect(imported).toEqual({ asset: 'abc.png', originalName: 'Harbour Map', bytes: 7 });
+        expect(await readAsset(root, 'abc.png')).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 1, 2]));
+    });
+
+    it('refuses files of the wrong kind', async () => {
+        await expect(importAsset(root, source, { kind: 'audio', newId: 'abc' })).rejects.toMatchObject({ code: 'UNSUPPORTED' });
+        await expect(importAsset(root, source, { kind: 'video' as 'image', newId: 'abc' })).rejects.toMatchObject({ code: 'INVALID' });
+        expect(await fs.readdir(path.join(root, 'assets'))).toEqual([]);
+    });
+
+    it('rejects asset names that could escape assets/', async () => {
+        await expect(readAsset(root, '../vrs.json')).rejects.toMatchObject({ code: 'INVALID' });
+    });
+
+    it('reports a missing asset file', async () => {
+        await expect(readAsset(root, 'gone.png')).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+
+    it('deletes requested assets on save, after the tree, unless still referenced', async () => {
+        await importAsset(root, source, { kind: 'image', newId: 'old' });
+        await importAsset(root, source, { kind: 'image', newId: 'shared' });
+        const writes: string[] = [];
+        await saveProject(root, {
+            tree: { items: [{ ...docItem('a'), asset: 'shared.png' }] },
+            deletedAssets: ['old.png', 'shared.png'],
+        }, { now: LATER, onWrite: (rel: string, content: string | null) => writes.push(`${rel}:${content === null ? 'deleted' : 'written'}`) });
+
+        expect(await fs.readdir(path.join(root, 'assets'))).toEqual(['shared.png']);
+        expect(writes).toEqual(['tree.json:written', 'vrs.json:written', 'assets/old.png:deleted']);
+    });
+
+    it('checks references against the tree on disk when the save does not change it', async () => {
+        await importAsset(root, source, { kind: 'image', newId: 'kept' });
+        await saveProject(root, { tree: { items: [{ ...docItem('a'), asset: 'kept.png' }] } }, { now: LATER });
+        await saveProject(root, { deletedAssets: ['kept.png'] }, { now: LATER });
+        expect(await fs.readdir(path.join(root, 'assets'))).toEqual(['kept.png']);
     });
 });

@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { buildSavePayload, isDirty, isDocDirty, isStructureDirty, projectReducer, type ProjectState } from '@/project/projectState';
 import type { ProjectApi } from '@/project/api';
-import type { ExternalChange, OpenedProject, RecentProject, RecoverySnapshot, TreeItem } from '@/project/types';
+import type { ExternalChange, MediaKind, OpenedProject, RecentProject, RecoverySnapshot, TreeItem } from '@/project/types';
+import { createAssetCache } from '@/workspace/assetCache';
+import { descendantIds, duplicateSubtree, nextOrder, type DropPosition } from '@/workspace/treeOps';
 
 /** Delay between the last edit and writing a crash-recovery snapshot. */
 export const RECOVERY_DEBOUNCE_MS = 1000;
@@ -10,6 +12,10 @@ export const RECOVERY_DEBOUNCE_MS = 1000;
 export const STRUCTURE_CONFLICT = 'structure';
 
 const DOC_PATH = /^docs\/([A-Za-z0-9_-]+)\.md$/;
+const ASSET_PATH = /^assets\/([^/]+)$/;
+
+/** Fields a caller supplies for a new binder item; the rest are filled in. */
+export type NewItem = Partial<TreeItem> & Pick<TreeItem, 'type' | 'title'>;
 
 function describeError(err: unknown) {
   return err instanceof Error ? err.message : String(err);
@@ -30,6 +36,11 @@ export function useProject(api: ProjectApi | null, bridge: Pick<VrsApi['app'], '
   stateRef.current = state;
 
   const dirty = isDirty(state);
+
+  // Blob URLs for imported media, scoped to the open project.
+  const root = state?.root ?? null;
+  const assets = useMemo(() => (api && root ? createAssetCache(name => api.readAsset(name)) : null), [api, root]);
+  useEffect(() => () => assets?.clear(), [assets]);
 
   const run = useCallback(async <T,>(action: () => Promise<T>): Promise<T | undefined> => {
     try {
@@ -127,22 +138,70 @@ export function useProject(api: ProjectApi | null, bridge: Pick<VrsApi['app'], '
     if (content !== undefined) dispatch({ type: 'docLoaded', id, content });
   }, [api, run]);
 
-  const addDocument = useCallback((title: string): string => {
+  /** Reads every document body not loaded yet (search, word counts and export need them all). */
+  const loadAllDocs = useCallback(async () => {
+    const current = stateRef.current;
+    if (!api || !current) return;
+    const ids = current.tree.items.map(i => i.id).filter(id => !current.docs[id]);
+    if (!ids.length) return;
+    const bodies = await run(() => Promise.all(ids.map(id => api.readDoc(id))));
+    if (bodies) dispatch({ type: 'docsLoaded', docs: Object.fromEntries(ids.map((id, i) => [id, bodies[i]])) });
+  }, [api, run]);
+
+  /** Adds a binder item (at the end of its parent) with an optional body; returns its id. */
+  const addItem = useCallback((fields: NewItem, content = ''): string => {
     const items = stateRef.current?.tree.items ?? [];
     const now = new Date().toISOString();
+    const parentId = fields.parentId ?? null;
     const item: TreeItem = {
-      id: crypto.randomUUID(),
-      parentId: null,
-      type: 'document',
-      title,
-      order: items.reduce((max, i) => Math.max(max, i.order + 1), 0),
       keywords: [],
+      ...fields,
+      id: crypto.randomUUID(),
+      parentId,
+      order: nextOrder(items, parentId),
       createdAt: now,
       updatedAt: now,
     };
-    dispatch({ type: 'docAdded', item });
+    dispatch({ type: 'itemsAdded', items: [item], docs: { [item.id]: content } });
     return item.id;
   }, []);
+
+  const addDocument = useCallback((title: string) => addItem({ type: 'document', title }), [addItem]);
+
+  const updateItem = useCallback((id: string, patch: Partial<TreeItem>) =>
+    dispatch({ type: 'itemUpdated', id, patch: { ...patch, updatedAt: new Date().toISOString() } }), []);
+
+  const moveItem = useCallback((id: string, targetId: string | null, position: DropPosition) =>
+    dispatch({ type: 'itemMoved', id, targetId, position }), []);
+
+  /** Copies an item and everything under it, bodies included; resolves to the copy's id. */
+  const duplicateItem = useCallback(async (id: string): Promise<string | null> => {
+    const current = stateRef.current;
+    if (!api || !current) return null;
+    const subtree = [...descendantIds(current.tree.items, id)];
+    const bodies = await run(() => Promise.all(subtree.map(i => current.docs[i]?.current ?? api.readDoc(i))));
+    const latest = stateRef.current;
+    if (!bodies || !latest?.tree.items.some(i => i.id === id)) return null;
+    const { added, idMap } = duplicateSubtree(latest.tree.items, id, () => crypto.randomUUID(), new Date().toISOString());
+    const docs = Object.fromEntries(subtree.map((oldId, i) => [idMap.get(oldId)!, bodies[i]]));
+    dispatch({ type: 'itemsAdded', items: added, docs });
+    return idMap.get(id) ?? null;
+  }, [api, run]);
+
+  /** Marks an asset file as unwanted; it's deleted on the next save unless something still uses it. */
+  const discardAsset = useCallback((asset: string) => dispatch({ type: 'assetDiscarded', asset }), []);
+
+  /** Lets the user pick a media file and copies it into the project; null if they cancel. */
+  const importMedia = useCallback(async (kind: MediaKind) => {
+    if (!api) return null;
+    return (await run(() => api.importMedia(kind))) ?? null;
+  }, [api, run]);
+
+  /** Saves Markdown to a file the user picks; resolves to its path, or null if cancelled or failed. */
+  const exportDossier = useCallback(async (markdown: string) => {
+    if (!api) return null;
+    return (await run(() => api.exportDossier(markdown))) ?? null;
+  }, [api, run]);
 
   const editDoc = useCallback((id: string, content: string) => dispatch({ type: 'docEdited', id, content }), []);
   const renameItem = useCallback((id: string, title: string) => dispatch({ type: 'itemRenamed', id, title }), []);
@@ -201,6 +260,11 @@ export function useProject(api: ProjectApi | null, bridge: Pick<VrsApi['app'], '
         for (const change of changes) {
           const current = stateRef.current;
           if (!current) return;
+          const asset = ASSET_PATH.exec(change.path);
+          if (asset) {
+            assets?.invalidate(asset[1]);
+            continue;
+          }
           const doc = DOC_PATH.exec(change.path);
           if (doc) {
             const id = doc[1];
@@ -222,7 +286,7 @@ export function useProject(api: ProjectApi | null, bridge: Pick<VrsApi['app'], '
         }
       })();
     });
-  }, [api, run]);
+  }, [api, assets, run]);
 
   // Let the main process know, so closing the window can prompt to save.
   const hasProject = state !== null;
@@ -249,18 +313,22 @@ export function useProject(api: ProjectApi | null, bridge: Pick<VrsApi['app'], '
     });
   }, [bridge, save]);
 
+  const reportError = useCallback((message: string) => setError(message), []);
+
   return useMemo(() => ({
-    state, dirty, saving, error, recents, recovery, migratedFrom, conflicts,
+    state, dirty, saving, error, recents, recovery, migratedFrom, conflicts, assets,
     createProject, openProject, openRecent, removeRecent, closeProject, save,
-    loadDoc, addDocument, editDoc, renameItem, deleteItem, renameProject,
-    restoreRecovery, discardRecovery, reloadFromDisk, keepMine,
+    loadDoc, loadAllDocs, addDocument, addItem, updateItem, moveItem, duplicateItem, editDoc, renameItem, deleteItem,
+    renameProject, discardAsset, importMedia, exportDossier,
+    restoreRecovery, discardRecovery, reloadFromDisk, keepMine, reportError,
     dismissError: () => setError(null),
     dismissMigration: () => setMigratedFrom(null),
   }), [
-    state, dirty, saving, error, recents, recovery, migratedFrom, conflicts,
+    state, dirty, saving, error, recents, recovery, migratedFrom, conflicts, assets,
     createProject, openProject, openRecent, removeRecent, closeProject, save,
-    loadDoc, addDocument, editDoc, renameItem, deleteItem, renameProject,
-    restoreRecovery, discardRecovery, reloadFromDisk, keepMine,
+    loadDoc, loadAllDocs, addDocument, addItem, updateItem, moveItem, duplicateItem, editDoc, renameItem, deleteItem,
+    renameProject, discardAsset, importMedia, exportDossier,
+    restoreRecovery, discardRecovery, reloadFromDisk, keepMine, reportError,
   ]);
 }
 

@@ -21,7 +21,7 @@ export const PROJECT_DIRS = ['docs', 'chats', 'assets', 'bible', 'maps'];
 export const MIGRATIONS = {};
 
 export class ProjectFormatError extends Error {
-    /** @param {'NOT_A_PROJECT'|'CORRUPT'|'TOO_NEW'|'INVALID'|'EXISTS'|'NO_PROJECT'|'NOT_RECENT'} code */
+    /** @param {'NOT_A_PROJECT'|'CORRUPT'|'TOO_NEW'|'INVALID'|'EXISTS'|'NO_PROJECT'|'NOT_RECENT'|'NOT_FOUND'|'UNSUPPORTED'|'TOO_LARGE'} code */
     constructor(code, message) {
         super(message);
         this.name = 'ProjectFormatError';
@@ -48,6 +48,22 @@ export function isValidItemId(id) {
     return typeof id === 'string'
         && /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(id)
         && !WINDOWS_RESERVED.test(id);
+}
+
+/**
+ * Imported media lives in assets/<name>, where the main process picks the name
+ * (an item-id-style stem plus a lower-case extension). The renderer only ever
+ * refers to assets by these names, never by path.
+ */
+export function isValidAssetName(name) {
+    if (typeof name !== 'string') return false;
+    const match = /^([A-Za-z0-9][A-Za-z0-9_-]{0,63})\.([a-z0-9]{1,8})$/.exec(name);
+    return match !== null && !WINDOWS_RESERVED.test(match[1]);
+}
+
+/** Asset names referenced by binder items (`item.asset`). */
+export function referencedAssets(tree) {
+    return new Set((tree?.items ?? []).map(item => item.asset).filter(isValidAssetName));
 }
 
 function isPlainObject(value) {
@@ -112,7 +128,8 @@ export function normalizeTree(raw) {
 
 /**
  * Validates a save (or recovery snapshot) request from the renderer. The
- * renderer may change the project name, settings, tree and document bodies;
+ * renderer may change the project name, settings, tree and document bodies,
+ * and ask for assets to be deleted;
  * identity fields (id, schemaVersion, timestamps) are owned by the main process.
  */
 export function validateSavePayload(payload) {
@@ -148,6 +165,13 @@ export function validateSavePayload(payload) {
             }
         }
         result.docs = payload.docs;
+    }
+
+    if (payload.deletedAssets !== undefined) {
+        if (!Array.isArray(payload.deletedAssets) || !payload.deletedAssets.every(isValidAssetName)) {
+            throw new ProjectFormatError('INVALID', 'deletedAssets must be a list of asset names.');
+        }
+        result.deletedAssets = [...new Set(payload.deletedAssets)];
     }
 
     return result;

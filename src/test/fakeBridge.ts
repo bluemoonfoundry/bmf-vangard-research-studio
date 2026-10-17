@@ -1,6 +1,7 @@
 import { vi } from 'vitest';
 import type {
-  ExternalChange, IpcResult, OpenedProject, ProjectManifest, ProjectTree, RecentProject, SavePayload, UnsavedChoice,
+  ExternalChange, ImportedAsset, IpcResult, MediaKind, OpenedProject, ProjectManifest, ProjectTree, RecentProject,
+  SavePayload, UnsavedChoice,
 } from '@/project/types';
 
 const ok = <T,>(value: T): Promise<IpcResult<T>> => Promise.resolve({ ok: true, value });
@@ -33,13 +34,20 @@ export function createFakeBridge() {
       manifest: null as ProjectManifest | null,
       tree: { items: [] } as ProjectTree,
       docs: {} as Record<string, string>,
+      assets: {} as Record<string, Uint8Array>,
     },
+    /** What the next media-import dialog "picks" (null = cancelled). */
+    nextImport: null as ImportedAsset | null,
+    /** What the next export dialog returns as the saved path (null = cancelled). */
+    nextExportPath: null as string | null,
+    exports: [] as string[],
+    openedLinks: [] as string[],
     saves: [] as SavePayload[],
     recoveryWrites: [] as SavePayload[],
     saveError: null as string | null,
 
     load(project: OpenedProject, docs: Record<string, string> = {}) {
-      fake.disk = { manifest: project.manifest, tree: project.tree, docs };
+      fake.disk = { ...fake.disk, manifest: project.manifest, tree: project.tree, docs };
     },
     emitExternalChange(changes: ExternalChange[]) {
       externalListeners.forEach(l => l(changes));
@@ -63,6 +71,10 @@ export function createFakeBridge() {
         return () => closeListeners.delete(cb);
       }),
       closeConfirmed: vi.fn(() => ok(undefined)),
+      openExternal: vi.fn((url: string) => {
+        fake.openedLinks.push(url);
+        return ok(undefined);
+      }),
     },
     project: {
       create: openDialog,
@@ -76,6 +88,20 @@ export function createFakeBridge() {
       close: vi.fn((_options?: { discardRecovery?: boolean }) => ok(undefined)),
       readDoc: vi.fn((id: string) => ok(fake.disk.docs[id] ?? '')),
       readStructure: vi.fn(() => ok({ manifest: fake.disk.manifest!, tree: fake.disk.tree })),
+      readAsset: vi.fn((name: string): Promise<IpcResult<Uint8Array>> => {
+        const bytes = fake.disk.assets[name];
+        if (!bytes) return Promise.resolve({ ok: false, error: { code: 'NOT_FOUND', message: `${name} is missing` } });
+        return ok(bytes);
+      }),
+      importMedia: vi.fn((_kind: MediaKind) => {
+        const picked = fake.nextImport;
+        if (picked) fake.disk.assets[picked.asset] = new Uint8Array([1, 2, 3]);
+        return ok(picked);
+      }),
+      exportDossier: vi.fn((markdown: string) => {
+        if (fake.nextExportPath) fake.exports.push(markdown);
+        return ok(fake.nextExportPath);
+      }),
       save: vi.fn((payload: SavePayload): Promise<IpcResult<{ manifest: ProjectManifest }>> => {
         if (fake.saveError) return Promise.resolve({ ok: false, error: { code: 'IO', message: fake.saveError } });
         fake.saves.push(payload);
@@ -84,6 +110,7 @@ export function createFakeBridge() {
           else fake.disk.docs[id] = body;
         }
         if (payload.tree) fake.disk.tree = payload.tree;
+        for (const name of payload.deletedAssets ?? []) delete fake.disk.assets[name];
         fake.disk.manifest = { ...fake.disk.manifest!, ...payload.manifest, updatedAt: `T${fake.saves.length}` };
         return ok({ manifest: fake.disk.manifest });
       }),

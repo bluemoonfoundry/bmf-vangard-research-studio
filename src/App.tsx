@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { createProjectApi } from '@/project/api';
 import { useProject } from '@/project/useProject';
 import { WelcomeScreen } from '@/components/WelcomeScreen';
-import { ProjectWorkspace } from '@/components/ProjectWorkspace';
+import { Workspace } from '@/components/workspace/Workspace';
 import { ProjectNotices } from '@/components/ProjectNotices';
 
 const APP_NAME = 'Vangard Research Studio';
@@ -65,9 +65,9 @@ export default function App() {
         {version && <span className={`text-xs text-content-muted ${state ? '' : 'ml-auto'}`}>v{version}</span>}
       </header>
       <ProjectNotices project={project} />
-      <main className="flex min-h-0 flex-1">
+      <main className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
         {state ? (
-          <ProjectWorkspace key={state.root} project={project} />
+          <Workspace key={state.root} project={project} />
         ) : (
           <WelcomeScreen
             recents={project.recents}

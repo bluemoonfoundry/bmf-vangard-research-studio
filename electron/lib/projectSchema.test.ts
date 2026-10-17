@@ -9,6 +9,8 @@ import {
     migrateProject,
     normalizeTree,
     isValidItemId,
+    isValidAssetName,
+    referencedAssets,
     validateSavePayload,
 } from './projectSchema.js';
 
@@ -106,10 +108,30 @@ describe('isValidItemId', () => {
     });
 });
 
+describe('isValidAssetName', () => {
+    it.each(['a.png', `${crypto.randomUUID()}.mp3`, 'x_1.jpeg'])('accepts %s', (name) => {
+        expect(isValidAssetName(name)).toBe(true);
+    });
+    it.each(['a', 'a.PNG', '../a.png', 'a/b.png', '.a.png', 'a.png.tmp-1', 'con.png', 'a.toolongext', 'a b.png', 7])('rejects %j', (name) => {
+        expect(isValidAssetName(name)).toBe(false);
+    });
+});
+
+describe('referencedAssets', () => {
+    it('collects valid asset names from items', () => {
+        const tree = { items: [{ asset: 'a.png' }, { asset: '../evil' }, {}, { asset: 'b.mp3' }] };
+        expect([...referencedAssets(tree)].sort()).toEqual(['a.png', 'b.mp3']);
+    });
+});
+
 describe('validateSavePayload', () => {
     it('accepts a full payload', () => {
         const payload = { manifest: { name: 'New' }, tree: { items: [] }, docs: { a: 'text', b: null } };
         expect(validateSavePayload(payload)).toEqual(payload);
+    });
+
+    it('accepts asset deletions, dropping duplicates', () => {
+        expect(validateSavePayload({ deletedAssets: ['a.png', 'a.png'] })).toEqual({ deletedAssets: ['a.png'] });
     });
 
     it('accepts an empty payload', () => {
@@ -127,6 +149,8 @@ describe('validateSavePayload', () => {
         ['bad doc id', { docs: { '../x': 'a' } }],
         ['non-string doc body', { docs: { a: 1 } }],
         ['corrupt tree', { tree: { items: 'x' } }],
+        ['asset path', { deletedAssets: ['../a.png'] }],
+        ['non-list deletedAssets', { deletedAssets: 'a.png' }],
     ])('rejects %s', (_label, payload) => {
         expect(() => validateSavePayload(payload)).toThrow(expect.objectContaining({ code: 'INVALID' }));
     });

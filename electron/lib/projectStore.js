@@ -1,6 +1,6 @@
 import fs from 'fs/promises';
 import path from 'path';
-import { atomicWriteFile, cleanupStaleTempFiles } from './atomicFileWrite.js';
+import { atomicCopyFile, atomicWriteFile, cleanupStaleTempFiles } from './atomicFileWrite.js';
 import { validateProjectPath } from './ipcSecurity.js';
 import {
     MANIFEST_FILE,
@@ -9,11 +9,14 @@ import {
     ProjectFormatError,
     createManifest,
     createEmptyTree,
+    isValidAssetName,
     isValidItemId,
     migrateProject,
     normalizeTree,
+    referencedAssets,
     validateSavePayload,
 } from './projectSchema.js';
+import { MAX_ASSET_BYTES, mediaExtension } from './media.js';
 
 /**
  * Reads and writes a VRS project folder. Every function takes the project
@@ -49,6 +52,11 @@ async function resolveInside(root, relPath) {
 function docRelPath(id) {
     if (!isValidItemId(id)) throw new ProjectFormatError('INVALID', `Invalid document id: ${id}`);
     return `docs/${id}.md`;
+}
+
+function assetRelPath(name) {
+    if (!isValidAssetName(name)) throw new ProjectFormatError('INVALID', `Invalid asset name: ${name}`);
+    return `assets/${name}`;
 }
 
 export async function createProject(root, { id, name, now }) {
@@ -109,6 +117,38 @@ export async function readDoc(root, id) {
     }
 }
 
+/** Reads an imported asset's bytes. */
+export async function readAsset(root, name) {
+    const full = await resolveInside(root, assetRelPath(name));
+    try {
+        return await fs.readFile(full);
+    } catch (err) {
+        if (err.code === 'ENOENT') throw new ProjectFormatError('NOT_FOUND', `The file for ${name} is missing from assets/.`);
+        throw err;
+    }
+}
+
+/**
+ * Copies a user-picked media file into assets/ under a name chosen here (never
+ * by the renderer), so it travels with the project folder.
+ *
+ * @param {string} root
+ * @param {string} sourcePath  must come from a native open dialog
+ * @param {{ kind: 'image' | 'audio', newId: string }} options
+ */
+export async function importAsset(root, sourcePath, { kind, newId }) {
+    const ext = mediaExtension(sourcePath, kind);
+    const { size } = await fs.stat(sourcePath);
+    if (size > MAX_ASSET_BYTES) {
+        throw new ProjectFormatError('TOO_LARGE', `${path.basename(sourcePath)} is larger than ${MAX_ASSET_BYTES / 1024 / 1024} MB.`);
+    }
+    const asset = `${newId}.${ext}`;
+    const full = await resolveInside(root, assetRelPath(asset));
+    await fs.mkdir(path.dirname(full), { recursive: true });
+    await atomicCopyFile(sourcePath, full);
+    return { asset, originalName: path.basename(sourcePath, path.extname(sourcePath)), bytes: size };
+}
+
 /** Re-reads only the structure files, for picking up changes made outside VRS. */
 export async function readStructure(root) {
     const { manifest, tree } = await openProject(root);
@@ -116,13 +156,14 @@ export async function readStructure(root) {
 }
 
 /**
- * Saves the parts of a project named in `payload` ({ manifest?, tree?, docs? }).
+ * Saves the parts of a project named in `payload` ({ manifest?, tree?, docs?, deletedAssets? }).
  *
  * Each file is written atomically, and the order keeps the folder consistent
  * if the save is interrupted part-way: document bodies first, then the tree
  * that references them, then vrs.json, and deletions only once nothing
  * references the deleted documents. The worst case is an orphaned docs/*.md,
- * never a tree entry pointing at a missing or half-written file.
+ * never a tree entry pointing at a missing or half-written file. Assets the
+ * saved tree still references (e.g. shared by a duplicated item) are kept.
  *
  * `onWrite(relPath, content|null)` is called before each write/delete so the
  * external-change watcher can recognise VRS's own writes.
@@ -156,6 +197,18 @@ export async function saveProject(root, payload, { now, onWrite = () => {} } = {
         const full = await resolveInside(root, relPath);
         onWrite(relPath, null);
         await fs.rm(full, { force: true });
+    }
+
+    if (request.deletedAssets?.length) {
+        const tree = request.tree ?? await readJsonFile(path.join(root, TREE_FILE), { optional: true });
+        const stillUsed = referencedAssets(tree);
+        for (const name of request.deletedAssets) {
+            if (stillUsed.has(name)) continue;
+            const relPath = assetRelPath(name);
+            const full = await resolveInside(root, relPath);
+            onWrite(relPath, null);
+            await fs.rm(full, { force: true });
+        }
     }
 
     return { manifest };

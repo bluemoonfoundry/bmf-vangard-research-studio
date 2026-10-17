@@ -37,7 +37,7 @@ test('creates a project, saves a document, and reopens it after a restart', asyn
   const relaunched = await launchApp(userDataDir);
   try {
     await relaunched.window.getByRole('button', { name: 'Open Dragon Saga' }).click();
-    await relaunched.window.getByRole('button', { name: /Hoard/ }).click();
+    await relaunched.window.getByRole('treeitem', { name: 'Hoard' }).click();
     await expect(relaunched.window.getByRole('textbox', { name: 'Document text' })).toHaveValue('Dragons hoard words, not gold.');
   } finally {
     await quitApp(relaunched.app);
@@ -76,7 +76,7 @@ test('offers to restore unsaved work after a crash', async ({ electronApp, windo
     const w = relaunched.window;
     await w.getByRole('button', { name: 'Open Crashy' }).click();
     await w.getByRole('button', { name: 'Restore' }).click();
-    await w.getByRole('button', { name: /Draft/ }).click();
+    await w.getByRole('treeitem', { name: 'Draft' }).click();
     await expect(w.getByRole('textbox', { name: 'Document text' })).toHaveValue('text that was never saved');
     await expect(w.getByText('Unsaved changes')).toBeVisible();
 

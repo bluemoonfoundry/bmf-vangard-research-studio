@@ -129,6 +129,50 @@ describe('projectReducer', () => {
     expect(isDirty(s)).toBe(false);
   });
 
+  it('loads many documents at once, ignoring ones already loaded or not in the tree', () => {
+    let s = projectReducer(open([item('a'), item('b', 1)]), { type: 'docEdited', id: 'a', content: 'x' })!;
+    s = projectReducer(s, { type: 'docLoaded', id: 'a', content: 'disk a' })!;
+    s = projectReducer(s, { type: 'docEdited', id: 'a', content: 'edited a' })!;
+    s = projectReducer(s, { type: 'docsLoaded', docs: { a: 'stale', b: 'disk b', zombie: 'z' } })!;
+    expect(s.docs).toEqual({ a: { saved: 'disk a', current: 'edited a' }, b: { saved: 'disk b', current: 'disk b' } });
+  });
+
+  it('adds several items with bodies, saving them as new files', () => {
+    const s = projectReducer(open(), { type: 'itemsAdded', items: [item('f'), item('x', 0, 'f')], docs: { x: 'body' } })!;
+    expect(buildSavePayload(s)).toEqual({ tree: { items: [item('f'), item('x', 0, 'f')] }, docs: { f: '', x: 'body' } });
+  });
+
+  it('patches an item without letting the patch change its id', () => {
+    const s = projectReducer(open([item('a')]), { type: 'itemUpdated', id: 'a', patch: { synopsis: 'Card', id: 'evil' } })!;
+    expect(s.tree.items).toEqual([{ ...item('a'), synopsis: 'Card' }]);
+  });
+
+  it('moves items, and ignores impossible moves', () => {
+    const f = { ...item('f'), type: 'folder' };
+    let s = open([f, item('a', 1)]);
+    s = projectReducer(s, { type: 'itemMoved', id: 'a', targetId: 'f', position: 'inside' })!;
+    expect(s.tree.items.find(i => i.id === 'a')?.parentId).toBe('f');
+    expect(projectReducer(s, { type: 'itemMoved', id: 'f', targetId: 'a', position: 'inside' })).toBe(s);
+  });
+
+  it('deleting items drops links to them and queues their assets', () => {
+    const linked = { ...item('b', 1), references: [{ id: 'r1', targetId: 'a' }, { id: 'r2', targetId: 'c' }] };
+    let s = open([{ ...item('a'), asset: 'a.png' }, linked, item('c', 2)]);
+    s = projectReducer(s, { type: 'itemDeleted', id: 'a' })!;
+    expect(s.tree.items.find(i => i.id === 'b')?.references).toEqual([{ id: 'r2', targetId: 'c' }]);
+    expect(buildSavePayload(s).deletedAssets).toEqual(['a.png']);
+  });
+
+  it('carries discarded assets into the next save without making the project dirty', () => {
+    let s = projectReducer(open(), { type: 'assetDiscarded', asset: 'x.png' })!;
+    expect(isDirty(s)).toBe(false);
+    s = projectReducer(s, { type: 'projectRenamed', name: 'B' })!;
+    const payload = buildSavePayload(s);
+    expect(payload.deletedAssets).toEqual(['x.png']);
+    s = projectReducer(s, { type: 'saved', payload, manifest: s.manifest })!;
+    expect(buildSavePayload(s)).toEqual({});
+  });
+
   it('closes', () => {
     expect(projectReducer(open(), { type: 'closed' })).toBeNull();
   });

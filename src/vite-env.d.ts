@@ -8,6 +8,7 @@ interface VrsApi {
     getVersion(): Promise<string>;
     onSaveBeforeClose(callback: () => void): () => void;
     closeConfirmed(): Promise<VrsIpcResult<void>>;
+    openExternal(url: string): Promise<VrsIpcResult<void>>;
   };
   project: {
     create(): Promise<VrsIpcResult<import('@/project/types').OpenedProject | null>>;
@@ -21,6 +22,9 @@ interface VrsApi {
       manifest: import('@/project/types').ProjectManifest;
       tree: import('@/project/types').ProjectTree;
     }>>;
+    readAsset(name: string): Promise<VrsIpcResult<Uint8Array>>;
+    importMedia(kind: import('@/project/types').MediaKind): Promise<VrsIpcResult<import('@/project/types').ImportedAsset | null>>;
+    exportDossier(markdown: string): Promise<VrsIpcResult<string | null>>;
     save(payload: import('@/project/types').SavePayload): Promise<VrsIpcResult<{ manifest: import('@/project/types').ProjectManifest }>>;
     writeRecovery(snapshot: import('@/project/types').SavePayload): Promise<VrsIpcResult<void>>;
     discardRecovery(): Promise<VrsIpcResult<void>>;

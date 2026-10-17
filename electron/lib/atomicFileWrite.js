@@ -45,6 +45,32 @@ export async function atomicWriteFile(filePath, content, encoding = 'utf-8', opt
     }
 }
 
+/**
+ * Copies `sourcePath` to `destPath` with the same guarantee as atomicWriteFile:
+ * the destination is either absent/old or the complete copy, never partial.
+ * Streams through the OS copy, so large media never has to fit in memory.
+ */
+export async function atomicCopyFile(sourcePath, destPath, options = {}) {
+    const {
+        copyFileFn = (from, to) => fsPromises.copyFile(from, to),
+        renameFn = (from, to) => fsPromises.rename(from, to),
+        unlinkFn = (p) => fsPromises.unlink(p),
+    } = options;
+
+    const tempPath = tempPathFor(destPath);
+    try {
+        await copyFileFn(sourcePath, tempPath);
+        await renameFn(tempPath, destPath);
+    } catch (err) {
+        try {
+            await unlinkFn(tempPath);
+        } catch {
+            // Nothing was copied -- fine.
+        }
+        throw err;
+    }
+}
+
 async function collectStaleTempFiles(dirPath, readdirFn) {
     const found = [];
     let entries;

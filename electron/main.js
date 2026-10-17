@@ -7,6 +7,9 @@ import { secureWebPreferences, applyNavigationGuards } from './lib/windowSecurit
 import { createProjectSession, toIpcResult } from './lib/projectSession.js';
 import { createRecentProjects } from './lib/recentProjects.js';
 import { createRecoveryStore } from './lib/recoveryStore.js';
+import { atomicWriteFile } from './lib/atomicFileWrite.js';
+import { validateExternalUrl } from './lib/ipcSecurity.js';
+import { dialogFilters, mediaKind } from './lib/media.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const INDEX_HTML = path.join(__dirname, '..', 'dist', 'index.html');
@@ -98,6 +101,12 @@ function handle(channel, fn) {
 function registerIpcHandlers() {
     ipcMain.handle('app:get-version', () => app.getVersion());
 
+    handle('app:open-external', async (url) => {
+        const error = validateExternalUrl(url);
+        if (error) throw Object.assign(new Error(error), { code: 'INVALID' });
+        await shell.openExternal(url);
+    });
+
     handle('app:close-confirmed', () => {
         closeConfirmed = true;
         mainWindow?.close();
@@ -134,6 +143,31 @@ function registerIpcHandlers() {
     });
     handle('project:read-doc', (id) => projectSession.readDoc(id));
     handle('project:read-structure', () => projectSession.readStructure());
+    handle('project:read-asset', (name) => projectSession.readAsset(name));
+    handle('project:import-media', async (kind) => {
+        const { label } = mediaKind(kind);
+        const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+            title: `Import ${label}`,
+            properties: ['openFile'],
+            filters: dialogFilters(kind),
+        });
+        if (canceled || !filePaths?.length) return null;
+        return projectSession.importAsset(filePaths[0], kind);
+    });
+    handle('project:export-dossier', async (markdown) => {
+        if (typeof markdown !== 'string') throw Object.assign(new Error('Dossier must be text.'), { code: 'INVALID' });
+        const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
+            title: 'Export Research Dossier',
+            buttonLabel: 'Export',
+            defaultPath: path.join(app.getPath('documents'), `${projectName ?? 'Research'} dossier.md`),
+            filters: [{ name: 'Markdown', extensions: ['md'] }],
+            properties: ['showOverwriteConfirmation'],
+        });
+        if (canceled || !filePath) return null;
+        // The destination comes from the native dialog, so it may be anywhere the user chose.
+        await atomicWriteFile(filePath, markdown);
+        return filePath;
+    });
     handle('project:save', async (payload) => {
         const result = await projectSession.save(payload);
         projectName = result.manifest.name;

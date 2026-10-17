@@ -81,6 +81,35 @@ export async function stubFolderDialogs(app: ElectronApplication, folder: string
   }, folder);
 }
 
+/** Makes the next native "open file" dialog return `file` (e.g. a media import). */
+export async function stubOpenFile(app: ElectronApplication, file: string) {
+  await app.evaluate(({ dialog }, picked) => {
+    dialog.showOpenDialog = (async () => ({ canceled: false, filePaths: [picked] })) as typeof dialog.showOpenDialog;
+  }, file);
+}
+
+/** Makes the next native save dialog return `file` (e.g. an export). */
+export async function stubSaveFile(app: ElectronApplication, file: string) {
+  await app.evaluate(({ dialog }, picked) => {
+    dialog.showSaveDialog = (async () => ({ canceled: false, filePath: picked })) as typeof dialog.showSaveDialog;
+  }, file);
+}
+
+/** Records URLs handed to the system browser instead of opening them; read them with `openedUrls`. */
+export async function stubOpenExternal(app: ElectronApplication) {
+  await app.evaluate(({ shell }) => {
+    const opened: string[] = [];
+    (globalThis as unknown as { __openedUrls: string[] }).__openedUrls = opened;
+    shell.openExternal = (async (url: string) => {
+      opened.push(url);
+    }) as typeof shell.openExternal;
+  });
+}
+
+export async function openedUrls(app: ElectronApplication): Promise<string[]> {
+  return app.evaluate(() => (globalThis as unknown as { __openedUrls?: string[] }).__openedUrls ?? []);
+}
+
 /** Answers the unsaved-changes message box: 0 = Save, 1 = Don't Save, 2 = Cancel. */
 export async function stubMessageBox(app: ElectronApplication, response: number) {
   await app.evaluate(({ dialog }, answer) => {
