@@ -17,6 +17,7 @@
   --vrs-on-accent: #ffffff;
   --vrs-accent-soft: rgb(180 83 9 / 0.12);
   --vrs-danger: #b91c1c;
+  --vrs-warning: #b45309;
   --vrs-highlight: rgb(251 191 36 / 0.45);
   /* Index cards and the corkboard they sit on. */
   --vrs-card: #fffdf8;
@@ -43,6 +44,7 @@
     --vrs-on-accent: #0c0a09;
     --vrs-accent-soft: rgb(251 191 36 / 0.14);
     --vrs-danger: #f87171;
+    --vrs-warning: #fbbf24;
     --vrs-highlight: rgb(251 191 36 / 0.4);
     --vrs-card: #26211d;
     --vrs-card-header: #2e2823;
@@ -68,6 +70,7 @@
   --vrs-on-accent: #0c0a09;
   --vrs-accent-soft: rgb(251 191 36 / 0.14);
   --vrs-danger: #f87171;
+  --vrs-warning: #fbbf24;
   --vrs-highlight: rgb(251 191 36 / 0.4);
   --vrs-card: #26211d;
   --vrs-card-header: #2e2823;
@@ -91,6 +94,7 @@
   --color-on-accent: var(--vrs-on-accent);
   --color-accent-soft: var(--vrs-accent-soft);
   --color-danger: var(--vrs-danger);
+  --color-warning: var(--vrs-warning);
   --color-highlight: var(--vrs-highlight);
   --color-card: var(--vrs-card);
   --color-card-header: var(--vrs-card-header);

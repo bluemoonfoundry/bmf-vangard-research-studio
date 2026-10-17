@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { Bible, FactSource, TreeItem } from '@/project/types';
 import { isEvent } from '@/bible/entities';
 import { isWhenAttribute } from '@/bible/normalize';
-import { findContradictions, openContradictions } from '@/bible/contradictions';
+import { findContradictions, groupVersions, openContradictions } from '@/bible/contradictions';
 import { keepAll, keepOne, reopen } from '@/bible/ops';
 import { VersionCard } from '@/components/bible/VersionCard';
 import { btn, fieldLabel, input, segment, segmentGroup } from '@/components/workspace/ui';
@@ -59,8 +59,14 @@ export function ConflictQueue({ bible, items, contentOf, focusKey, onUpdate, onO
   const checkEventId = current && entity && isEvent(entity) && isWhenAttribute(current.attribute) ? current.entityId : undefined;
   const keepAllLabel = current && current.versions.length >= 3 ? 'Keep all' : 'Keep both';
 
-  const kindLabel = (d: Bible['decisions'][number]) =>
-    d.kind === 'kept_one' ? 'Kept one' : d.factIds.length > 2 ? 'Kept all' : 'Kept both';
+  // Versions, not facts: corroborating sources add facts without adding versions.
+  const kindLabel = (d: Bible['decisions'][number]) => {
+    if (d.kind === 'kept_one') return 'Kept one';
+    const ids = new Set(d.factIds);
+    const facts = bible.facts.filter(f => ids.has(f.id));
+    const versions = facts.length ? groupVersions(facts).length : d.factIds.length;
+    return versions > 2 ? 'Kept all' : 'Kept both';
+  };
 
   return (
     <div className="flex min-h-0 flex-1">

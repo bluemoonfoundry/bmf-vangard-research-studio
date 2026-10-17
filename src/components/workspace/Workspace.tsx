@@ -295,7 +295,11 @@ export function Workspace({ project }: { project: ProjectController }) {
   const deleting = confirmDelete ? byId.get(confirmDelete) : undefined;
   const deletingIds = useMemo(() => (deleting ? descendantIds(items, deleting.id) : new Set<string>()), [deleting, items]);
   const deletingCount = deleting ? deletingIds.size - 1 : 0;
-  const citing = deleting ? factsCitingItems(state.bible, deletingIds).length : 0;
+  const entityIds = new Set(items.filter(i => i.type === 'entity').map(i => i.id));
+  // Facts about a removed entity go with it, and orphans are dropped on save: neither is "kept".
+  const citing = deleting
+    ? factsCitingItems(state.bible, deletingIds).filter(f => entityIds.has(f.entityId) && !deletingIds.has(f.entityId)).length
+    : 0;
   const aboutIt = deleting ? state.bible.facts.filter(f => deletingIds.has(f.entityId)).length : 0;
   const factWarning = [
     citing ? ` ${citing === 1 ? "1 fact cites this item. It'll keep its quote." : `${citing} facts cite this item. They'll keep their quotes.`}` : '',

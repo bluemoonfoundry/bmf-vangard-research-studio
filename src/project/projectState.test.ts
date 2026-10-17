@@ -19,6 +19,42 @@ function opened(items: TreeItem[] = []): OpenedProject {
 
 const open = (items: TreeItem[] = []) => projectReducer(null, { type: 'opened', project: opened(items) }) as ProjectState;
 
+describe('orphan pruning on save', () => {
+  const ent = (id: string): TreeItem => ({ id, parentId: null, type: 'entity', entityKind: 'character', title: id, order: 0, keywords: [] }) as TreeItem;
+  const f = (id: string, entityId: string) => ({ id, entityId, attribute: 'a', value: 'v', status: 'kept' as const, origin: 'manual' as const, createdAt: 'T', updatedAt: 'T' });
+
+  it('includes a cleaned bible even when the bible is otherwise saved', () => {
+    const o = opened([ent('e1')]);
+    o.bible = { facts: [f('ok', 'e1'), f('gone', 'zz')], dependencies: [], decisions: [] };
+    const s = projectReducer(null, { type: 'opened', project: o })!;
+    expect(isDirty(s)).toBe(false);
+    expect(buildSavePayload(s).bible?.facts.map(x => x.id)).toEqual(['ok']);
+  });
+
+  it('prunes orphans from a dirty bible and omits an already-clean one', () => {
+    let s = projectReducer(null, { type: 'opened', project: opened([ent('e1')]) })!;
+    s = projectReducer(s, { type: 'bibleUpdated', update: b => ({ ...b, facts: [f('ok', 'e1'), f('gone', 'zz')] }) })!;
+    expect(buildSavePayload(s).bible?.facts.map(x => x.id)).toEqual(['ok']);
+    const clean = projectReducer(null, { type: 'opened', project: opened([ent('e1')]) })!;
+    expect(buildSavePayload(clean).bible).toBeUndefined();
+  });
+
+  it('a save that pruned orphans leaves the project clean', () => {
+    const o = opened([ent('e1')]);
+    o.bible = { facts: [f('ok', 'e1'), f('gone', 'zz')], dependencies: [], decisions: [] };
+    let s = projectReducer(null, { type: 'opened', project: o })!;
+    const payload = buildSavePayload(s);
+    s = projectReducer(s, { type: 'saved', payload, manifest: s.manifest })!;
+    expect(s.bible.facts.map(x => x.id)).toEqual(['ok']);
+    expect(buildSavePayload(s)).toEqual({});
+  });
+
+  it('structureKeptMine marks the whole structure unsaved', () => {
+    const s = projectReducer(open([item('a')]), { type: 'structureKeptMine' })!;
+    expect(buildSavePayload(s)).toMatchObject({ manifest: { name: 'A' }, tree: { items: [item('a')] }, bible: emptyBible() });
+  });
+});
+
 describe('projectReducer', () => {
   it('opens clean', () => {
     const s = open([item('a')]);
@@ -195,7 +231,7 @@ describe('projectReducer: story bible', () => {
   });
 
   it('bibleUpdated marks dirty, is in the save payload, and saved cleans it', () => {
-    let s = projectReducer(open(), { type: 'bibleUpdated', update: b => ({ ...b, facts: [fact('f', 'e')] }) })!;
+    let s = projectReducer(open([entity('e')]), { type: 'bibleUpdated', update: b => ({ ...b, facts: [fact('f', 'e')] }) })!;
     expect(isDirty(s)).toBe(true);
     const payload = buildSavePayload(s);
     expect(payload.bible?.facts).toHaveLength(1);

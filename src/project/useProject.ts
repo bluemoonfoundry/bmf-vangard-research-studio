@@ -256,6 +256,9 @@ export function useProject(api: ProjectApi | null, bridge: Pick<VrsApi['app'], '
       // Rebase on the new disk content so "dirty" still means "differs from disk".
       const content = await run(() => api.readDoc(doc[1]));
       if (content !== undefined) dispatch({ type: 'docDiskChanged', id: doc[1], content });
+    } else {
+      // Disk has changed under us: write all of my structure, not just the dirty part.
+      dispatch({ type: 'structureKeptMine' });
     }
     setConflicts(c => c.filter(p => p !== conflict));
   }, [api, run]);

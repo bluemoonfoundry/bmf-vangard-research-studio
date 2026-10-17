@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import type { EntityKind, FactSource, StoryPosition, TreeItem } from '@/project/types';
 import { ENTITY_KINDS, entityKindOf } from '@/bible/entities';
 import { isWhenAttribute } from '@/bible/normalize';
@@ -31,6 +31,7 @@ const draftOf = (v: string | StoryPosition | undefined): PositionDraft =>
     : emptyPositionDraft());
 
 export function FactForm({ entities, fixedEntityId, source, initial, attributeSuggestions, onSubmit, onCancel }: FactFormProps) {
+  const suggestionsId = useId();
   const [entityId, setEntityId] = useState(fixedEntityId ?? entities[0]?.id ?? NEW);
   const [newTitle, setNewTitle] = useState('');
   const [newKind, setNewKind] = useState<EntityKind>('character');
@@ -90,10 +91,10 @@ export function FactForm({ entities, fixedEntityId, source, initial, attributeSu
       <label className="flex flex-col gap-1">
         <span className={fieldLabel}>Attribute</span>
         <input
-          aria-label="Attribute" list="fact-attribute-suggestions" className={input}
+          aria-label="Attribute" list={suggestionsId} className={input}
           value={attribute} onChange={(e) => setAttribute(e.target.value)}
         />
-        <datalist id="fact-attribute-suggestions">
+        <datalist id={suggestionsId}>
           {attributeSuggestions(kind).map(a => <option key={a} value={a} />)}
         </datalist>
       </label>

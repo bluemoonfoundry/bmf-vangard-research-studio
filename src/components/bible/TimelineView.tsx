@@ -11,7 +11,7 @@ export interface TimelineViewProps {
   onShowConflict(key: string): void;
 }
 
-const rowClass = 'flex w-full items-center gap-2 rounded px-2 py-1 text-left text-xs text-content hover:bg-surface-hover';
+const rowClass = 'flex w-full items-center gap-2 rounded px-2 py-1 text-left text-xs text-content hover:bg-surface-sunken';
 const badge = 'rounded border border-line px-1 text-[10px]';
 
 export function TimelineView({ bible, items, onOpenEntity, onShowConflict }: TimelineViewProps) {
@@ -67,8 +67,8 @@ export function TimelineView({ bible, items, onOpenEntity, onShowConflict }: Tim
                   {e.versionCount > 1 && (
                     <span className="text-content-muted">{`version ${e.versionIndex + 1} of ${e.versionCount}`}</span>
                   )}
-                  {e.violated && <span className={`${badge} text-red-500`}><span aria-hidden="true">✗ </span>Out of order</span>}
-                  {e.inCycle && <span className={`${badge} text-amber-500`}>Cycle</span>}
+                  {e.violated && <span className={`${badge} text-danger`}><span aria-hidden="true">✗ </span>Out of order</span>}
+                  {e.inCycle && <span className={`${badge} text-warning`}>Cycle</span>}
                 </button>
               </li>
             ))}

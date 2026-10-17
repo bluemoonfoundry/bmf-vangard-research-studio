@@ -184,6 +184,8 @@ export async function saveProject(root, payload, { now, onWrite = () => {} } = {
     const write = async (relPath, content) => {
         const full = await resolveInside(root, relPath);
         onWrite(relPath, content);
+        // bible/ is empty in git, so a cloned project may not have it yet.
+        await fs.mkdir(path.dirname(full), { recursive: true });
         await atomicWriteFile(full, content);
     };
 

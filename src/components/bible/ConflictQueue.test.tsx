@@ -77,6 +77,14 @@ describe('ConflictQueue', () => {
     expect(screen.getByText(/multiple versions kept: branch/)).toBeInTheDocument();
   });
 
+  it('labels a two-version decision with corroborating facts as "Kept both"', () => {
+    const bible: Bible = { ...emptyBible(), facts: [fact('e1', 'death', 'Pilot'), fact('e1', 'death', 'pilot'), fact('e1', 'death', 'Finale')] };
+    render(<Harness initial={bible} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Keep both' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Decided' }));
+    expect(screen.getByText('Kept both')).toBeInTheDocument();
+  });
+
   it('moves to the next open contradiction after a decision', () => {
     const bible: Bible = { ...death(), facts: [...death().facts, fact('e2', 'eyes', 'green'), fact('e2', 'eyes', 'blue')] };
     render(<Harness initial={bible} />);

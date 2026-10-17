@@ -81,6 +81,22 @@ describe('useProject: bible external changes', () => {
     expect(ctx.hook.result.current.dirty).toBe(false);
   });
 
+  it('Keep mine on a structure conflict makes the next save write the whole structure', async () => {
+    const ctx = setup();
+    ctx.fake.nextDialogResult = makeOpened();
+    await act(() => ctx.hook.result.current.openProject());
+    act(() => ctx.hook.result.current.renameItem('nope', 'x'));
+    act(() => ctx.hook.result.current.renameProject('Mine'));
+    act(() => ctx.fake.emitExternalChange([{ path: 'bible/bible.json', deleted: false }]));
+    await waitFor(() => expect(ctx.hook.result.current.conflicts).toContain(STRUCTURE_CONFLICT));
+    await act(() => ctx.hook.result.current.keepMine(STRUCTURE_CONFLICT));
+    await act(async () => { await ctx.hook.result.current.save(); });
+    const payload = ctx.fake.saves.at(-1)!;
+    expect(payload.manifest).toEqual({ name: 'Mine' });
+    expect(payload.tree).toBeDefined();
+    expect(payload.bible).toBeDefined();
+  });
+
   it('importText returns the picked text, or null on cancel', async () => {
     const ctx = setup();
     ctx.fake.nextDialogResult = makeOpened();

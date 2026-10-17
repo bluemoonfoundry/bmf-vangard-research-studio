@@ -1,5 +1,5 @@
 import type { Bible, OpenedProject, ProjectManifest, ProjectTree, RecoverySnapshot, SavePayload, TreeItem } from '@/project/types';
-import { removeEntities } from '@/bible/ops';
+import { pruneOrphans, removeEntities } from '@/bible/ops';
 import { descendantIds, moveItem, type DropPosition } from '@/workspace/treeOps';
 
 /** A document body the renderer has loaded. `saved` is null for a document that has never been written. */
@@ -52,6 +52,7 @@ export type ProjectAction =
   | { type: 'recoveryRestored'; snapshot: RecoverySnapshot; diskDocs: Record<string, string> }
   | { type: 'docReloaded'; id: string; content: string }
   | { type: 'docDiskChanged'; id: string; content: string }
+  | { type: 'structureKeptMine' }
   | { type: 'structureReloaded'; manifest: ProjectManifest; tree: ProjectTree; bible: Bible };
 
 const withAsset = (list: string[], asset: string | undefined) =>
@@ -160,11 +161,18 @@ export function projectReducer(state: ProjectState | null, action: ProjectAction
       for (const [id, body] of Object.entries(payload.docs ?? {})) {
         if (body !== null && docs[id]) docs[id] = { ...docs[id], saved: body };
       }
+      // The saved bible had its orphans pruned; adopt it when that's what is still in memory.
+      let { bible } = state;
+      if (payload.bible) {
+        const pruned = pruneOrphans(state.bible, state.tree.items);
+        if (pruned === payload.bible || JSON.stringify(pruned) === JSON.stringify(payload.bible)) bible = payload.bible;
+      }
       return {
         ...state,
         manifest: { ...action.manifest, name: state.manifest.name },
         savedName: payload.manifest?.name ?? state.savedName,
         savedTree: payload.tree ?? state.savedTree,
+        bible,
         savedBible: payload.bible ?? state.savedBible,
         docs,
         deletedDocs: state.deletedDocs.filter(id => payload.docs?.[id] !== null),
@@ -204,6 +212,12 @@ export function projectReducer(state: ProjectState | null, action: ProjectAction
       return { ...state, docs: { ...state.docs, [action.id]: { ...doc, saved: action.content } } };
     }
 
+    case 'structureKeptMine':
+      // The disk copy changed under unsaved work. Mark every structure part
+      // unsaved (fresh sentinels never equal the current values) so the next
+      // save writes the user's whole structure, not just the part that was dirty.
+      return { ...state, savedName: ' ', savedTree: { items: [] }, savedBible: { facts: [], dependencies: [], decisions: [] } };
+
     case 'structureReloaded': {
       const ids = new Set(action.tree.items.map(i => i.id));
       const docs = Object.fromEntries(Object.entries(state.docs).filter(([id]) => ids.has(id)));
@@ -239,7 +253,9 @@ export function buildSavePayload(state: ProjectState): SavePayload {
   const payload: SavePayload = {};
   if (state.manifest.name !== state.savedName) payload.manifest = { name: state.manifest.name };
   if (state.tree !== state.savedTree) payload.tree = state.tree;
-  if (state.bible !== state.savedBible) payload.bible = state.bible;
+  // Facts about missing entities are tolerated on load and dropped here.
+  const bible = pruneOrphans(state.bible, state.tree.items);
+  if (state.bible !== state.savedBible || bible !== state.bible) payload.bible = bible;
 
   const docs: Record<string, string | null> = {};
   for (const [id, doc] of Object.entries(state.docs)) {

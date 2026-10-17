@@ -4,7 +4,7 @@ import {
   comparePositions, emptyBible, formatPosition, isWhenAttribute, normalizeText, positionsCompatible, specificity,
 } from '@/bible/normalize';
 import {
-  addDependency, addFact, keepAll, keepOne, removeDependency, removeEntities, reopen, setFactStatus, updateFact,
+  addDependency, addFact, keepAll, keepOne, pruneOrphans, removeDependency, removeEntities, reopen, setFactStatus, updateFact,
 } from '@/bible/ops';
 import { checkPosition, eventsInCycles, keptPositions, strictlyAfter } from '@/bible/ordering';
 import { storyBibleMarkdown } from '@/bible/exportMarkdown';
@@ -168,6 +168,37 @@ describe('ops', () => {
     expect(b1.dependencies).toHaveLength(1);
     expect(addDependency(b1, { id: 'y', eventId: 'e', afterEventId: 'f' }).dependencies).toHaveLength(1);
     expect(removeDependency(b1, 'x').dependencies).toEqual([]);
+  });
+
+  it('removeEntities keeps unknown top-level fields', () => {
+    const b = { ...bibleOf([]), extra: 1 } as Bible;
+    expect(removeEntities(b, new Set(['x']))).toMatchObject({ extra: 1 });
+  });
+
+  it('pruneOrphans drops facts, decisions and dependencies that reference missing entities', () => {
+    const items = [ent('e1', 'One', 'event'), ent('e2', 'Two', 'event')];
+    const b: Bible = {
+      facts: [fact({ id: 'ok', entityId: 'e1' }), fact({ id: 'gone', entityId: 'zz' })],
+      dependencies: [
+        { id: 'd1', eventId: 'e1', afterEventId: 'e2' },
+        { id: 'd2', eventId: 'e1', afterEventId: 'zz' },
+        { id: 'd3', eventId: 'zz', afterEventId: 'e2' },
+      ],
+      decisions: [
+        { id: 'k1', entityId: 'e1', attribute: 'x', kind: 'kept_all', factIds: [], setAsideIds: [], at: 'T' },
+        { id: 'k2', entityId: 'zz', attribute: 'x', kind: 'kept_all', factIds: [], setAsideIds: [], at: 'T' },
+      ],
+    };
+    const out = pruneOrphans(b, items);
+    expect(out.facts.map(f => f.id)).toEqual(['ok']);
+    expect(out.dependencies.map(d => d.id)).toEqual(['d1']);
+    expect(out.decisions.map(d => d.id)).toEqual(['k1']);
+  });
+
+  it('pruneOrphans returns the same object when nothing is orphaned', () => {
+    const items = [ent('e1', 'One', 'event')];
+    const b = bibleOf([fact({ entityId: 'e1' })]);
+    expect(pruneOrphans(b, items)).toBe(b);
   });
 
   it('removeEntities cascades but keeps facts that only cite a removed item', () => {

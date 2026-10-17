@@ -1,4 +1,4 @@
-import type { Bible, Decision, Dependency, Fact, FactStatus } from '@/project/types';
+import type { Bible, Decision, Dependency, Fact, FactStatus, TreeItem } from '@/project/types';
 import { contradictionKey, type Contradiction } from '@/bible/contradictions';
 
 interface DecisionArgs { id: string; note?: string; now: string }
@@ -69,7 +69,22 @@ export const removeDependency = (b: Bible, id: string): Bible =>
   ({ ...b, dependencies: b.dependencies.filter(d => d.id !== id) });
 
 export const removeEntities = (b: Bible, ids: ReadonlySet<string>): Bible => ({
+  ...b,
   facts: b.facts.filter(f => !ids.has(f.entityId)),
   dependencies: b.dependencies.filter(d => !ids.has(d.eventId) && !ids.has(d.afterEventId)),
   decisions: b.decisions.filter(d => !ids.has(d.entityId)),
 });
+
+/**
+ * Drops facts and decisions about entities that no longer exist, and
+ * dependencies between events that no longer exist. Returns `b` itself when
+ * nothing is orphaned.
+ */
+export function pruneOrphans(b: Bible, items: readonly TreeItem[]): Bible {
+  const entities = new Set(items.filter(i => i.type === 'entity').map(i => i.id));
+  const facts = b.facts.filter(f => entities.has(f.entityId));
+  const dependencies = b.dependencies.filter(d => entities.has(d.eventId) && entities.has(d.afterEventId));
+  const decisions = b.decisions.filter(d => entities.has(d.entityId));
+  if (facts.length === b.facts.length && dependencies.length === b.dependencies.length && decisions.length === b.decisions.length) return b;
+  return { ...b, facts, dependencies, decisions };
+}

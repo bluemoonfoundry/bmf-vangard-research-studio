@@ -466,6 +466,25 @@ describe('delete warning for story bible facts', () => {
     expect(screen.getByRole('dialog', { name: 'Delete item' })).toHaveTextContent('This removes 2 facts about it.');
   });
 
+  it('does not count a fact twice when it is about a deleted entity and cites a deleted item', async () => {
+    const mara = item('m', 'Mara', { type: 'entity', entityKind: 'character' } as Partial<TreeItem>);
+    await open([mara], {}, {
+      facts: [{ ...f('a', 'm', false), source: { itemId: 'm', quote: 'q', start: 0, end: 1 } }], dependencies: [], decisions: [],
+    });
+    fireEvent.click(within(tree()).getByRole('button', { name: 'Delete Mara' }));
+    const dialog = screen.getByRole('dialog', { name: 'Delete item' });
+    expect(dialog).toHaveTextContent('This removes 1 fact about it.');
+    expect(dialog).not.toHaveTextContent('cite');
+  });
+
+  it('ignores orphan facts in the delete warning', async () => {
+    await open([item('c', 'Session', { type: 'chat' })], {}, {
+      facts: [f('a', 'missing', true)], dependencies: [], decisions: [],
+    });
+    fireEvent.click(within(tree()).getByRole('button', { name: 'Delete Session' }));
+    expect(screen.getByRole('dialog', { name: 'Delete item' })).not.toHaveTextContent('cite');
+  });
+
   it('uses singular wording for one fact', async () => {
     const mara = item('m', 'Mara', { type: 'entity', entityKind: 'character' } as Partial<TreeItem>);
     await open([item('c', 'Session', { type: 'chat' }), mara], {}, {

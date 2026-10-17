@@ -262,6 +262,12 @@ describe('bible persistence', () => {
         expect((await readStructure(root)).bible).toEqual(bible);
     });
 
+    it('creates bible/ when a cloned project lacks the empty folder', async () => {
+        await fs.rm(path.join(root, 'bible'), { recursive: true, force: true });
+        await saveProject(root, { bible }, { now: LATER });
+        expect(await readJson(path.join(root, 'bible', 'bible.json'))).toEqual(bible);
+    });
+
     it('leaves bible.json alone when the save has no bible', async () => {
         await saveProject(root, { bible }, { now: LATER });
         await saveProject(root, { manifest: { name: 'Y' } }, { now: LATER });
