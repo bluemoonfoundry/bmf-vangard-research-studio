@@ -125,11 +125,15 @@ test('shows events in story order and flags one that breaks its dependencies', a
   await window.getByTestId('entity-panel').getByLabel('Add dependency').selectOption({ label: 'Mira dies' });
 
   await window.getByRole('button', { name: 'Timeline' }).first().click();
+  // Both ends of a violated dependency are flagged: Mira's "before Ren joins" check fails, and so does Ren's
+  // "after Mira dies" check.
   const miraRow = window.getByRole('region', { name: 'Season 5' }).getByRole('button', { name: /Mira dies/ });
   await expect(miraRow).toContainText('✗');
   await expect(miraRow).toContainText('Out of order');
+  const renRow = window.getByRole('region', { name: 'Season 4' }).getByRole('button', { name: /Ren joins/ });
+  await expect(renRow).toContainText('Out of order');
 
-  const s3 = await window.getByRole('heading', { name: 'Season 3' }).boundingBox();
-  const s4 = await window.getByRole('heading', { name: 'Season 4' }).boundingBox();
-  expect(s3 && s4 && s3.y < s4.y).toBe(true);
+  const headings = await window.getByRole('heading', { level: 3 }).allTextContents();
+  expect(headings.indexOf('Season 3')).toBeGreaterThanOrEqual(0);
+  expect(headings.indexOf('Season 3')).toBeLessThan(headings.indexOf('Season 4'));
 });

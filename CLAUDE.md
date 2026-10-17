@@ -124,15 +124,20 @@ A project is a folder (`Name.vrs/`) of plain files: `vrs.json` (manifest + `sche
 
 ## Story Bible
 
-Structured canon lives in `bible/bible.json` (schema v2): `{ facts, dependencies, decisions }`. Unknown fields are kept.
+Structured canon lives in `bible/bible.json`: `{ facts, dependencies, decisions }`. Unknown fields are kept. The file has no
+version field; the project's `schemaVersion` in `vrs.json` (now 2) covers it.
 
-- **Facts** are `{ entityId, attribute, value, status, origin, source?, ... }`. `status` is `proposed` (unreviewed),
-  `kept` or `set_aside`. A `when` attribute holds a story position `{ season, episode?, order? }` instead of text.
+- **Facts** are `{ id, entityId, attribute, value, status, source?, origin, note?, createdAt, updatedAt }`. `status` is
+  `proposed` (unreviewed), `kept` or `set_aside`. Manual facts are created `kept` with origin "manual"; AI (a later
+  phase) writes `proposed`. A `when` attribute holds a story position `{ season, episode?, order? }` instead of text.
 - **Dependencies** (`eventId` must come after `afterEventId`) order events; they are checked against kept `when` facts.
   A cycle or a violated order is flagged, never blocked.
 - **Decisions** (`kept_one`, `kept_all`) are stored with the `factIds` kept and `setAsideIds` changed, so Reopen undoes
   exactly one decision and nothing else.
-- **Contradictions** are derived (never stored): the same entity + attribute with different kept values and no decision.
+- **Contradictions** are derived (never stored): the same entity + attribute with 2+ distinct non-set-aside values
+  (proposed or kept; `when` compared as compatible positions). A `kept_all` decision covering exactly that live fact
+  set acknowledges it; `kept_one` resolves it by setting the other versions aside; adding a new differing fact
+  reopens an acknowledged one.
 - **Save order**: docs, `tree.json`, `bible/bible.json`, `vrs.json`, then deletions.
 - **Pure logic in `src/bible/`**, state changes as `Bible -> Bible` functions applied through `updateBible`. No React or IPC there.
 - **No routes.** Canon is global; route-scoped canon is out of scope for this phase.
