@@ -286,9 +286,9 @@ describe('sources', () => {
     expect(resolveSource(src, undefined, true)).toEqual({ status: 'exact', start: 4, end: 11 });
     expect(resolveSource({ ...src, quote: '' }, 'abc', true)).toEqual({ status: 'missing' });
   });
-  it('picks the nearest occurrence when relocating', () => {
+  it('relocates to the first occurrence of a repeated quote', () => {
     expect(resolveSource({ ...src, start: 20, end: 27 }, 'the cat ... the cat', true))
-      .toEqual({ status: 'relocated', start: 12, end: 19 });
+      .toEqual({ status: 'relocated', start: 0, end: 7 });
   });
 });
 

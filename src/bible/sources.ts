@@ -12,9 +12,6 @@ export function resolveSource(source: FactSource, body: string | undefined, item
   if (quote === '') return { status: 'missing' };
   if (body.slice(source.start, source.end) === quote) return { status: 'exact', start: source.start, end: source.end };
 
-  let best = -1;
-  for (let i = body.indexOf(quote); i !== -1; i = body.indexOf(quote, i + 1)) {
-    if (best === -1 || Math.abs(i - source.start) < Math.abs(best - source.start)) best = i;
-  }
+  const best = body.indexOf(quote);
   return best === -1 ? { status: 'missing' } : { status: 'relocated', start: best, end: best + quote.length };
 }
