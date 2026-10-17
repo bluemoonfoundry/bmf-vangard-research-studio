@@ -14,6 +14,7 @@ import { ImportChatModal } from '@/components/bible/ImportChatModal';
 import { normalizeChatText } from '@/bible/entities';
 import { findContradictions, openContradictions } from '@/bible/contradictions';
 import { ConflictQueue } from '@/components/bible/ConflictQueue';
+import { TimelineView } from '@/components/bible/TimelineView';
 import { resolveSource } from '@/bible/sources';
 import { AddItemModal } from '@/components/workspace/AddItemModal';
 import { QuickRefPanel } from '@/components/workspace/QuickRefPanel';
@@ -395,7 +396,7 @@ export function Workspace({ project }: { project: ProjectController }) {
               onOpenEntity={navigate}
             />
           ) : mode === 'timeline' ? (
-            <div className="flex flex-1 items-center justify-center p-6 text-xs text-content-muted">The timeline is coming soon.</div>
+            <TimelineView bible={state.bible} items={items} onOpenEntity={navigate} onShowConflict={showConflict} />
           ) : splitOpen ? <SplitPane orientation={split!.orientation} first={primaryPane} second={secondaryPane} /> : primaryPane}
         </main>
         {inspected ? (
