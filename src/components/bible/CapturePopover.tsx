@@ -63,6 +63,8 @@ export interface CaptureHostProps {
 /** Shows the capture popover for a selection and turns its submission into a kept, manual fact. */
 export function CaptureHost({ itemId, parentId, items, bible, updateBible, addEntity, selection, onClose }: CaptureHostProps) {
   if (!selection) return null;
+  // Drop the page selection too, or the keyup/mouseup that follows would reopen the popover.
+  const close = () => { window.getSelection()?.removeAllRanges(); onClose(); };
   const { start, end, quote, anchor } = selection;
   const source: FactSource = { itemId, quote, start, end };
 
@@ -74,7 +76,7 @@ export function CaptureHost({ itemId, parentId, items, bible, updateBible, addEn
       id: crypto.randomUUID(), entityId, attribute: v.attribute, value: v.value,
       status: 'kept', origin: 'manual', source, createdAt: at, updatedAt: at,
     }));
-    onClose();
+    close();
   };
 
   return (
@@ -84,7 +86,7 @@ export function CaptureHost({ itemId, parentId, items, bible, updateBible, addEn
       entities={items.filter(i => i.type === 'entity')}
       attributeSuggestions={(kind) => attributeSuggestions(bible, items, kind)}
       onSubmit={submit}
-      onCancel={onClose}
+      onCancel={close}
     />
   );
 }

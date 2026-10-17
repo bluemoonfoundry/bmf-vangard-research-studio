@@ -58,6 +58,7 @@ export function DocumentEditor(props: DocumentEditorProps) {
   const [preview, setPreview] = useState(false);
   const textarea = useRef<HTMLTextAreaElement>(null);
   const [capture, setCapture] = useState<CaptureSelection | null>(null);
+  const fromTextarea = useRef(false);
   const appliedHighlight = useRef<unknown>(null);
   const stats = textStats(content ?? '');
   const type = itemType(item);
@@ -65,15 +66,22 @@ export function DocumentEditor(props: DocumentEditorProps) {
   const mediaKind: MediaKind | null = type === 'image' ? 'image' : type === 'audio' ? 'audio' : null;
 
   const canCapture = bible !== undefined && addEntity !== undefined;
+  const closeCapture = () => {
+    setCapture(null);
+    const el = textarea.current;
+    if (fromTextarea.current && el) el.setSelectionRange(el.selectionEnd, el.selectionEnd);
+    fromTextarea.current = false;
+  };
   const select = (r: CaptureSelection) =>
     setCapture(c => (c && c.start === r.start && c.end === r.end ? c : r));
 
   const captureFromTextarea = () => {
     const el = textarea.current;
     if (!canCapture || !el || content === undefined || el.selectionStart === el.selectionEnd) return;
-    const { selectionStart: start, selectionEnd: end } = el;
+    const { selectionStart: start, selectionEnd: end, value } = el;
+    fromTextarea.current = true;
     // Textareas expose no caret rectangle, so the popover sits at the top of the box.
-    select({ start, end, quote: content.slice(start, end), anchor: el.getBoundingClientRect() });
+    select({ start, end, quote: value.slice(start, end), anchor: el.getBoundingClientRect() });
   };
 
   // Shows a passage opened from a fact's source: leave the preview, then select it in the text box.
@@ -205,7 +213,7 @@ export function DocumentEditor(props: DocumentEditorProps) {
           {content === undefined ? (
             <p className="text-sm text-content-muted">Loading…</p>
           ) : isChat ? (
-            <ChatView text={content} highlight={highlight} onSelectRange={canCapture ? (r) => select({ ...r, anchor: r.rect }) : undefined} />
+            <ChatView text={content} highlight={highlight} onSelectRange={canCapture ? (r) => { fromTextarea.current = false; select({ ...r, anchor: r.rect }); } : undefined} />
           ) : preview ? (
             <MarkdownView text={content} onOpenLink={onOpenLink} empty="Nothing written yet. Switch to Edit to start." />
           ) : (
@@ -231,7 +239,7 @@ export function DocumentEditor(props: DocumentEditorProps) {
           updateBible={bible.updateBible}
           addEntity={addEntity}
           selection={capture}
-          onClose={() => setCapture(null)}
+          onClose={closeCapture}
         />
       )}
     </div>

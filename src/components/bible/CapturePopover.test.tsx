@@ -77,6 +77,32 @@ describe('capture by selection', () => {
   });
 });
 
+describe('dismissing', () => {
+  it('stays closed after Escape and its keyup', () => {
+    render(<Harness onBible={() => undefined} addEntity={() => 'x'} />);
+    selectText('Mira dies');
+    fireEvent.mouseUp(screen.getByLabelText('Chat transcript'));
+    fireEvent.keyDown(document, { key: 'Escape' });
+    fireEvent.keyUp(document, { key: 'Escape' });
+    fireEvent.mouseUp(document.body);
+    expect(screen.queryByRole('button', { name: 'Save fact' })).toBeNull();
+  });
+
+  it('stays closed after saving', () => {
+    render(<Harness onBible={() => undefined} addEntity={() => 'x'} />);
+    selectText('Mira dies');
+    fireEvent.mouseUp(screen.getByLabelText('Chat transcript'));
+    fireEvent.change(screen.getByLabelText('Entity'), { target: { value: '__new__' } });
+    fireEvent.change(screen.getByLabelText('New entity name'), { target: { value: 'Mira' } });
+    fireEvent.change(screen.getByLabelText('Attribute'), { target: { value: 'death' } });
+    fireEvent.change(screen.getByLabelText('Value'), { target: { value: 'S3' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save fact' }));
+    fireEvent.keyUp(document, { key: 'Enter' });
+    fireEvent.mouseUp(document.body);
+    expect(screen.queryByRole('button', { name: 'Save fact' })).toBeNull();
+  });
+});
+
 describe('ChatView selection reporting', () => {
   it('reports offsets for a selection spanning the highlight mark', () => {
     const onSelectRange = vi.fn();
