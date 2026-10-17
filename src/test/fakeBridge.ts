@@ -1,6 +1,7 @@
 import { vi } from 'vitest';
+import { emptyBible } from '@/bible/normalize';
 import type {
-  ExternalChange, ImportedAsset, IpcResult, MediaKind, OpenedProject, ProjectManifest, ProjectTree, RecentProject,
+  Bible, ExternalChange, ImportedAsset, IpcResult, MediaKind, OpenedProject, ProjectManifest, ProjectTree, RecentProject,
   SavePayload, TextImport, UnsavedChoice,
 } from '@/project/types';
 
@@ -9,8 +10,9 @@ const ok = <T,>(value: T): Promise<IpcResult<T>> => Promise.resolve({ ok: true, 
 export function makeOpened(overrides: Partial<OpenedProject> = {}): OpenedProject {
   return {
     root: 'C:\\Research\\Saga.vrs',
-    manifest: { schemaVersion: 1, id: 'p1', name: 'Saga', createdAt: 'T0', updatedAt: 'T0', settings: {} },
+    manifest: { schemaVersion: 2, id: 'p1', name: 'Saga', createdAt: 'T0', updatedAt: 'T0', settings: {} },
     tree: { items: [] },
+    bible: emptyBible(),
     migratedFrom: null,
     recovery: null,
     ...overrides,
@@ -33,6 +35,7 @@ export function createFakeBridge() {
     disk: {
       manifest: null as ProjectManifest | null,
       tree: { items: [] } as ProjectTree,
+      bible: emptyBible() as Bible,
       docs: {} as Record<string, string>,
       assets: {} as Record<string, Uint8Array>,
     },
@@ -48,7 +51,7 @@ export function createFakeBridge() {
     saveError: null as string | null,
 
     load(project: OpenedProject, docs: Record<string, string> = {}) {
-      fake.disk = { ...fake.disk, manifest: project.manifest, tree: project.tree, docs };
+      fake.disk = { ...fake.disk, manifest: project.manifest, tree: project.tree, bible: project.bible, docs };
     },
     emitExternalChange(changes: ExternalChange[]) {
       externalListeners.forEach(l => l(changes));
@@ -88,7 +91,7 @@ export function createFakeBridge() {
       }),
       close: vi.fn((_options?: { discardRecovery?: boolean }) => ok(undefined)),
       readDoc: vi.fn((id: string) => ok(fake.disk.docs[id] ?? '')),
-      readStructure: vi.fn(() => ok({ manifest: fake.disk.manifest!, tree: fake.disk.tree })),
+      readStructure: vi.fn(() => ok({ manifest: fake.disk.manifest!, tree: fake.disk.tree, bible: fake.disk.bible })),
       readAsset: vi.fn((name: string): Promise<IpcResult<Uint8Array>> => {
         const bytes = fake.disk.assets[name];
         if (!bytes) return Promise.resolve({ ok: false, error: { code: 'NOT_FOUND', message: `${name} is missing` } });

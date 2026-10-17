@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { projectReducer, isDirty, isDocDirty, isStructureDirty, buildSavePayload, type ProjectState } from '@/project/projectState';
+import { emptyBible } from '@/bible/normalize';
 import type { OpenedProject, TreeItem } from '@/project/types';
 
 const item = (id: string, order = 0, parentId: string | null = null): TreeItem =>
@@ -10,6 +11,7 @@ function opened(items: TreeItem[] = []): OpenedProject {
     root: '/p/A.vrs',
     manifest: { schemaVersion: 1, id: 'p', name: 'A', createdAt: 'T', updatedAt: 'T', settings: {} },
     tree: { items },
+    bible: emptyBible(),
     migratedFrom: null,
     recovery: null,
   };
