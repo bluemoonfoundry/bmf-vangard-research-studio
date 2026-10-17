@@ -1,0 +1,24 @@
+# Secrets -- never commit
+.env
+.env.*
+!.env.example
+
+# Dependencies & build output
+node_modules/
+dist/
+release/
+coverage/
+
+# Test artifacts
+e2e/test-results/
+playwright-report/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.log
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key
