@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { BookOpen, MessageSquare, Columns2, LayoutGrid, Plus, Rows2, SlidersHorizontal, Square, Table, Download, X } from 'lucide-react';
-import type { ItemType, MediaKind, TreeItem } from '@/project/types';
+import type { FactSource, ItemType, MediaKind, TreeItem } from '@/project/types';
 import type { ProjectController } from '@/project/useProject';
 import { openExternal } from '@/project/api';
 import { ancestorsOf, descendantIds, isFolder } from '@/workspace/treeOps';
@@ -12,6 +12,7 @@ import { Inspector } from '@/components/workspace/Inspector';
 import { SplitPane, type SplitOrientation } from '@/components/workspace/SplitPane';
 import { ImportChatModal } from '@/components/bible/ImportChatModal';
 import { normalizeChatText } from '@/bible/entities';
+import { resolveSource } from '@/bible/sources';
 import { AddItemModal } from '@/components/workspace/AddItemModal';
 import { QuickRefPanel } from '@/components/workspace/QuickRefPanel';
 import { ExportModal } from '@/components/workspace/ExportModal';
@@ -54,6 +55,8 @@ export function Workspace({ project }: { project: ProjectController }) {
   const [quickRefId, setQuickRefId] = useState<string | null>(null);
   const [adding, setAdding] = useState<{ type: ItemType; parentId: string | null } | null>(null);
   const [importingChat, setImportingChat] = useState<{ parentId: string | null } | null>(null);
+  /** A fact's passage to show once its source opens; cleared by any other navigation. */
+  const [highlight, setHighlight] = useState<{ itemId: string; start: number; end: number } | null>(null);
   const [exporting, setExporting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
@@ -86,8 +89,17 @@ export function Workspace({ project }: { project: ProjectController }) {
   const navigate = useCallback((id: string | null) => {
     setActiveId(id);
     setInspectedId(null);
+    setHighlight(null);
     if (id) for (const a of ancestorsOf(items, id)) expand(a.id);
   }, [items, expand]);
+
+  const openSource = useCallback((source: FactSource) => {
+    const resolved = resolveSource(source, docs[source.itemId]?.current, items.some(i => i.id === source.itemId));
+    navigate(source.itemId);
+    if (resolved.status === 'exact' || resolved.status === 'relocated') {
+      setHighlight({ itemId: source.itemId, start: resolved.start, end: resolved.end });
+    }
+  }, [docs, items, navigate]);
 
   const toggleFolder = useCallback((id: string, open?: boolean) => {
     setCollapsed(c => {
@@ -176,6 +188,8 @@ export function Workspace({ project }: { project: ProjectController }) {
           onUpdate={updateItem}
           onAttachMedia={(i, kind) => void attachMedia(i, kind)}
           onOpenLink={openLink}
+          addEntity={(entityKind, title, parentId) => addItem({ type: 'entity', entityKind, title, parentId })}
+          highlight={highlight?.itemId === item.id ? highlight : null}
           bible={{
             items,
             bible: state.bible,
@@ -183,7 +197,7 @@ export function Workspace({ project }: { project: ProjectController }) {
             updateBible,
             // The conflict queue arrives with a later task.
             onShowConflict: () => undefined,
-            onOpenSource: (source) => navigate(source.itemId),
+            onOpenSource: openSource,
             onOpenEntity: navigate,
           }}
         />
