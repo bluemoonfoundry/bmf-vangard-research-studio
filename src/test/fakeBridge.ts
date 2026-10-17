@@ -1,7 +1,7 @@
 import { vi } from 'vitest';
 import type {
   ExternalChange, ImportedAsset, IpcResult, MediaKind, OpenedProject, ProjectManifest, ProjectTree, RecentProject,
-  SavePayload, UnsavedChoice,
+  SavePayload, TextImport, UnsavedChoice,
 } from '@/project/types';
 
 const ok = <T,>(value: T): Promise<IpcResult<T>> => Promise.resolve({ ok: true, value });
@@ -38,6 +38,7 @@ export function createFakeBridge() {
     },
     /** What the next media-import dialog "picks" (null = cancelled). */
     nextImport: null as ImportedAsset | null,
+    nextTextImport: null as TextImport | null,
     /** What the next export dialog returns as the saved path (null = cancelled). */
     nextExportPath: null as string | null,
     exports: [] as string[],
@@ -98,6 +99,7 @@ export function createFakeBridge() {
         if (picked) fake.disk.assets[picked.asset] = new Uint8Array([1, 2, 3]);
         return ok(picked);
       }),
+      importText: vi.fn(() => ok(fake.nextTextImport)),
       exportDossier: vi.fn((markdown: string) => {
         if (fake.nextExportPath) fake.exports.push(markdown);
         return ok(fake.nextExportPath);

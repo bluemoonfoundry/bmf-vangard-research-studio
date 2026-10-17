@@ -2,6 +2,7 @@ import path from 'path';
 import crypto from 'crypto';
 import { ProjectFormatError } from './projectSchema.js';
 import { createProject, importAsset, openProject, readAsset, readDoc, readStructure, saveProject } from './projectStore.js';
+import { readTextImport } from './textImport.js';
 import { createProjectWatcher } from './projectWatcher.js';
 
 const PROJECT_EXTENSION = '.vrs';
@@ -92,6 +93,12 @@ export function createProjectSession({
         /** `sourcePath` must come from the open dialog; the destination is always inside the session root. */
         async importAsset(sourcePath, kind) {
             return importAsset(requireRoot(), sourcePath, { kind, newId: newId() });
+        },
+
+        /** Reads a transcript picked in the open dialog; refuses unless a project is open. */
+        async readTextImport(sourcePath) {
+            requireRoot();
+            return readTextImport(sourcePath);
         },
 
         async readStructure() {

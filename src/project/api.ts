@@ -45,6 +45,7 @@ export function createProjectApi(bridge: VrsApi): ProjectApi {
     readStructure: () => unwrap(raw.readStructure()),
     readAsset: (name) => unwrap(raw.readAsset(name)),
     importMedia: (kind) => unwrap(raw.importMedia(kind)),
+    importText: () => unwrap(raw.importText()),
     exportDossier: (markdown) => unwrap(raw.exportDossier(markdown)),
     save: (payload) => unwrap(raw.save(payload)),
     writeRecovery: (snapshot) => unwrap(raw.writeRecovery(snapshot)),

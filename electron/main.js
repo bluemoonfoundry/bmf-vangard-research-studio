@@ -10,6 +10,7 @@ import { createRecoveryStore } from './lib/recoveryStore.js';
 import { atomicWriteFile } from './lib/atomicFileWrite.js';
 import { validateExternalUrl } from './lib/ipcSecurity.js';
 import { dialogFilters, mediaKind } from './lib/media.js';
+import { TEXT_IMPORT_EXTENSIONS } from './lib/textImport.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const INDEX_HTML = path.join(__dirname, '..', 'dist', 'index.html');
@@ -153,6 +154,15 @@ function registerIpcHandlers() {
         });
         if (canceled || !filePaths?.length) return null;
         return projectSession.importAsset(filePaths[0], kind);
+    });
+    handle('project:import-text', async () => {
+        const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+            title: 'Import Chat Transcript',
+            properties: ['openFile'],
+            filters: [{ name: 'Text', extensions: TEXT_IMPORT_EXTENSIONS }],
+        });
+        if (canceled || !filePaths?.length) return null;
+        return projectSession.readTextImport(filePaths[0]);
     });
     handle('project:export-dossier', async (markdown) => {
         if (typeof markdown !== 'string') throw Object.assign(new Error('Dossier must be text.'), { code: 'INVALID' });

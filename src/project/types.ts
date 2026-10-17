@@ -86,6 +86,14 @@ export interface SavePayload {
 
 export type MediaKind = 'image' | 'audio';
 
+export interface TextImport {
+  /** The picked file's name without its extension. */
+  title: string;
+  /** File contents with the BOM removed and LF line endings. */
+  text: string;
+  fileName: string;
+}
+
 export interface ImportedAsset {
   /** File name under assets/. */
   asset: string;
