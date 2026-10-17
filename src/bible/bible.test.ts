@@ -366,14 +366,37 @@ describe('storyBibleMarkdown', () => {
     expect(md.indexOf('### Character')).toBeLessThan(md.indexOf('### Event'));
     expect(md.indexOf('### Event')).toBeLessThan(md.indexOf('### Other'));
     expect(md).toContain('#### Mira');
-    expect(md).toContain('- **Death:** Season 3 finale');
+    expect(md).toContain('- **Death:** *(unresolved, see Unresolved)*');
     expect(md.slice(0, md.indexOf('### Unresolved'))).not.toContain('Pilot');
     expect(md).toContain('- **Mira · Death:** Season 3 finale / Pilot');
-    expect(md).toContain('- **eyes:** green\n- **eyes:** hazel\n  *(multiple versions kept)*');
+    expect(md).toContain('- **eyes:** *(unresolved, see Unresolved)*');
+    expect(md).not.toContain('multiple versions kept');
     expect(md).toContain('### Unresolved');
     expect(md).toContain('- **Dawn · when:** Season 1 / Season 2');
     expect(md).toContain('- **Mira · eyes:** green / hazel');
     expect(md).toContain('### Timeline\n\n- S3 · E4: Hal\n- Timing contested: Dawn');
+  });
+  it('marks acknowledged conflicts with their note, and lists versions, unplaced events and one-line text', () => {
+    const f1 = fact({ entityId: 'mira', attribute: 'eyes', value: 'green' });
+    const f2 = fact({ entityId: 'mira', attribute: 'eyes', value: 'hazel' });
+    const w1 = fact({ entityId: 'hal', attribute: 'when', value: pos(3, 4) });
+    const w2 = fact({ entityId: 'hal', attribute: 'when', value: pos(5, 1) });
+    const dec = (entityId: string, attribute: string, ids: string[], note?: string): Decision =>
+      ({ id: `d-${entityId}`, entityId, attribute, kind: 'kept_all', factIds: ids, setAsideIds: [], note, at: 'T0' });
+    const md = storyBibleMarkdown([...items, ent('lull', 'Lull', 'event')], bibleOf([f1, f2, w1, w2], [
+      dec('mira', 'eyes', [f1.id, f2.id], 'dye\njob'), dec('hal', 'when', [w1.id, w2.id]),
+    ]));
+    expect(md).toContain('- **eyes:** green\n- **eyes:** hazel\n  *(multiple versions kept: dye job)*');
+    expect(md).toContain('- S3 · E4: Hal (version 1 of 2)\n- S5 · E1: Hal (version 2 of 2)');
+    expect(md).toContain('- Unplaced: Lull');
+    expect(md).not.toContain('### Unresolved');
+  });
+  it('collapses newlines in titles, attributes and values', () => {
+    const md = storyBibleMarkdown([ent('m', 'Mira\n## Injected', 'character')],
+      bibleOf([fact({ entityId: 'm', attribute: 'a\r\nb', value: 'x\n# y' })]));
+    expect(md).toContain('#### Mira ## Injected');
+    expect(md).toContain('- **a b:** x # y');
+    expect(md).not.toMatch(/^# y/m);
   });
   it('is empty without entities and leaves the dossier unchanged', () => {
     expect(storyBibleMarkdown([], b)).toBe('');

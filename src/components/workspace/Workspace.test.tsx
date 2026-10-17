@@ -465,4 +465,16 @@ describe('delete warning for story bible facts', () => {
     fireEvent.click(within(tree()).getByRole('button', { name: 'Delete Mara' }));
     expect(screen.getByRole('dialog', { name: 'Delete item' })).toHaveTextContent('This removes 2 facts about it.');
   });
+
+  it('uses singular wording for one fact', async () => {
+    const mara = item('m', 'Mara', { type: 'entity', entityKind: 'character' } as Partial<TreeItem>);
+    await open([item('c', 'Session', { type: 'chat' }), mara], {}, {
+      facts: [f('a', 'm', true)], dependencies: [], decisions: [],
+    });
+    fireEvent.click(within(tree()).getByRole('button', { name: 'Delete Session' }));
+    expect(screen.getByRole('dialog', { name: 'Delete item' })).toHaveTextContent("1 fact cites this item. It'll keep its quote.");
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Delete item' })).getByRole('button', { name: 'Cancel' }));
+    fireEvent.click(within(tree()).getByRole('button', { name: 'Delete Mara' }));
+    expect(screen.getByRole('dialog', { name: 'Delete item' })).toHaveTextContent('This removes 1 fact about it.');
+  });
 });

@@ -4,8 +4,9 @@ import { attributeKey, formatPosition } from '@/bible/normalize';
 import { contradictionKey, findContradictions, groupVersions, openContradictions } from '@/bible/contradictions';
 import { buildTimeline } from '@/bible/timeline';
 
-const valueText = (v: string | StoryPosition): string => (typeof v === 'string' ? v : formatPosition(v));
-const titleOf = (i: TreeItem): string => i.title || 'Untitled';
+const oneLine = (s: string): string => s.replace(/\s+/g, ' ').trim();
+const valueText = (v: string | StoryPosition): string => (typeof v === 'string' ? oneLine(v) : formatPosition(v));
+const titleOf = (i: TreeItem): string => oneLine(i.title) || 'Untitled';
 
 /** The Story Bible section of the dossier: kept facts per entity, open conflicts and the timeline. */
 export function storyBibleMarkdown(items: TreeItem[], bible: Bible): string {
@@ -14,7 +15,7 @@ export function storyBibleMarkdown(items: TreeItem[], bible: Bible): string {
 
   const byId = new Map(items.map(i => [i.id, i]));
   const contradictions = findContradictions(bible, new Set(entities.map(e => e.id)));
-  const noteOf = new Map(contradictions.map(c => [c.key, c.acknowledgedBy?.note]));
+  const byKey = new Map(contradictions.map(c => [c.key, c]));
   const out: string[] = ['## Story Bible', ''];
 
   const sections: { name: string; members: TreeItem[] }[] = ENTITY_KINDS.map(k => ({
@@ -37,11 +38,16 @@ export function storyBibleMarkdown(items: TreeItem[], bible: Bible): string {
         else groups.set(key, [f]);
       }
       for (const facts of groups.values()) {
-        const label = facts[0].attribute.trim();
+        const label = oneLine(facts[0].attribute);
+        const c = byKey.get(contradictionKey(entity.id, facts[0].attribute));
+        if (c && !c.acknowledgedBy) {
+          out.push(`- **${label}:** *(unresolved, see Unresolved)*`);
+          continue;
+        }
         const versions = groupVersions(facts);
         for (const v of versions) out.push(`- **${label}:** ${valueText(v.value)}`);
         if (versions.length > 1) {
-          const note = noteOf.get(contradictionKey(entity.id, facts[0].attribute));
+          const note = oneLine(c?.acknowledgedBy?.note ?? '');
           out.push(note ? `  *(multiple versions kept: ${note})*` : '  *(multiple versions kept)*');
         }
       }
@@ -54,7 +60,7 @@ export function storyBibleMarkdown(items: TreeItem[], bible: Bible): string {
     out.push('### Unresolved', '');
     for (const c of open) {
       const title = titleOf(byId.get(c.entityId) as TreeItem);
-      out.push(`- **${title} · ${c.attribute.trim()}:** ${c.versions.map(v => valueText(v.value)).join(' / ')}`);
+      out.push(`- **${title} · ${oneLine(c.attribute)}:** ${c.versions.map(v => valueText(v.value)).join(' / ')}`);
     }
     out.push('');
   }
