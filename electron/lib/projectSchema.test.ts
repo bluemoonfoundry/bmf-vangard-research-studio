@@ -8,6 +8,10 @@ import {
     createEmptyTree,
     migrateProject,
     normalizeTree,
+    normalizeBible,
+    createEmptyBible,
+    normalizeText,
+    BIBLE_FILE,
     isValidItemId,
     isValidAssetName,
     referencedAssets,
@@ -17,7 +21,7 @@ import {
 const NOW = '2026-10-17T12:00:00.000Z';
 
 function v1Manifest(overrides = {}) {
-    return { schemaVersion: 1, id: 'p1', name: 'Story', createdAt: NOW, updatedAt: NOW, settings: {}, ...overrides };
+    return { schemaVersion: CURRENT_SCHEMA_VERSION, id: 'p1', name: 'Story', createdAt: NOW, updatedAt: NOW, settings: {}, ...overrides };
 }
 
 describe('createManifest / createEmptyTree', () => {
@@ -44,14 +48,14 @@ describe('migrateProject', () => {
             1: (p: Project) => ({ ...p, manifest: { ...p.manifest, step1: true } }),
             2: (p: Project) => ({ ...p, tree: { ...p.tree, step2: true } }),
         };
-        const result = migrateProject({ manifest: v1Manifest(), tree: { items: [] } }, { migrations, currentVersion: 3 });
+        const result = migrateProject({ manifest: v1Manifest({ schemaVersion: 1 }), tree: { items: [] } }, { migrations, currentVersion: 3 });
         expect(result.migratedFrom).toBe(1);
         expect(result.project.manifest).toMatchObject({ schemaVersion: 3, step1: true });
         expect(result.project.tree).toMatchObject({ step2: true });
     });
 
     it('does not mutate its input', () => {
-        const input = { manifest: v1Manifest(), tree: { items: [] } };
+        const input = { manifest: v1Manifest({ schemaVersion: 1 }), tree: { items: [] } };
         const snapshot = structuredClone(input);
         migrateProject(input, { migrations: { 1: (p: Project) => p }, currentVersion: 2 });
         expect(input).toEqual(snapshot);
@@ -68,7 +72,7 @@ describe('migrateProject', () => {
     });
 
     it('reports a missing migration step instead of skipping it', () => {
-        const project = { manifest: v1Manifest(), tree: { items: [] } };
+        const project = { manifest: v1Manifest({ schemaVersion: 1 }), tree: { items: [] } };
         expect(() => migrateProject(project, { migrations: {}, currentVersion: 2 }))
             .toThrow(expect.objectContaining({ code: 'CORRUPT' }));
     });
@@ -153,5 +157,109 @@ describe('validateSavePayload', () => {
         ['non-list deletedAssets', { deletedAssets: 'a.png' }],
     ])('rejects %s', (_label, payload) => {
         expect(() => validateSavePayload(payload)).toThrow(expect.objectContaining({ code: 'INVALID' }));
+    });
+});
+
+
+describe('schema v2 migration', () => {
+    it('upgrades a v1 project to v2', () => {
+        const result = migrateProject({ manifest: v1Manifest({ schemaVersion: 1 }), tree: { items: [] } });
+        expect(result.migratedFrom).toBe(1);
+        expect(result.project.manifest).toMatchObject({ schemaVersion: 2 });
+        expect(CURRENT_SCHEMA_VERSION).toBe(2);
+    });
+});
+
+describe('normalizeText', () => {
+    it('trims, collapses whitespace and lower-cases', () => {
+        expect(normalizeText('  Hair \t COLOUR\n ')).toBe('hair colour');
+    });
+});
+
+const fact = (overrides = {}) => ({
+    id: 'f1', entityId: 'e1', attribute: 'hair', value: 'red', status: 'proposed', ...overrides,
+});
+const corrupt = expect.objectContaining({ code: 'CORRUPT' });
+
+describe('normalizeBible', () => {
+    it('defaults to an empty bible', () => {
+        expect(BIBLE_FILE).toBe('bible/bible.json');
+        expect(normalizeBible(undefined)).toEqual(createEmptyBible());
+        expect(createEmptyBible()).toEqual({ facts: [], dependencies: [], decisions: [] });
+    });
+
+    it('rejects a malformed file, naming bible.json', () => {
+        expect(() => normalizeBible({ facts: 'x' })).toThrow(/bible\.json/);
+        expect(() => normalizeBible({ facts: 'x' })).toThrow(corrupt);
+    });
+
+    it('rejects an unknown status', () => {
+        expect(() => normalizeBible({ facts: [fact({ status: 'canon' })] })).toThrow(corrupt);
+        for (const status of ['proposed', 'kept', 'set_aside']) {
+            expect(() => normalizeBible({ facts: [fact({ status })] })).not.toThrow();
+        }
+    });
+
+    it('requires a position for the "when" attribute', () => {
+        expect(() => normalizeBible({ facts: [fact({ attribute: ' When ', value: 'S3' })] })).toThrow(corrupt);
+        expect(() => normalizeBible({ facts: [fact({ attribute: ' When ', value: { season: 3, episode: 4 } })] })).not.toThrow();
+        expect(() => normalizeBible({ facts: [fact({ attribute: 'when', value: { season: 1, order: 2.5 } })] })).not.toThrow();
+        expect(() => normalizeBible({ facts: [fact({ attribute: 'when', value: { season: 0 } })] })).toThrow(corrupt);
+        expect(() => normalizeBible({ facts: [fact({ attribute: 'when', value: { season: 1, episode: 0 } })] })).toThrow(corrupt);
+        expect(() => normalizeBible({ facts: [fact({ attribute: 'when', value: { season: 1, order: Infinity } })] })).toThrow(corrupt);
+    });
+
+    it('requires a string value for other attributes', () => {
+        expect(() => normalizeBible({ facts: [fact({ value: 5 })] })).toThrow(corrupt);
+        expect(() => normalizeBible({ facts: [fact({ value: { season: 1 } })] })).toThrow(corrupt);
+        expect(() => normalizeBible({ facts: [fact({ attribute: '' })] })).toThrow(corrupt);
+    });
+
+    it('rejects invalid ids', () => {
+        expect(() => normalizeBible({ facts: [fact({ id: '../x' })] })).toThrow(corrupt);
+        expect(() => normalizeBible({ facts: [fact({ entityId: '../x' })] })).toThrow(corrupt);
+    });
+
+    it('validates a fact source', () => {
+        const ok = { itemId: 'd1', quote: 'q', start: 1, end: 3 };
+        expect(() => normalizeBible({ facts: [fact({ source: ok })] })).not.toThrow();
+        expect(() => normalizeBible({ facts: [fact({ source: { ...ok, itemId: '../x' } })] })).toThrow(corrupt);
+        expect(() => normalizeBible({ facts: [fact({ source: { ...ok, quote: 3 } })] })).toThrow(corrupt);
+        expect(() => normalizeBible({ facts: [fact({ source: { ...ok, start: 5, end: 3 } })] })).toThrow(corrupt);
+        expect(() => normalizeBible({ facts: [fact({ source: { ...ok, start: 1.5 } })] })).toThrow(corrupt);
+    });
+
+    it('validates dependencies', () => {
+        const dep = { id: 'd1', eventId: 'e1', afterEventId: 'e2' };
+        expect(() => normalizeBible({ dependencies: [dep] })).not.toThrow();
+        expect(() => normalizeBible({ dependencies: [{ ...dep, afterEventId: '../x' }] })).toThrow(corrupt);
+        expect(() => normalizeBible({ dependencies: [{ ...dep, eventId: 1 }] })).toThrow(corrupt);
+    });
+
+    it('validates decisions', () => {
+        const dec = { id: 'x1', entityId: 'e1', attribute: 'hair', kind: 'kept_one', factIds: ['f1'], setAsideIds: ['f2'] };
+        expect(() => normalizeBible({ decisions: [dec] })).not.toThrow();
+        expect(() => normalizeBible({ decisions: [{ ...dec, kind: 'kept_all' }] })).not.toThrow();
+        expect(() => normalizeBible({ decisions: [{ ...dec, kind: 'merged' }] })).toThrow(corrupt);
+        expect(() => normalizeBible({ decisions: [{ ...dec, factIds: ['../x'] }] })).toThrow(corrupt);
+        expect(() => normalizeBible({ decisions: [{ ...dec, setAsideIds: 'f2' }] })).toThrow(corrupt);
+        expect(() => normalizeBible({ decisions: [{ ...dec, attribute: 3 }] })).toThrow(corrupt);
+    });
+
+    it('preserves unknown fields', () => {
+        const bible = normalizeBible({ future: 1, facts: [fact({ extra: { a: 1 } })] });
+        expect(bible.facts[0].extra).toEqual({ a: 1 });
+        expect(bible.future).toBe(1);
+        expect(bible.dependencies).toEqual([]);
+    });
+});
+
+describe('validateSavePayload bible', () => {
+    it('rethrows bible failures as INVALID', () => {
+        expect(() => validateSavePayload({ bible: { facts: 'x' } })).toThrow(expect.objectContaining({ code: 'INVALID' }));
+    });
+
+    it('passes a valid bible through', () => {
+        expect(validateSavePayload({ bible: { facts: [fact()] } }).bible.facts).toHaveLength(1);
     });
 });

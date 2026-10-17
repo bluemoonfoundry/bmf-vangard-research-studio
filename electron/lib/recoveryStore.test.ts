@@ -31,6 +31,17 @@ describe('recoveryStore', () => {
         expect(await store.read(rootB)).toBeNull();
     });
 
+    it('round-trips a bible in a snapshot', async () => {
+        const bible = {
+            facts: [{ id: 'f1', entityId: 'e1', attribute: 'hair', value: 'red', status: 'proposed' }],
+            dependencies: [],
+            decisions: [],
+        };
+        const store = createRecoveryStore(dir, { now: () => 'T1' });
+        await store.write(rootA, { ...snapshot, bible });
+        expect((await store.read(rootA))?.bible).toEqual(bible);
+    });
+
     it('keeps only the latest snapshot', async () => {
         const store = createRecoveryStore(dir);
         await store.write(rootA, snapshot);
