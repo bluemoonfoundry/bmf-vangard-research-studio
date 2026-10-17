@@ -1,11 +1,12 @@
 import { useMemo, useState } from 'react';
 import { AlertTriangle, ChevronDown, ChevronRight, Plus } from 'lucide-react';
 import type { Bible, EntityKind, Fact, FactSource, TreeItem } from '@/project/types';
-import { attributeSuggestions } from '@/bible/entities';
+import { attributeSuggestions, isEvent } from '@/bible/entities';
 import { attributeKey } from '@/bible/normalize';
 import { findContradictions, openContradictions, contradictionKey } from '@/bible/contradictions';
 import { addFact, setFactStatus, updateFact } from '@/bible/ops';
 import { resolveSource } from '@/bible/sources';
+import { EntityEvents, EventDetails } from '@/components/bible/EventLinks';
 import { FactForm } from '@/components/bible/FactForm';
 import { FactRow, type FactRowSection } from '@/components/bible/FactRow';
 import { btn, fieldLabel } from '@/components/workspace/ui';
@@ -20,11 +21,13 @@ export interface EntityPanelProps {
   updateBible(update: (b: Bible) => Bible): void;
   onShowConflict?(key: string): void;
   onOpenSource(source: FactSource): void;
+  /** Opens another entity (an event's participant or plotline, a dependency, a backlink). */
+  onOpenEntity?(id: string): void;
 }
 
 const now = () => new Date().toISOString();
 
-export function EntityPanel({ entity, items, bible, bodyOf, updateBible, onShowConflict, onOpenSource }: EntityPanelProps) {
+export function EntityPanel({ entity, items, bible, bodyOf, updateBible, onShowConflict, onOpenSource, onOpenEntity }: EntityPanelProps) {
   const [adding, setAdding] = useState(false);
   const [showAside, setShowAside] = useState(false);
 
@@ -108,6 +111,10 @@ export function EntityPanel({ entity, items, bible, bodyOf, updateBible, onShowC
           onCancel={() => setAdding(false)}
         />
       )}
+
+      {isEvent(entity)
+        ? <EventDetails event={entity} items={items} bible={bible} updateBible={updateBible} onOpenEntity={onOpenEntity} />
+        : <EntityEvents entity={entity} items={items} bible={bible} onOpenEntity={onOpenEntity} />}
 
       {open.map(c => (
         <div key={c.key} className="flex items-center justify-between gap-3 rounded border border-warning px-3 py-2 text-xs">

@@ -16,18 +16,19 @@ const proposed = (over: Partial<Fact> = {}): Fact => ({
   source: { itemId: 'chat', quote: 'her green eyes', start: 0, end: 14 }, createdAt: 'T0', updatedAt: 'T0', ...over,
 });
 
-function Harness({ entity = items[0], initial = emptyBible(), onShowConflict, onOpenSource }: {
-  entity?: TreeItem; initial?: Bible; onShowConflict?(k: string): void; onOpenSource?(s: unknown): void;
+function Harness({ entity = items[0], list = items, initial = emptyBible(), onShowConflict, onOpenSource, onOpenEntity }: {
+  entity?: TreeItem; list?: TreeItem[]; initial?: Bible; onOpenEntity?(id: string): void; onShowConflict?(k: string): void; onOpenSource?(s: unknown): void;
 }) {
   const [bible, setBible] = useState(initial);
   return (
     <EntityPanel
       entity={entity}
-      items={items}
+      items={list}
       bible={bible}
       bodyOf={() => 'her green eyes'}
       updateBible={(u) => setBible(u)}
       onShowConflict={onShowConflict}
+      onOpenEntity={onOpenEntity}
       onOpenSource={(onOpenSource ?? (() => undefined)) as never}
     />
   );
@@ -111,5 +112,70 @@ describe('EntityPanel', () => {
     render(<Harness initial={{ ...emptyBible(), facts: [proposed()] }} onOpenSource={onOpenSource} />);
     fireEvent.click(screen.getByRole('button', { name: /Session 1/ }));
     expect(onOpenSource).toHaveBeenCalledWith(expect.objectContaining({ itemId: 'chat' }));
+  });
+
+  describe('events and backlinks', () => {
+    const ref = (targetId: string) => ({ id: `r-${targetId}`, targetId });
+    const when = (id: string, entityId: string, season: number, episode?: number): Fact => ({
+      id, entityId, attribute: 'when', value: { season, episode }, status: 'kept', origin: 'manual', createdAt: 'T0', updatedAt: 'T0',
+    });
+    const ent = (id: string, kind: string, title: string, order: number, references?: { id: string; targetId: string }[]): TreeItem =>
+      ({ id, parentId: null, type: 'entity', entityKind: kind, title, order, keywords: [], references });
+    const list: TreeItem[] = [
+      ent('mara', 'character', 'Mara', 0),
+      ent('plot', 'plotline', 'Rebellion', 1),
+      ent('A', 'event', 'Coup', 2, [ref('mara'), ref('plot')]),
+      ent('B', 'event', 'Trial', 3, [ref('mara'), ref('plot')]),
+      ent('C', 'event', 'Prologue', 4, [ref('plot')]),
+    ];
+    const facts = [when('wa', 'A', 3, 4), when('wb', 'B', 3, 2), when('wc', 'C', 1, 1)];
+    const deps = [{ id: 'd1', eventId: 'B', afterEventId: 'A' }];
+    const bible: Bible = { ...emptyBible(), facts, dependencies: deps };
+
+    it('shows a violated check line naming the earlier event', () => {
+      render(<Harness entity={list[3]} list={list} initial={bible} />);
+      const sec = screen.getByRole('region', { name: 'Must come after' });
+      expect(within(sec).getByText('Coup')).toBeInTheDocument();
+      expect(within(sec).getByLabelText('violated')).toBeInTheDocument();
+      expect(screen.getByRole('region', { name: 'When' })).toHaveTextContent('S3 · E2');
+    });
+
+    it('shows unknown with no kept position, and a cycle warning', () => {
+      const cyc: Bible = { ...emptyBible(), dependencies: [...deps, { id: 'd2', eventId: 'A', afterEventId: 'B' }] };
+      render(<Harness entity={list[3]} list={list} initial={cyc} />);
+      expect(screen.getByLabelText('unknown')).toBeInTheDocument();
+      expect(screen.getByText(/circular/i)).toBeInTheDocument();
+    });
+
+    it('adds and removes a dependency', () => {
+      render(<Harness entity={list[4]} list={list} initial={bible} />);
+      const sec = screen.getByRole('region', { name: 'Must come after' });
+      fireEvent.change(within(sec).getByLabelText('Add dependency'), { target: { value: 'A' } });
+      expect(within(sec).getByRole('button', { name: 'Coup' })).toBeInTheDocument();
+      fireEvent.click(within(sec).getByRole('button', { name: 'Remove dependency on Coup' }));
+      expect(within(sec).queryByRole('button', { name: 'Remove dependency on Coup' })).toBeNull();
+    });
+
+    it('lists participants and plotline of an event and opens them', () => {
+      const onOpenEntity = vi.fn();
+      render(<Harness entity={list[2]} list={list} initial={bible} onOpenEntity={onOpenEntity} />);
+      fireEvent.click(within(screen.getByRole('region', { name: 'Participants' })).getByRole('button', { name: 'Mara' }));
+      expect(onOpenEntity).toHaveBeenCalledWith('mara');
+      expect(within(screen.getByRole('region', { name: 'Plotline' })).getByText('Rebellion')).toBeInTheDocument();
+    });
+
+    it('lists the events that reference a character', () => {
+      render(<Harness entity={list[0]} list={list} initial={bible} />);
+      const sec = screen.getByRole('region', { name: 'Events' });
+      expect(within(sec).getByText('Coup')).toBeInTheDocument();
+      expect(within(sec).getByText('Trial')).toBeInTheDocument();
+      expect(within(sec).queryByText('Prologue')).toBeNull();
+    });
+
+    it('lists a plotline events in season order', () => {
+      render(<Harness entity={list[1]} list={list} initial={bible} />);
+      const names = within(screen.getByRole('region', { name: 'Events' })).getAllByRole('button').map(b => b.textContent);
+      expect(names).toEqual(['Prologue', 'Trial', 'Coup']);
+    });
   });
 });

@@ -184,6 +184,7 @@ export function Workspace({ project }: { project: ProjectController }) {
             // The conflict queue arrives with a later task.
             onShowConflict: () => undefined,
             onOpenSource: (source) => navigate(source.itemId),
+            onOpenEntity: navigate,
           }}
         />
       );
