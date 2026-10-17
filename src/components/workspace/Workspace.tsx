@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { BookOpen, MessageSquare, Columns2, LayoutGrid, Plus, Rows2, SlidersHorizontal, Square, Table, Download, X } from 'lucide-react';
+import { AlertTriangle, BookOpen, CalendarRange, MessageSquare, Columns2, LayoutGrid, Plus, Rows2, SlidersHorizontal, Square, Table, Download, X } from 'lucide-react';
 import type { FactSource, ItemType, MediaKind, TreeItem } from '@/project/types';
 import type { ProjectController } from '@/project/useProject';
 import { openExternal } from '@/project/api';
@@ -12,12 +12,17 @@ import { Inspector } from '@/components/workspace/Inspector';
 import { SplitPane, type SplitOrientation } from '@/components/workspace/SplitPane';
 import { ImportChatModal } from '@/components/bible/ImportChatModal';
 import { normalizeChatText } from '@/bible/entities';
+import { findContradictions, openContradictions } from '@/bible/contradictions';
+import { ConflictQueue } from '@/components/bible/ConflictQueue';
 import { resolveSource } from '@/bible/sources';
 import { AddItemModal } from '@/components/workspace/AddItemModal';
 import { QuickRefPanel } from '@/components/workspace/QuickRefPanel';
 import { ExportModal } from '@/components/workspace/ExportModal';
 import { ConfirmDialog } from '@/components/workspace/ConfirmDialog';
 import { btn, btnGhost, btnPrimary, input, segment, segmentGroup } from '@/components/workspace/ui';
+
+/** What the content area shows: the research panes, the conflict queue, or the timeline. */
+export type WorkspaceMode = 'research' | 'conflicts' | 'timeline';
 
 /** How a folder (or the top level) is shown. Non-folder items always open in the editor. */
 export type FolderView = 'corkboard' | 'outliner' | 'editor';
@@ -57,6 +62,8 @@ export function Workspace({ project }: { project: ProjectController }) {
   const [importingChat, setImportingChat] = useState<{ parentId: string | null } | null>(null);
   /** A fact's passage to show once its source opens; cleared by any other navigation. */
   const [highlight, setHighlight] = useState<{ itemId: string; start: number; end: number } | null>(null);
+  const [mode, setMode] = useState<WorkspaceMode>('research');
+  const [conflictKey, setConflictKey] = useState<string | undefined>(undefined);
   const [exporting, setExporting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
@@ -86,7 +93,18 @@ export function Workspace({ project }: { project: ProjectController }) {
     });
   }, []);
 
+  const openContradictionCount = useMemo(() => {
+    const ids = new Set(items.filter(i => i.type === 'entity').map(i => i.id));
+    return openContradictions(findContradictions(state.bible, ids)).length;
+  }, [items, state.bible]);
+
+  const showConflict = useCallback((key: string) => {
+    setConflictKey(key);
+    setMode('conflicts');
+  }, []);
+
   const navigate = useCallback((id: string | null) => {
+    setMode('research');
     setActiveId(id);
     setInspectedId(null);
     setHighlight(null);
@@ -195,8 +213,7 @@ export function Workspace({ project }: { project: ProjectController }) {
             bible: state.bible,
             bodyOf: contentOf,
             updateBible,
-            // The conflict queue arrives with a later task.
-            onShowConflict: () => undefined,
+            onShowConflict: showConflict,
             onOpenSource: openSource,
             onOpenEntity: navigate,
           }}
@@ -317,6 +334,13 @@ export function Workspace({ project }: { project: ProjectController }) {
           <button type="button" className={btn} onClick={() => setExporting(true)}>
             <Download className="h-3.5 w-3.5" /> Export
           </button>
+          <button type="button" className={segment(mode === 'conflicts')} aria-pressed={mode === 'conflicts'} onClick={() => { setConflictKey(undefined); setMode(m => (m === 'conflicts' ? 'research' : 'conflicts')); }}>
+            <AlertTriangle className="h-3.5 w-3.5" /> Conflicts
+            <span className="rounded-full bg-surface-sunken px-1.5 text-[11px] text-content" aria-label={`${openContradictionCount} open`}>{openContradictionCount}</span>
+          </button>
+          <button type="button" className={segment(mode === 'timeline')} aria-pressed={mode === 'timeline'} onClick={() => setMode(m => (m === 'timeline' ? 'research' : 'timeline'))}>
+            <CalendarRange className="h-3.5 w-3.5" /> Timeline
+          </button>
           <div className={segmentGroup} role="group" aria-label="Layout">
             <button type="button" className={segment(!splitOpen)} aria-pressed={!splitOpen} aria-label="Single pane" title="Single pane" onClick={() => setSplit(null)}>
               <Square className="h-3.5 w-3.5" />
@@ -360,7 +384,19 @@ export function Workspace({ project }: { project: ProjectController }) {
           onMove={moveItem}
         />
         <main className="flex min-h-0 min-w-0 flex-1 flex-col bg-surface">
-          {splitOpen ? <SplitPane orientation={split!.orientation} first={primaryPane} second={secondaryPane} /> : primaryPane}
+          {mode === 'conflicts' ? (
+            <ConflictQueue
+              bible={state.bible}
+              items={items}
+              contentOf={contentOf}
+              focusKey={conflictKey}
+              onUpdate={updateBible}
+              onOpenSource={openSource}
+              onOpenEntity={navigate}
+            />
+          ) : mode === 'timeline' ? (
+            <div className="flex flex-1 items-center justify-center p-6 text-xs text-content-muted">The timeline is coming soon.</div>
+          ) : splitOpen ? <SplitPane orientation={split!.orientation} first={primaryPane} second={secondaryPane} /> : primaryPane}
         </main>
         {inspected ? (
           <Inspector

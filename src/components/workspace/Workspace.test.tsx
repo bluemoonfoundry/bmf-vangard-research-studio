@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import App from '@/App';
-import type { TreeItem } from '@/project/types';
+import type { Bible, TreeItem } from '@/project/types';
 import { createFakeBridge, makeOpened } from '@/test/fakeBridge';
 
 type Fake = ReturnType<typeof createFakeBridge>;
@@ -21,8 +21,8 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-async function open(items: TreeItem[] = [], docs: Record<string, string> = {}) {
-  const project = makeOpened({ tree: { items } });
+async function open(items: TreeItem[] = [], docs: Record<string, string> = {}, bible?: Bible) {
+  const project = makeOpened({ tree: { items }, ...(bible && { bible }) });
   fake.load(project, docs);
   fake.nextDialogResult = project;
   render(<App />);
@@ -409,5 +409,40 @@ describe('quick reference and export', () => {
     expect(await within(dialog).findByRole('status')).toHaveTextContent('Saved to C:\\Exports\\Saga dossier.md');
     expect(fake.exports[0]).toMatch(/^# Saga: research dossier/);
     expect(fake.exports[0]).toContain('> Navigator\n\nCharts the coast.');
+  });
+});
+
+describe('conflict queue', () => {
+  const mara = item('m', 'Mara', { type: 'entity', entityKind: 'character' } as Partial<TreeItem>);
+  const fact = (id: string, value: string) => ({
+    id, entityId: 'm', attribute: 'death', value, status: 'kept' as const, origin: 'manual', createdAt: 'T0', updatedAt: 'T0',
+  });
+  const bible = (): Bible => ({ facts: [fact('a', 'Season 3 finale'), fact('b', 'Pilot')], dependencies: [], decisions: [] });
+  const badge = () => within(screen.getByRole('button', { name: /Conflicts/ })).getByText(/^\d+$/);
+
+  it('counts open contradictions and shows two cards', async () => {
+    await open([mara], {}, bible());
+    expect(badge()).toHaveTextContent('1');
+    fireEvent.click(screen.getByRole('button', { name: /Conflicts/ }));
+    expect(screen.getAllByRole('article')).toHaveLength(2);
+  });
+
+  it('drops the badge to 0 after Keep this one, and Reopen restores it', async () => {
+    await open([mara], {}, bible());
+    fireEvent.click(screen.getByRole('button', { name: /Conflicts/ }));
+    fireEvent.click(within(screen.getAllByRole('article')[0]).getByRole('button', { name: 'Keep this one' }));
+    expect(badge()).toHaveTextContent('0');
+    fireEvent.click(screen.getByRole('button', { name: 'Decided' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Reopen' }));
+    expect(badge()).toHaveTextContent('1');
+  });
+
+  it('opens from an entity page and returns to research on a binder pick', async () => {
+    await open([mara], {}, bible());
+    fireEvent.click(treeItem('Mara'));
+    fireEvent.click(await screen.findByRole('button', { name: /conflict queue/i }));
+    expect(screen.getAllByRole('article')).toHaveLength(2);
+    fireEvent.click(treeItem('Mara'));
+    expect(screen.queryByRole('article')).toBeNull();
   });
 });
