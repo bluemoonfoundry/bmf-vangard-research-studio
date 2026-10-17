@@ -7,6 +7,7 @@ import type { AssetCache } from '@/workspace/assetCache';
 import { itemType } from '@/workspace/research';
 import { textStats } from '@/workspace/stats';
 import { AudioPlayer, ImageViewer, WebClipBanner } from '@/components/workspace/MediaViews';
+import { ChatView } from '@/components/bible/ChatView';
 import { MarkdownView } from '@/components/workspace/MarkdownView';
 import { btn, btnGhost, segment, segmentGroup } from '@/components/workspace/ui';
 
@@ -50,6 +51,7 @@ export function DocumentEditor(props: DocumentEditorProps) {
   const textarea = useRef<HTMLTextAreaElement>(null);
   const stats = textStats(content ?? '');
   const type = itemType(item);
+  const isChat = type === 'chat';
   const mediaKind: MediaKind | null = type === 'image' ? 'image' : type === 'audio' ? 'audio' : null;
 
   // Uses this editor's own textarea: a split view can show two editors at once.
@@ -102,14 +104,14 @@ export function DocumentEditor(props: DocumentEditorProps) {
               placeholder="Untitled"
               onChange={(e) => onUpdate(item.id, { title: e.target.value })}
             />
-            <div className={segmentGroup} role="group" aria-label="Editor mode">
+            {!isChat && <div className={segmentGroup} role="group" aria-label="Editor mode">
               <button type="button" className={segment(!preview)} aria-pressed={!preview} onClick={() => setPreview(false)}>
                 <Pencil className="h-3 w-3" /> Edit
               </button>
               <button type="button" className={segment(preview)} aria-pressed={preview} onClick={() => setPreview(true)}>
                 <Eye className="h-3 w-3" /> Preview
               </button>
-            </div>
+            </div>}
           </div>
 
           <label className="flex flex-col gap-1 rounded-md border border-line bg-surface-raised p-2.5">
@@ -145,7 +147,7 @@ export function DocumentEditor(props: DocumentEditorProps) {
           )}
           {type === 'webpage' && <WebClipBanner item={item} onOpenLink={onOpenLink} />}
 
-          {!preview && (
+          {!preview && !isChat && (
             <div className="flex flex-wrap items-center gap-0.5 border-y border-line py-1" role="toolbar" aria-label="Formatting">
               {FORMATS.map((f, i) => (f === 'divider'
                 ? <span key={i} className="mx-1 h-4 w-px bg-line" aria-hidden />
@@ -167,6 +169,8 @@ export function DocumentEditor(props: DocumentEditorProps) {
 
           {content === undefined ? (
             <p className="text-sm text-content-muted">Loading…</p>
+          ) : isChat ? (
+            <ChatView text={content} />
           ) : preview ? (
             <MarkdownView text={content} onOpenLink={onOpenLink} empty="Nothing written yet. Switch to Edit to start." />
           ) : (

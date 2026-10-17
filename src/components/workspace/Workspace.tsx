@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { BookOpen, Columns2, LayoutGrid, Plus, Rows2, SlidersHorizontal, Square, Table, Download, X } from 'lucide-react';
+import { BookOpen, MessageSquare, Columns2, LayoutGrid, Plus, Rows2, SlidersHorizontal, Square, Table, Download, X } from 'lucide-react';
 import type { ItemType, MediaKind, TreeItem } from '@/project/types';
 import type { ProjectController } from '@/project/useProject';
 import { openExternal } from '@/project/api';
@@ -10,6 +10,8 @@ import { CorkboardView, type ContainerViewProps } from '@/components/workspace/C
 import { OutlinerView } from '@/components/workspace/OutlinerView';
 import { Inspector } from '@/components/workspace/Inspector';
 import { SplitPane, type SplitOrientation } from '@/components/workspace/SplitPane';
+import { ImportChatModal } from '@/components/bible/ImportChatModal';
+import { normalizeChatText } from '@/bible/entities';
 import { AddItemModal } from '@/components/workspace/AddItemModal';
 import { QuickRefPanel } from '@/components/workspace/QuickRefPanel';
 import { ExportModal } from '@/components/workspace/ExportModal';
@@ -38,7 +40,7 @@ export function Workspace({ project }: { project: ProjectController }) {
   const items = state.tree.items;
   const { docs } = state;
   const {
-    addItem, updateItem, editDoc, moveItem, deleteItem, duplicateItem, loadAllDocs, importMedia, discardAsset,
+    addItem, updateItem, editDoc, moveItem, deleteItem, duplicateItem, loadAllDocs, importMedia, importText, discardAsset,
     renameProject, exportDossier, reportError, assets,
   } = project;
 
@@ -51,6 +53,7 @@ export function Workspace({ project }: { project: ProjectController }) {
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
   const [quickRefId, setQuickRefId] = useState<string | null>(null);
   const [adding, setAdding] = useState<{ type: ItemType; parentId: string | null } | null>(null);
+  const [importingChat, setImportingChat] = useState<{ parentId: string | null } | null>(null);
   const [exporting, setExporting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
@@ -284,6 +287,9 @@ export function Workspace({ project }: { project: ProjectController }) {
           <button type="button" className={btnPrimary} onClick={() => openAdd(newItemParentId)}>
             <Plus className="h-3.5 w-3.5" /> New item
           </button>
+          <button type="button" className={btn} onClick={() => setImportingChat({ parentId: newItemParentId })}>
+            <MessageSquare className="h-3.5 w-3.5" /> Import chat
+          </button>
           <button type="button" className={btn} onClick={() => setExporting(true)}>
             <Download className="h-3.5 w-3.5" /> Export
           </button>
@@ -362,6 +368,16 @@ export function Workspace({ project }: { project: ProjectController }) {
             navigate(addItem(fields, content));
           }}
           onClose={() => setAdding(null)}
+        />
+      )}
+      {importingChat && (
+        <ImportChatModal
+          importText={importText}
+          onCreate={(fields, text) => {
+            expand(importingChat.parentId);
+            navigate(addItem({ type: 'chat', parentId: importingChat.parentId, ...fields }, normalizeChatText(text)));
+          }}
+          onClose={() => setImportingChat(null)}
         />
       )}
       {exporting && (

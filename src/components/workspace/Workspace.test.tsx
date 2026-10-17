@@ -320,6 +320,48 @@ describe('add item dialog', () => {
   });
 });
 
+describe('story bible items', () => {
+  it('imports pasted chat as a read-only chat item with LF text', async () => {
+    await open();
+    fireEvent.click(screen.getByRole('button', { name: 'Import chat' }));
+    const dialog = screen.getByRole('dialog', { name: 'Import chat' });
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Chat text' }), { target: { value: 'You: hi\r\nAI: hello' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Import' }));
+    expect(treeItem('Imported chat')).toBeInTheDocument();
+    expect(await screen.findByText(/You: hi/)).toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: 'Document text' })).toBeNull();
+    const saved = await save();
+    expect(saved.tree!.items).toEqual([expect.objectContaining({ type: 'chat', title: 'Imported chat' })]);
+    const body = Object.values(fake.disk.docs).join('');
+    expect(body).toContain('You: hi\nAI: hello');
+    expect(body).not.toContain('\r');
+  });
+
+  it('imports a chat file with its title', async () => {
+    await open();
+    fake.nextTextImport = { title: 'Session 3', text: 'a\nb', fileName: 'Session 3.txt' };
+    fireEvent.click(screen.getByRole('button', { name: 'Import chat' }));
+    const dialog = screen.getByRole('dialog', { name: 'Import chat' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'From file…' }));
+    await waitFor(() => expect(within(dialog).getByRole('textbox', { name: 'Title' })).toHaveValue('Session 3'));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Import' }));
+    expect(await screen.findByRole('treeitem', { name: 'Session 3' })).toBeInTheDocument();
+    expect((await save()).tree!.items).toEqual([expect.objectContaining({ type: 'chat', importedFrom: 'Session 3.txt' })]);
+  });
+
+  it('creates an entity of a chosen kind', async () => {
+    await open();
+    fireEvent.click(screen.getByRole('button', { name: 'New item' }));
+    const dialog = screen.getByRole('dialog', { name: 'Add to binder' });
+    fireEvent.click(within(dialog).getByRole('radio', { name: 'Entity' }));
+    fireEvent.change(within(dialog).getByRole('combobox', { name: 'Kind' }), { target: { value: 'event' } });
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Title' }), { target: { value: 'The Siege' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Create' }));
+    expect(await screen.findByRole('treeitem', { name: 'The Siege' })).toBeInTheDocument();
+    expect((await save()).tree!.items).toEqual([expect.objectContaining({ type: 'entity', entityKind: 'event' })]);
+  });
+});
+
 describe('media', () => {
   it('plays audio from the project and reloads an asset changed on disk', async () => {
     fake.disk.assets['tape.mp3'] = new Uint8Array([1]);

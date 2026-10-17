@@ -10,6 +10,7 @@ import { checkPosition, eventsInCycles, keptPositions, strictlyAfter } from '@/b
 import { buildTimeline } from '@/bible/timeline';
 import { resolveSource } from '@/bible/sources';
 import { eventsLinkingTo, factsCitingItems } from '@/bible/links';
+import { normalizeChatText, entityKindOf, isEvent, ENTITY_KINDS } from '@/bible/entities';
 import { contradictionKey, findContradictions, groupVersions, openContradictions } from '@/bible/contradictions';
 
 let n = 0;
@@ -304,5 +305,21 @@ describe('links', () => {
     const a = fact({ source: { itemId: 'i1', quote: 'q', start: 0, end: 1 } });
     const b = fact({ source: { itemId: 'i2', quote: 'q', start: 0, end: 1 } });
     expect(factsCitingItems(bibleOf([a, b, fact()]), new Set(['i1']))).toEqual([a]);
+  });
+});
+
+describe('entities and chat text', () => {
+  it('normalizes chat text to LF without a BOM', () => {
+    expect(normalizeChatText('\uFEFFa\r\nb\rc')).toBe('a\nb\nc');
+  });
+
+  it('knows entity kinds and events', () => {
+    const e = (entityKind?: string) => ({ type: 'entity', entityKind }) as TreeItem;
+    expect(ENTITY_KINDS.map(k => k.id)).toEqual(['character', 'location', 'faction', 'item', 'lore', 'event', 'plotline']);
+    expect(entityKindOf(e('event'))).toBe('event');
+    expect(entityKindOf(e('weird'))).toBeNull();
+    expect(entityKindOf({ type: 'document' } as TreeItem)).toBeNull();
+    expect(isEvent(e('event'))).toBe(true);
+    expect(isEvent(e('lore'))).toBe(false);
   });
 });

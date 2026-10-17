@@ -1,6 +1,6 @@
 import type { TreeItem } from '@/project/types';
 import { childrenOf } from '@/workspace/treeOps';
-import { ITEM_TYPES, itemType, labelOf, statusName } from '@/workspace/research';
+import { itemTypeName, labelOf, statusName } from '@/workspace/research';
 
 /**
  * Compiles the whole binder into one Markdown document: every item in binder
@@ -13,7 +13,6 @@ export function generateDossier(
   exportedAt: Date = new Date(),
 ): string {
   const titleOf = new Map(items.map(i => [i.id, i.title]));
-  const typeName = new Map(ITEM_TYPES.map(t => [t.id, t.name]));
   const out: string[] = [`# ${projectName}: research dossier`, '', `*Exported ${exportedAt.toLocaleString()}*`, ''];
 
   const visit = (item: TreeItem, depth: number, seen: Set<string>) => {
@@ -21,7 +20,7 @@ export function generateDossier(
     seen.add(item.id);
 
     out.push(`${'#'.repeat(Math.min(depth + 1, 6))} ${item.title || 'Untitled'}`, '');
-    const facts = [`**Type:** ${typeName.get(itemType(item))}`];
+    const facts = [`**Type:** ${itemTypeName(item)}`];
     const label = labelOf(item);
     const status = statusName(item);
     if (label) facts.push(`**Label:** ${label.name}`);
