@@ -10,7 +10,7 @@ import { checkPosition, eventsInCycles, keptPositions, strictlyAfter } from '@/b
 import { buildTimeline } from '@/bible/timeline';
 import { resolveSource } from '@/bible/sources';
 import { eventsLinkingTo, factsCitingItems } from '@/bible/links';
-import { normalizeChatText, entityKindOf, isEvent, ENTITY_KINDS } from '@/bible/entities';
+import { normalizeChatText, entityKindOf, isEvent, ENTITY_KINDS, attributeSuggestions } from '@/bible/entities';
 import { contradictionKey, findContradictions, groupVersions, openContradictions } from '@/bible/contradictions';
 
 let n = 0;
@@ -321,5 +321,25 @@ describe('entities and chat text', () => {
     expect(entityKindOf({ type: 'document' } as TreeItem)).toBeNull();
     expect(isEvent(e('event'))).toBe(true);
     expect(isEvent(e('lore'))).toBe(false);
+  });
+});
+
+describe('attributeSuggestions', () => {
+  const items = [
+    { id: 'c1', type: 'entity', entityKind: 'character' }, { id: 'c2', type: 'entity', entityKind: 'character' },
+    { id: 'l1', type: 'entity', entityKind: 'location' }, { id: 'ev', type: 'entity', entityKind: 'event' },
+  ] as TreeItem[];
+  const b = bibleOf([
+    fact({ entityId: 'c1', attribute: 'Eyes' }), fact({ entityId: 'c1', attribute: 'Death' }),
+    fact({ entityId: 'c2', attribute: ' death ' }), fact({ entityId: 'l1', attribute: 'Climate' }),
+  ]);
+
+  it('lists attributes of that kind, most used first', () => {
+    expect(attributeSuggestions(b, items, 'character')).toEqual(['Death', 'Eyes']);
+    expect(attributeSuggestions(b, items, 'location')).toEqual(['Climate']);
+  });
+  it('adds when for events only', () => {
+    expect(attributeSuggestions(b, items, 'event')).toEqual(['when']);
+    expect(attributeSuggestions(b, items, 'lore')).toEqual([]);
   });
 });

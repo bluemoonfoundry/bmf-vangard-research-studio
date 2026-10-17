@@ -41,7 +41,7 @@ export function Workspace({ project }: { project: ProjectController }) {
   const { docs } = state;
   const {
     addItem, updateItem, editDoc, moveItem, deleteItem, duplicateItem, loadAllDocs, importMedia, importText, discardAsset,
-    renameProject, exportDossier, reportError, assets,
+    renameProject, exportDossier, reportError, assets, updateBible,
   } = project;
 
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -176,6 +176,15 @@ export function Workspace({ project }: { project: ProjectController }) {
           onUpdate={updateItem}
           onAttachMedia={(i, kind) => void attachMedia(i, kind)}
           onOpenLink={openLink}
+          bible={{
+            items,
+            bible: state.bible,
+            bodyOf: contentOf,
+            updateBible,
+            // The conflict queue arrives with a later task.
+            onShowConflict: () => undefined,
+            onOpenSource: (source) => navigate(source.itemId),
+          }}
         />
       );
     }

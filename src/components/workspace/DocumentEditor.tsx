@@ -8,6 +8,7 @@ import { itemType } from '@/workspace/research';
 import { textStats } from '@/workspace/stats';
 import { AudioPlayer, ImageViewer, WebClipBanner } from '@/components/workspace/MediaViews';
 import { ChatView } from '@/components/bible/ChatView';
+import { EntityPanel, type EntityPanelProps } from '@/components/bible/EntityPanel';
 import { MarkdownView } from '@/components/workspace/MarkdownView';
 import { btn, btnGhost, segment, segmentGroup } from '@/components/workspace/ui';
 
@@ -22,6 +23,8 @@ export interface DocumentEditorProps {
   onUpdate(id: string, patch: Partial<TreeItem>): void;
   onAttachMedia(item: TreeItem, kind: MediaKind): void;
   onOpenLink(url: string): void;
+  /** Story Bible wiring; entity items show their facts above the body. */
+  bible?: Omit<EntityPanelProps, 'entity'>;
 }
 
 type Format = { label: string; icon: typeof Bold; before: string; after?: string; line?: boolean };
@@ -46,7 +49,7 @@ const FORMATS: (Format | 'divider')[] = [
  * per-document view state (preview, cursor) never leaks between items.
  */
 export function DocumentEditor(props: DocumentEditorProps) {
-  const { item, content, breadcrumbs, assets, onNavigate, onChangeContent, onUpdate, onAttachMedia, onOpenLink } = props;
+  const { item, content, breadcrumbs, assets, onNavigate, onChangeContent, onUpdate, onAttachMedia, onOpenLink, bible } = props;
   const [preview, setPreview] = useState(false);
   const textarea = useRef<HTMLTextAreaElement>(null);
   const stats = textStats(content ?? '');
@@ -146,6 +149,8 @@ export function DocumentEditor(props: DocumentEditorProps) {
             )
           )}
           {type === 'webpage' && <WebClipBanner item={item} onOpenLink={onOpenLink} />}
+
+          {bible && item.type === 'entity' && <EntityPanel entity={item} {...bible} />}
 
           {!preview && !isChat && (
             <div className="flex flex-wrap items-center gap-0.5 border-y border-line py-1" role="toolbar" aria-label="Formatting">
