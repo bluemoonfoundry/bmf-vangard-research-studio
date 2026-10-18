@@ -1,4 +1,4 @@
-import { LlmError, requestJson, requestStream } from '../http.js';
+import { LlmError, requestJson, requestStream, scrub } from '../http.js';
 import { readSse } from '../sse.js';
 
 /**
@@ -123,12 +123,12 @@ export function createGeminiAdapter({ baseUrl = DEFAULT_BASE_URL, fetchFn = glob
                 } catch {
                     throw new LlmError('PROVIDER', 'The provider returned an unreadable stream event.');
                 }
-                if (chunk.error) throw new LlmError('PROVIDER', String(chunk.error.message || 'The provider reported an error.'));
+                if (chunk.error) throw new LlmError('PROVIDER', scrub(String(chunk.error.message || 'The provider reported an error.'), secrets));
                 if (chunk.modelVersion) model = chunk.modelVersion;
                 if (chunk.promptFeedback && chunk.promptFeedback.blockReason) blocked = chunk.promptFeedback.blockReason;
                 const u = chunk.usageMetadata;
                 if (u) {
-                    usage = {};
+                    usage = usage || {};
                     if (typeof u.promptTokenCount === 'number') usage.inputTokens = u.promptTokenCount;
                     if (typeof u.candidatesTokenCount === 'number') usage.outputTokens = u.candidatesTokenCount;
                 }
@@ -144,7 +144,7 @@ export function createGeminiAdapter({ baseUrl = DEFAULT_BASE_URL, fetchFn = glob
                 if (html) entryPointHtml = html;
             }
 
-            if (!gotText && blocked) throw new LlmError('BAD_REQUEST', `The request was blocked by the provider (${blocked}).`);
+            if (!gotText && blocked) throw new LlmError('BAD_REQUEST', scrub(`The request was blocked by the provider (${blocked}).`, secrets));
             if (sources.size) onEvent({ type: 'sources', sources: [...sources.values()] });
             if (entryPointHtml) onEvent({ type: 'extras', extras: { gemini: { searchEntryPointHtml: entryPointHtml } } });
             onEvent(usage ? { type: 'done', model, usage } : { type: 'done', model });

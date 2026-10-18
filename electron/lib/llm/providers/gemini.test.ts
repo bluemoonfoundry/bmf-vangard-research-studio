@@ -132,6 +132,24 @@ describe('gemini adapter', () => {
         await expect(run({}, [{ body }])).rejects.toMatchObject({ code: 'PROVIDER' });
     });
 
+    it('scrubs the key from in-stream errors', async () => {
+        const body = `data: {"error":{"code":403,"message":"bad key=${KEY} ${KEY}"}}\n\n`;
+        const err = await run({}, [{ body }]).catch((e) => e);
+        expect(err.code).toBe('PROVIDER');
+        expect(err.message).not.toContain(KEY);
+        expect(err.message).toContain('[redacted]');
+    });
+
+    it('keeps earlier usage fields when a later chunk omits them', async () => {
+        const body = [
+            'data: {"candidates":[{"content":{"parts":[{"text":"a"}]}}],"usageMetadata":{"promptTokenCount":5,"candidatesTokenCount":3}}',
+            'data: {"usageMetadata":{"totalTokenCount":8}}',
+            '',
+        ].join('\n\n');
+        const { events } = await run({}, [{ body }]);
+        expect(events[events.length - 1]).toEqual({ type: 'done', model: 'gemini-2.5-flash', usage: { inputTokens: 5, outputTokens: 3 } });
+    });
+
     it('throws CANCELLED when aborted mid-stream', async () => {
         const ac = new AbortController();
         const enc = new TextEncoder();
