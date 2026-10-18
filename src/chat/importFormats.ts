@@ -85,6 +85,49 @@ const FOOTER = '*Exported by [AI Chat Exporter';
 const SOURCE_ROW = /^\|\s*\*\*Source\*\*\s*\|\s*\[[^\]]*\]\(([^)\s]+)\)/;
 const AI_STUDIO = 'https://aistudio.google.com/';
 
+/**
+ * The turns of raw AI Chat Exporter text, found in place. Chats imported before turns were parsed
+ * hold the export as is; this lets extraction see their turns without rewriting the body (fact
+ * offsets point into it). Spans hold what parseTranscript would keep as each turn's text. Null when
+ * the text has no exporter conversation.
+ */
+export function exporterTurnSpans(body: string): TurnSpan[] | null {
+  const lines = body.split('\n');
+  const conv = lines.indexOf(CONVERSATION);
+  if (conv < 0) return null;
+  const starts: number[] = [];
+  let pos = 0;
+  for (const line of lines) {
+    starts.push(pos);
+    pos += line.length + 1;
+  }
+  const headings: { role: TurnRole; label: string; line: number }[] = [];
+  let footer = lines.length;
+  for (let i = conv + 1; i < lines.length; i++) {
+    const model = MODEL_HEADING.exec(lines[i]);
+    if (lines[i] === USER_HEADING || model) headings.push({ role: model ? 'model' : 'user', label: model ? model[1] : USER_LABEL, line: i });
+    else if (lines[i].startsWith(FOOTER)) { footer = i; break; }
+  }
+  const spans: TurnSpan[] = [];
+  headings.forEach((h, n) => {
+    let first = h.line + 1;
+    const limit = n + 1 < headings.length ? headings[n + 1].line : footer;
+    while (first < limit && !lines[first].trim()) first++;
+    if (h.role === 'model' && first < limit && lines[first] === 'Model') first++;
+    while (first < limit && !lines[first].trim()) first++;
+    let last = limit - 1;
+    while (last >= first && !lines[last].trim()) last--;
+    if (last >= first && lines[last] === '---') last--;
+    while (last >= first && !lines[last].trim()) last--;
+    if (last < first) return;
+    const start = starts[first];
+    let end = starts[last] + lines[last].length;
+    while (end > start && /\s/.test(body[end - 1])) end--;
+    spans.push({ role: h.role, label: h.label, headingStart: starts[h.line], headingEnd: starts[h.line] + lines[h.line].length, start, end });
+  });
+  return spans.length ? spans : null;
+}
+
 const plain = (body: string, warnings: string[] = []): ParsedTranscript => ({ format: 'text', turns: [], body, warnings });
 
 function isDriveJson(text: string): boolean {
