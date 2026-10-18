@@ -75,6 +75,10 @@ export interface TreeItem {
   importedFormat?: string;
   /** Where an imported chat came from, e.g. its AI Studio page. Opened through app:open-external. */
   sourceUrl?: string;
+  /** Attribute keys pinned to an entity's card on the card wall, in order (src/bible/cards.ts). */
+  cardFacts?: string[];
+  /** The image item shown as an entity's portrait; defaults to its first linked image. */
+  portraitId?: string;
   [extra: string]: unknown;
 }
 
