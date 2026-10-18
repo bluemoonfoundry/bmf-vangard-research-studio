@@ -37,6 +37,12 @@ export interface ParsedTranscript {
 
 export const USER_LABEL = 'You';
 
+/**
+ * Whether an item's stored body is in the canonical layout. Only a recognised import is: in a
+ * plain-text chat or a document, a `=== Scene 2 ===` line is just text.
+ */
+export const hasTurnLayout = (item: { importedFormat?: string }): boolean => item.importedFormat === 'aistudio-exporter-md';
+
 const HEADING = /^=== (.+) ===$/;
 const roleOf = (label: string): TurnRole => (label === USER_LABEL ? 'user' : 'model');
 

@@ -1,6 +1,6 @@
 import type { FactSource, TreeItem } from '@/project/types';
 import type { ChatTranscript } from '@/chat/types';
-import { exporterTurnSpans, turnSpans } from '@/chat/importFormats';
+import { exporterTurnSpans, hasTurnLayout, turnSpans } from '@/chat/importFormats';
 import { AI_CHAT_TYPE } from '@/project/projectState';
 
 /**
@@ -43,7 +43,7 @@ export function extractionSource(item: TreeItem, body: string | undefined, chat:
     return { item, turns, hasTurns: turns.length > 0 };
   }
   if (body === undefined) return null;
-  const spans = turnSpans(body) ?? exporterTurnSpans(body);
+  const spans = (hasTurnLayout(item) ? turnSpans(body) : null) ?? exporterTurnSpans(body);
   if (spans?.length) {
     const turns = spans.filter(s => s.end > s.start).map((s, i): SourceTurn => ({
       index: i + 1, role: s.role, label: s.label, text: body.slice(s.start, s.end), offset: s.start,

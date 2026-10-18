@@ -30,7 +30,7 @@ async function setup(docs: Record<string, string> = { s1: BODY }) {
     box.run = useExtraction({ ai, project });
     return null;
   }
-  fake.nextDialogResult = makeOpened({ tree: { items: [node('e1', 'entity', { entityKind: 'character', title: 'Mara' }), ...Object.keys(docs).map(id => node(id, 'chat'))] } });
+  fake.nextDialogResult = makeOpened({ tree: { items: [node('e1', 'entity', { entityKind: 'character', title: 'Mara' }), ...Object.keys(docs).map(id => node(id, 'chat', { importedFormat: 'aistudio-exporter-md' }))] } });
   fake.disk.docs = { ...docs };
   render(createElement(Host));
   await act(() => box.project.openProject());

@@ -12,7 +12,7 @@ import { applyResults, cardFingerprint, fingerprint, parseWhen, rejectedFingerpr
 const ent = (id: string, title: string, entityKind = 'character'): TreeItem =>
   ({ id, parentId: null, type: 'entity', entityKind, title, order: 0, keywords: [] });
 const chatItem = (id = 's1', extra: Partial<TreeItem> = {}): TreeItem =>
-  ({ id, parentId: null, type: 'chat', title: 'Chat', order: 0, keywords: [], ...extra });
+  ({ id, parentId: null, type: 'chat', importedFormat: 'aistudio-exporter-md', title: 'Chat', order: 0, keywords: [], ...extra });
 
 const BODY = formatTurns([
   { role: 'user', label: 'You', text: 'Mara has green eyes.' },

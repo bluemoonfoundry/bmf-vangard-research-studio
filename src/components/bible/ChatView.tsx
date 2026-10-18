@@ -7,6 +7,8 @@ export interface ChatViewProps {
   text: string;
   /** Accessible name of the transcript box. */
   label?: string;
+  /** Style turn headings: only for a body in the canonical layout (see hasTurnLayout). */
+  turns?: boolean;
   highlight?: { start: number; end: number } | null;
   onSelectRange?(r: ChatSelection): void;
 }
@@ -17,8 +19,8 @@ const HEADING_CLASS = { user: 'font-semibold text-accent', model: 'font-semibold
  * Renders `text` with turn headings styled and the highlight marked. The rendered text content
  * is always exactly `text`, so selection offsets stay offsets into the stored body.
  */
-function renderSegments(text: string, highlight: { start: number; end: number } | null, markRef: React.Ref<HTMLElement>): ReactNode {
-  const headings = turnSpans(text) ?? [];
+function renderSegments(text: string, turns: boolean, highlight: { start: number; end: number } | null, markRef: React.Ref<HTMLElement>): ReactNode {
+  const headings = (turns ? turnSpans(text) : null) ?? [];
   const cuts = new Set([0, text.length]);
   for (const h of headings) { cuts.add(h.headingStart); cuts.add(h.headingEnd); }
   if (highlight) { cuts.add(highlight.start); cuts.add(highlight.end); }
@@ -42,7 +44,7 @@ function renderSegments(text: string, highlight: { start: number; end: number } 
 }
 
 /** A read-only chat transcript. Selection offsets are into `text`, exactly as stored. */
-export function ChatView({ text, label = 'Chat transcript', highlight, onSelectRange }: ChatViewProps) {
+export function ChatView({ text, label = 'Chat transcript', turns = false, highlight, onSelectRange }: ChatViewProps) {
   const pre = useRef<HTMLPreElement>(null);
   const markRef = useRef<HTMLElement>(null);
   const report = useRef(onSelectRange);
@@ -79,8 +81,8 @@ export function ChatView({ text, label = 'Chat transcript', highlight, onSelectR
   const hStart = h?.start;
   const hEnd = h?.end;
   const segments = useMemo(
-    () => renderSegments(text, hStart === undefined || hEnd === undefined ? null : { start: hStart, end: hEnd }, markRef),
-    [text, hStart, hEnd],
+    () => renderSegments(text, turns, hStart === undefined || hEnd === undefined ? null : { start: hStart, end: hEnd }, markRef),
+    [text, turns, hStart, hEnd],
   );
   useEffect(() => {
     markRef.current?.scrollIntoView?.({ block: 'center' });

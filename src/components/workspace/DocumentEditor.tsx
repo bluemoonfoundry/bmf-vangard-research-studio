@@ -8,6 +8,7 @@ import { itemType } from '@/workspace/research';
 import { textStats } from '@/workspace/stats';
 import { AudioPlayer, ImageViewer, WebClipBanner } from '@/components/workspace/MediaViews';
 import { ChatView } from '@/components/bible/ChatView';
+import { hasTurnLayout } from '@/chat/importFormats';
 import { CaptureHost, type CaptureSelection } from '@/components/bible/CapturePopover';
 import { EntityPanel, type EntityPanelProps } from '@/components/bible/EntityPanel';
 import { MarkdownView } from '@/components/workspace/MarkdownView';
@@ -218,7 +219,7 @@ export function DocumentEditor(props: DocumentEditorProps) {
           {content === undefined ? (
             <p className="text-sm text-content-muted">Loading…</p>
           ) : isChat ? (
-            <ChatView text={content} highlight={highlight} onSelectRange={canCapture ? (r) => { fromTextarea.current = false; select({ ...r, anchor: r.rect }); } : undefined} />
+            <ChatView text={content} turns={hasTurnLayout(item)} highlight={highlight} onSelectRange={canCapture ? (r) => { fromTextarea.current = false; select({ ...r, anchor: r.rect }); } : undefined} />
           ) : preview ? (
             <MarkdownView text={content} onOpenLink={onOpenLink} empty="Nothing written yet. Switch to Edit to start." />
           ) : (

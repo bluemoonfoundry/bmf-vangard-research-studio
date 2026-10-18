@@ -59,7 +59,7 @@ describe('extractionCanon', () => {
 
 describe('buildExtractRequest', () => {
   const body = formatTurns([{ role: 'user', label: 'You', text: 'Mara has green eyes.' }, { role: 'model', label: 'Gemini', text: 'Lovely.' }]);
-  const src = extractionSource({ id: 's1', parentId: null, type: 'chat', title: 'Harbour chat', order: 0, keywords: [] }, body, undefined)!;
+  const src = extractionSource({ id: 's1', parentId: null, type: 'chat', importedFormat: 'aistudio-exporter-md', title: 'Harbour chat', order: 0, keywords: [] }, body, undefined)!;
 
   it('carries the canon and the numbered source text', () => {
     const req = buildExtractRequest({ provider: 'gemini', model: 'm', canon: 'CANON', source: src, chunk: src.turns, chunkIndex: 0, chunkCount: 1, summary: 'ignored' });
