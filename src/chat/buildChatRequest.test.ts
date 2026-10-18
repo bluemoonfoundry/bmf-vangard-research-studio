@@ -171,6 +171,15 @@ describe('buildChatRequest', () => {
     items: entities, bible: bibleOf([fact()]), contentOf: () => undefined, caps: ALL,
   };
 
+  it('never sends providerExtras (search suggestions) to a model', () => {
+    const extra = msg('a1', 'assistant', 'grounded', {
+      status: 'complete', providerExtras: { gemini: { searchEntryPointHtml: '<div>SUGGEST</div>' } },
+    });
+    const req = buildChatRequest({ ...base, transcript: chat([msg('u1', 'user', 'q'), extra, msg('u2', 'user', 'next')]), uptoIndex: 3 });
+    expect(JSON.stringify(req)).not.toContain('SUGGEST');
+    expect(req.messages.map(m => Object.keys(m).sort())).toEqual([['role', 'text'], ['role', 'text'], ['role', 'text']]);
+  });
+
   it('assembles system, canon, attachments and history', () => {
     const items = [...entities, node('doc', 'document', { title: 'Plan' })];
     const req = buildChatRequest({

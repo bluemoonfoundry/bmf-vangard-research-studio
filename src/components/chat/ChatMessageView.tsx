@@ -5,6 +5,7 @@ import { locateQuote } from '@/chat/transcript';
 import type { ChatMessage } from '@/chat/types';
 import { ChatView } from '@/components/bible/ChatView';
 import type { CaptureSelection } from '@/components/bible/CapturePopover';
+import { SearchSuggestions } from '@/components/chat/SearchSuggestions';
 import { MarkdownView } from '@/components/workspace/MarkdownView';
 import { btn, btnGhost, btnPrimary, input } from '@/components/workspace/ui';
 
@@ -219,6 +220,9 @@ export function ChatMessageView({ message, actions, busy, onOpenLink, onCapture,
             ))}
           </ul>
         </div>
+      )}
+      {!isUser && message.providerExtras?.gemini?.searchEntryPointHtml && (
+        <SearchSuggestions html={message.providerExtras.gemini.searchEntryPointHtml} onOpenLink={onOpenLink} />
       )}
     </article>
   );
