@@ -88,6 +88,11 @@ src/                    React renderer (App.tsx, index.css theme tokens, vite-en
 src/project/             project types, IPC unwrapping (api.ts), pure reducer (projectState.ts), useProject hook
 src/workspace/           pure workspace logic: treeOps (move/duplicate), search, stats, dossier export, markdown, asset cache
 src/components/workspace/ binder, document editor, inspector, corkboard, outliner, split pane, dialogs (Workspace.tsx is the root)
+src/ai/                 renderer AI layer: aiApi.ts (llm/settings IPC wrapper), useAi hook, types
+src/chat/               pure AI Chat logic (transcript, buildChatRequest, personas, searchSuggestions) + useChatStreams
+src/components/chat/    AI Chat editor, header, message view, attachments, persona drawer, search suggestions
+src/components/settings/ SettingsDialog (AI toggle, provider keys, default model)
+electron/lib/llm/       provider adapters (providers/), http.js, sse.js, sources.js, llmService.js, testOverride.js
 src/bible/              pure story-bible logic: ops, contradictions, ordering, timeline, sources, export (no React, no IPC)
 src/components/bible/   entity facts panel, chat view + capture popover, conflict queue, timeline view
 e2e/                    Playwright Electron tests (electron-launch.ts fixture: isolated userData, dialog stubs)
@@ -96,7 +101,7 @@ e2e/                    Playwright Electron tests (electron-launch.ts fixture: i
 ## Projects and Storage
 
 A project is a folder (`Name.vrs/`) of plain files: `vrs.json` (manifest + `schemaVersion`), `tree.json`
-(binder items), `docs/<id>.md`, plus `chats/ assets/ bible/ maps/` for later phases.
+(binder items), `docs/<id>.md`, `chats/<id>.json` (AI Chat transcripts), plus `assets/ bible/ maps/`.
 
 - **Main process owns the disk.** `electron/lib/projectStore.js` reads/writes a root; `projectSession.js` holds
   the one open root. Roots come only from native dialogs or the recent list (`recentProjects.js`) -- the
@@ -104,8 +109,8 @@ A project is a folder (`Name.vrs/`) of plain files: `vrs.json` (manifest + `sche
 - **Schema changes** bump `CURRENT_SCHEMA_VERSION` and add a step to `MIGRATIONS` in `projectSchema.js`.
   Opening an older project migrates it and keeps `*.v<N>.bak` copies. Newer formats are refused (`TOO_NEW`).
 - **Item ids become file names**: always validate with `isValidItemId()`.
-- **Save order** is docs, then `tree.json`, then `vrs.json`, then deletions, so an interrupted save never leaves
-  the tree pointing at a missing file.
+- **Save order** is docs, chats, `tree.json`, `bible/bible.json`, `vrs.json`, then deletions, so an interrupted save
+  never leaves the tree pointing at a missing file.
 - **Crash recovery** snapshots (same shape as a save payload) live in `userData/recovery/`, never in the project
   folder, and are cleared on save or an explicit discard.
 - **External edits**: `projectWatcher.js` filters VRS's own writes by content hash (not timing). The renderer
@@ -128,8 +133,8 @@ Structured canon lives in `bible/bible.json`: `{ facts, dependencies, decisions 
 version field; the project's `schemaVersion` in `vrs.json` (now 2) covers it.
 
 - **Facts** are `{ id, entityId, attribute, value, status, source?, origin, note?, createdAt, updatedAt }`. `status` is
-  `proposed` (unreviewed), `kept` or `set_aside`. Manual facts are created `kept` with origin "manual"; AI (a later
-  phase) writes `proposed`. A `when` attribute holds a story position `{ season, episode?, order? }` instead of text.
+  `proposed` (unreviewed), `kept` or `set_aside`. Manual facts are created `kept` with origin "manual"; AI-extracted
+  facts would be `proposed` (AI Chat only lets the user capture passages as manual facts). A `when` attribute holds a story position `{ season, episode?, order? }` instead of text.
 - **Dependencies** (`eventId` must come after `afterEventId`) order events; they are checked against kept `when` facts.
   A cycle or a violated order is flagged, never blocked.
 - **Decisions** (`kept_one`, `kept_all`) are stored with the `factIds` kept and `setAsideIds` changed, so Reopen undoes
@@ -138,13 +143,46 @@ version field; the project's `schemaVersion` in `vrs.json` (now 2) covers it.
   (proposed or kept; `when` compared as compatible positions). A `kept_all` decision covering exactly that live fact
   set acknowledges it; `kept_one` resolves it by setting the other versions aside; adding a new differing fact
   reopens an acknowledged one.
-- **Save order**: docs, `tree.json`, `bible/bible.json`, `vrs.json`, then deletions.
+- **Save order**: docs, chats, `tree.json`, `bible/bible.json`, `vrs.json`, then deletions.
 - **Pure logic in `src/bible/`**, state changes as `Bible -> Bible` functions applied through `updateBible`. No React or IPC there.
 - **No routes.** Canon is global; route-scoped canon is out of scope for this phase.
-- **Sources**: a fact's `source` is `{ itemId, quote, start, end }`. Offsets are taken from the plain text shown (the
+- **Sources**: a fact's `source` is `{ itemId, messageId?, quote, start, end }`. Offsets are taken from the plain text shown (the
   read-only chat `<pre>` or the editor textarea), in the same text that is stored. Later they are resolved by
   `resolveSource`: exact match at the offsets, else the first occurrence of the quote, else missing (or deleted item).
+  With `messageId` (an AI Chat message) offsets are into that message's stored text; a deleted message resolves to
+  missing with reason "message was deleted".
 - **Entities** are binder items (`type: 'entity'`, `entityKind`); events show When / Must come after instead of plain facts.
+
+## AI Layer and AI Chat
+
+Strictly opt-in (see Project Overview). Main-process code in `electron/lib/`, renderer in `src/ai/`, `src/chat/`.
+
+- **Settings** live in `userData/settings.json` (`appSettings.js`: `ai.{enabled, defaultProvider, defaultModel, providers[id].lastTestOk}`;
+  unknown fields kept; missing/corrupt reads as defaults). **Keys** live in `userData/ai-keys.json` (`apiKeys.js`), each value
+  `safeStorage`-encrypted; `set` refuses (`UNAVAILABLE`) when encryption is unavailable, never plaintext. An unreadable or corrupt
+  store throws instead of being overwritten and surfaces as `AiStatus.keyStoreProblem`. Keys never reach the renderer.
+- **Opt-in rule** (`llmService.js`): every `llm:*` channel except `llm:save-key`, `llm:remove-key` and `llm:test` refuses with
+  `AI_DISABLED` while AI is disabled. Enabling (`settings:set-ai`) needs a provider with a saved key and a passing test
+  (`lastTestOk`); `llm:save-key` stores a key only after a model-list call succeeds. Disabling calls `abortAll()`, which aborts
+  every in-flight request and never throws (also used on project close and window close). `abortEpoch` is bumped by each
+  `abortAll()` so a chat start that was awaiting settings/keys notices and ends `CANCELLED`.
+- **`electron/lib/llm/`**: `http.js` (`LlmError`, `requestJson`/`requestStream`; `scrub()` redacts keys, and every
+  provider-derived message passes through it), `sse.js` (SSE reader), `sources.js` (`normalizeSources`: dedupe, http(s) only),
+  `providers/{gemini,anthropic,openai}.js`. Each adapter has a capability table (`capabilitiesFor`: webSearch, readUrls,
+  temperature by model id) at the top and a header comment listing the wire-format rules. Provider wire formats must be
+  re-checked against the provider docs whenever an adapter changes.
+- **Transcripts**: `chats/<id>.json` is `{ version: 1, settings, messages }`; unknown fields are kept (`src/chat/transcript.ts`).
+  The item type is `'ai-chat'` (`AI_CHAT_TYPE`), distinct from the imported `'chat'` type (a pasted text transcript whose body is
+  `docs/<id>.md`). Chats ride in the save payload's `chats` (`null` deletes the file). `forPersistence()` saves any `streaming`
+  message as `cancelled`; a transcript still streaming is never written as streaming.
+- **Streaming is project-level**: `src/chat/useChatStreams.ts` is mounted in `Workspace`, so streams survive switching tabs
+  and several chats can stream at once. The renderer generates each `requestId` and routes stream events by it to
+  `{ chatId, assistantId }`; the stream registry in main keys on the same id.
+- **Search suggestions** (Gemini `searchEntryPoint.renderedContent`, an `extras` event) are sanitized and rendered in a
+  contained shadow root (`SearchSuggestions.tsx`). No iframe, and the CSP is unchanged.
+- **Test hooks**: `VRS_LLM_BASE_URL` redirects every provider call, so `testOverride.js` honours it only when the app is
+  unpackaged and the value is a plain `http` loopback origin; anything else is ignored with a warning. E2E uses the fake
+  provider (`e2e/fakeProvider.ts`) with the `aiTest` fixture (`e2e/electron-launch.ts`), which points the app at it.
 
 ## Security Rules (non-negotiable)
 
