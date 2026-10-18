@@ -122,8 +122,9 @@ A project is a folder (`Name.vrs/`) of plain files: `vrs.json` (manifest + `sche
 - **Imported chats** (`type: 'chat'`) come from `project:import-texts` (multi-select; extensionless files only if UTF-8
   text) or paste. `src/chat/importFormats.ts` recognises AI Chat Exporter Markdown (AI Studio) and stores it in the
   canonical turn layout (`=== You ===` / `=== <Model> ===` heading lines; `turnSpans()` finds turns in a stored body),
-  with `importedFormat` and `sourceUrl` on the item. Anything else is stored as plain text. `ChatView` styles the
-  headings without changing the text, so fact offsets stay offsets into the stored body.
+  with `importedFormat` and `sourceUrl` on the item. Anything else is stored as plain text. Only an item with that
+  `importedFormat` has turns (`hasTurnLayout`): a `=== Scene 2 ===` line in a plain chat or document is just text. `ChatView`
+  styles the headings (its `turns` prop) without changing the text, so fact offsets stay offsets into the stored body.
 - **Media** is copied into `assets/<id>.<ext>` by `project:import-media` (native dialog; name chosen in main,
   allowlist in `electron/lib/media.js`). The renderer reads bytes via `project:read-asset` and shows them through
   `blob:` URLs (`src/workspace/assetCache.ts`), never by path. Unwanted assets ride along in a save's

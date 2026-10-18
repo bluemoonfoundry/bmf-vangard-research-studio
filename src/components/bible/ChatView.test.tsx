@@ -33,17 +33,23 @@ function selectRange(start: number, end: number) {
 
 describe('ChatView turns', () => {
   it('labels each turn without changing the text', () => {
-    render(<ChatView text={BODY} />);
+    render(<ChatView text={BODY} turns />);
     expect(pre().textContent).toBe(BODY);
     const headings = pre().querySelectorAll('[data-turn-heading]');
     expect([...headings].map(h => h.getAttribute('data-turn-heading'))).toEqual(['user', 'model']);
     expect(headings[1].textContent).toBe('=== Gemini ===');
   });
 
+  it('leaves turn-like lines unstyled unless the text is in the turn layout', () => {
+    render(<ChatView text={BODY} />);
+    expect(pre().textContent).toBe(BODY);
+    expect(pre().querySelectorAll('[data-turn-heading]')).toHaveLength(0);
+  });
+
   it('keeps the text intact when a highlight crosses a heading', () => {
     const start = BODY.indexOf('Gemini');
     const end = BODY.indexOf('retired');
-    render(<ChatView text={BODY} highlight={{ start, end }} />);
+    render(<ChatView text={BODY} turns highlight={{ start, end }} />);
     expect(pre().textContent).toBe(BODY);
     const marks = pre().querySelectorAll('mark');
     expect([...marks].map(m => m.textContent).join('')).toBe(BODY.slice(start, end));

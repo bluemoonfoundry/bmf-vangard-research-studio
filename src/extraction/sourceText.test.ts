@@ -7,7 +7,8 @@ import { chunkTurns, extractionSource, locateEvidence, sourceTextFor, type Sourc
 import raw from '@/chat/fixtures/aistudio-exporter-sample.md?raw';
 
 const exporterSample = normalizeChatText(raw);
-const item = (type: string, id = 'src1'): TreeItem => ({ id, parentId: null, type, title: 'Source', order: 0, keywords: [] });
+const item = (type: string, id = 'src1', importedFormat?: string): TreeItem => ({ id, parentId: null, type, title: 'Source', order: 0, keywords: [], ...(importedFormat ? { importedFormat } : {}) });
+const exported = (id = 'src1') => item('chat', id, 'aistudio-exporter-md');
 const canonical = formatTurns([
   { role: 'user', label: 'You', text: 'Mara is the harbour master.\n\nShe has  green eyes.' },
   { role: 'model', label: 'Gemini', text: 'Perhaps she was a pilot.' },
@@ -24,7 +25,7 @@ const chat: ChatTranscript = {
 
 describe('extractionSource', () => {
   it('reads a canonical chat as turns with body offsets', () => {
-    const src = extractionSource(item('chat'), canonical, undefined)!;
+    const src = extractionSource(exported(), canonical, undefined)!;
     expect(src.hasTurns).toBe(true);
     expect(src.turns.map(t => [t.index, t.role, t.label])).toEqual([[1, 'user', 'You'], [2, 'model', 'Gemini'], [3, 'user', 'You']]);
     for (const t of src.turns) expect(canonical.slice(t.offset, t.offset + t.text.length)).toBe(t.text);
@@ -36,6 +37,14 @@ describe('extractionSource', () => {
     expect(src.turns.map(t => t.role)).toEqual(['user', 'model', 'user']);
     const last = src.turns[2];
     expect(exporterSample.slice(last.offset, last.offset + last.text.length)).toBe('Make the harbour master a retired pilot named Odile.');
+  });
+
+  it('reads turn-like lines in a plain-text chat or document as text', () => {
+    for (const source of [item('chat', 'src1', 'text'), item('chat'), item('document')]) {
+      const src = extractionSource(source, canonical, undefined)!;
+      expect(src.hasTurns).toBe(false);
+      expect(src.turns).toEqual([{ index: 1, role: 'unknown', label: 'Text', text: canonical, offset: 0 }]);
+    }
   });
 
   it('reads a document without turns as one unknown turn', () => {
@@ -67,7 +76,7 @@ describe('sourceTextFor', () => {
 });
 
 describe('locateEvidence', () => {
-  const src = extractionSource(item('chat'), canonical, undefined)!;
+  const src = extractionSource(exported(), canonical, undefined)!;
 
   it('places an exact quote at body offsets', () => {
     const hit = locateEvidence(src, 'a retired pilot', 3)!;
