@@ -102,10 +102,12 @@ export interface ApplySummary {
   dropped: number;
 }
 
-/** The strength the evidence supports. */
+/**
+ * The strength the evidence supports. `ownWriting` only speaks for a source without turns: where
+ * turns exist, they say who wrote what.
+ */
 function strengthFor(claimed: Strength, located: { turn: { role: string } }[], src: ExtractionSource): Strength {
-  if (src.item.ownWriting === true) return 'said';
-  if (!src.hasTurns) return 'suggested';
+  if (!src.hasTurns) return src.item.ownWriting === true ? 'said' : 'suggested';
   if (claimed !== 'suggested' && !located.some(l => l.turn.role === 'user')) return 'suggested';
   return claimed;
 }

@@ -128,6 +128,15 @@ describe('applyResults: strength rules', () => {
   });
 });
 
+describe('applyResults: ownWriting on a source with turns', () => {
+  it('is ignored: model turns stay suggestions', () => {
+    const p = proposal({ attribute: 'past', value: 'smuggler', strength: 'said', evidence: [{ quote: 'Or a smuggler.', turn: 2 }] });
+    const { bible, extraction } = applyResults(ctx({ source: source(chatItem('s1', { ownWriting: true })) }), [p]);
+    expect(bible.facts).toEqual([]);
+    expect(extraction.pending[0].strength).toBe('suggested');
+  });
+});
+
 describe('applyResults: merging repeated evidence', () => {
   it('adds evidence to a live fact with the same value instead of a new fact', () => {
     const first = applyResults(ctx(), [proposal()]);

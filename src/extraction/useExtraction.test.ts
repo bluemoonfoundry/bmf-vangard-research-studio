@@ -81,6 +81,23 @@ describe('useExtraction', () => {
     expect(box.project.state!.bible.facts).toHaveLength(1);
   });
 
+  it('a cancel during a chunk sends no further chunk', async () => {
+    const long = formatTurns([
+      { role: 'user', label: 'You', text: `Mara has green eyes. ${'a'.repeat(3000)}` },
+      { role: 'model', label: 'Gemini', text: 'b'.repeat(3000) },
+    ]);
+    const { fake, box } = await setup({ s1: long });
+    fake.ai.extractResult = () => {
+      box.run.cancel();
+      return result([said]);
+    };
+    act(() => box.run.start(['s1'], 'gemini', { ...MODEL, inputTokenLimit: 1 }));
+    await waitFor(() => expect(box.run.running).toBe(false));
+    expect(fake.ai.extractions).toHaveLength(1);
+    expect(box.run.statuses[0].state).toBe('cancelled');
+    expect(box.project.state!.bible.facts).toEqual([]);
+  });
+
   it('a failed request applies nothing and reports why', async () => {
     const { fake, box } = await setup();
     fake.ai.extractResult = () => { throw Object.assign(new Error('Slow down.'), { code: 'RATE_LIMIT' }); };

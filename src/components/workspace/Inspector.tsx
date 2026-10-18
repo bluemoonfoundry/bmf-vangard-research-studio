@@ -78,7 +78,7 @@ export function Inspector({ item, content, items, open, onToggle, onUpdate, onNa
 
       <div id={`${tabsId}-panel`} role="tabpanel" aria-labelledby={`${tabsId}-${tab}`} className="flex-1 overflow-y-auto p-3 text-xs">
         {tab === 'card' && <CardTab item={item} onUpdate={update} />}
-        {tab === 'card' && aiEnabled && isSourceItem(item) && (
+        {tab === 'card' && aiEnabled && isSourceItem(item) && item.type !== 'ai-chat' && (
           <label className="mt-4 flex items-start gap-2" title="AI extraction treats a source without turns as model output unless it is your own writing.">
             <input type="checkbox" aria-label="This is my own writing" checked={item.ownWriting === true} onChange={(e) => update({ ownWriting: e.target.checked })} />
             <span className="flex flex-col">
