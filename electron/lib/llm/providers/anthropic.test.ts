@@ -87,6 +87,17 @@ describe('anthropic adapter', () => {
         ]);
     });
 
+    it('marks a reply that stopped early as truncated', async () => {
+        const stoppedBy = async (reason: string) => {
+            const body = fixture('anthropic-text.txt').replace('"stop_reason":"end_turn"', `"stop_reason":"${reason}"`);
+            return (await run({}, [{ body }])).events.at(-1);
+        };
+        expect(await stoppedBy('max_tokens')).toMatchObject({ type: 'done', truncated: 'max_tokens' });
+        expect(await stoppedBy('model_context_window_exceeded')).toMatchObject({ type: 'done', truncated: 'max_tokens' });
+        expect(await stoppedBy('pause_turn')).toMatchObject({ type: 'done', truncated: 'pause_turn' });
+        expect(await stoppedBy('stop_sequence')).not.toHaveProperty('truncated');
+    });
+
     it('collects sources from search results and citations', async () => {
         const { events } = await run({ webSearch: true }, [{ body: fixture('anthropic-search.txt') }]);
         expect(events.map((e) => e.type)).toEqual(['text', 'text', 'sources', 'done']);

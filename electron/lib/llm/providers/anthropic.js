@@ -16,6 +16,8 @@ import { normalizeSources } from '../sources.js';
  *    citations_delta (web_search_result_location {url,title}); deduped, http(s) only
  *  - events: message_start.message.model/usage, content_block_delta/text_delta, message_delta.usage,
  *    `error` event -> PROVIDER
+ *  - truncated: message_delta.delta.stop_reason max_tokens | model_context_window_exceeded -> 'max_tokens',
+ *    pause_turn (a server-tool loop hit its iteration limit) -> 'pause_turn' (build-with-claude/handling-stop-reasons, Oct 2026)
  *  - web tools: model ids `claude-<line>-<major>...` with major >= 4, plus claude-3-7-sonnet and claude-3-5-haiku
  *  - jsonSchema (extraction) -> output_config.format { type: 'json_schema', schema }, no beta header; objects need
  *    additionalProperties: false; Claude 4.5+ only (build-with-claude/structured-outputs, Oct 2026)
@@ -71,6 +73,13 @@ function buildBody(request) {
     if (tools.length) body.tools = tools;
     return body;
 }
+
+/** Stop reasons that leave the reply unfinished, and the `truncated` reason they become. */
+const TRUNCATING_STOPS = /** @type {Record<string, string>} */ ({
+    max_tokens: 'max_tokens',
+    model_context_window_exceeded: 'max_tokens',
+    pause_turn: 'pause_turn',
+});
 
 /** @param {{ url?: unknown, title?: unknown }[]} into @param {unknown} url @param {unknown} title */
 function addSource(into, url, title) {
@@ -132,6 +141,8 @@ export function createAnthropicAdapter({ baseUrl = DEFAULT_BASE_URL, fetchFn = g
             let model = request.model;
             /** @type {{ inputTokens?: number, outputTokens?: number } | undefined} */
             let usage;
+            /** @type {string | undefined} */
+            let truncated;
             /** @param {any} u */
             const takeUsage = (u) => {
                 if (!u) return;
@@ -155,9 +166,12 @@ export function createAnthropicAdapter({ baseUrl = DEFAULT_BASE_URL, fetchFn = g
                         if (msg.message && msg.message.model) model = msg.message.model;
                         takeUsage(msg.message && msg.message.usage);
                         break;
-                    case 'message_delta':
+                    case 'message_delta': {
                         takeUsage(msg.usage);
+                        const stop = msg.delta && msg.delta.stop_reason;
+                        if (typeof stop === 'string' && Object.hasOwn(TRUNCATING_STOPS, stop)) truncated = TRUNCATING_STOPS[stop];
                         break;
+                    }
                     case 'content_block_start': {
                         const block = msg.content_block;
                         if (block && block.type === 'web_search_tool_result' && Array.isArray(block.content)) {
@@ -183,7 +197,7 @@ export function createAnthropicAdapter({ baseUrl = DEFAULT_BASE_URL, fetchFn = g
 
             const sources = normalizeSources(cited);
             if (sources.length) onEvent({ type: 'sources', sources });
-            onEvent(usage ? { type: 'done', model, usage } : { type: 'done', model });
+            onEvent({ type: 'done', model, ...(usage && { usage }), ...(truncated && { truncated }) });
         },
     };
 }

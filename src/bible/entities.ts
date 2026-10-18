@@ -27,7 +27,7 @@ export function entityKindOf(item: Pick<TreeItem, 'type' | 'entityKind'>): Entit
 
 export const isEvent = (item: Pick<TreeItem, 'type' | 'entityKind'>): boolean => entityKindOf(item) === 'event';
 
-/** Strips a BOM and converts CRLF/CR line endings to LF, so stored offsets match what is shown. */
+/** Strips a BOM and converts CRLF/CR line endings to LF, so stored offsets match what is shown (chats and documents). */
 export function normalizeChatText(s: string): string {
   return s.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n');
 }

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { ArrowDownToLine, ArrowUpToLine, Bot, Check, Code, Copy, Loader2, Pencil, RotateCcw, Trash2, User } from 'lucide-react';
-import { PROVIDERS } from '@/ai/types';
+import { PROVIDERS, type TruncatedReason } from '@/ai/types';
 import { locateQuote } from '@/chat/transcript';
 import type { ChatMessage } from '@/chat/types';
 import { ChatView } from '@/components/bible/ChatView';
@@ -37,6 +37,12 @@ interface ChatMessageViewProps {
 }
 
 const providerName = (id: string | null | undefined) => PROVIDERS.find(p => p.id === id)?.name ?? id ?? 'Unknown provider';
+
+const TRUNCATED_TITLES: Record<TruncatedReason, string> = {
+  max_tokens: 'The reply reached the model’s output limit before it finished.',
+  pause_turn: 'The provider paused a long web search or fetch before the reply finished.',
+  other: 'The provider stopped the reply before it finished.',
+};
 
 /** One transcript message: Markdown body, stamp, sources, status and actions. */
 export function ChatMessageView({ message, actions, busy, onOpenLink, onCapture, highlight }: ChatMessageViewProps) {
@@ -119,6 +125,11 @@ export function ChatMessageView({ message, actions, busy, onOpenLink, onCapture,
           )}
           {message.edited && <span className="italic">edited</span>}
           {message.status === 'cancelled' && <span className="rounded bg-surface-sunken px-1.5 py-0.5 text-warning">Stopped</span>}
+          {message.status === 'complete' && message.truncated && (
+            <span className="rounded bg-surface-sunken px-1.5 py-0.5 text-warning" title={TRUNCATED_TITLES[message.truncated] ?? TRUNCATED_TITLES.other}>
+              Reply cut short
+            </span>
+          )}
           {streaming && (
             <span className="inline-flex items-center gap-1" role="status">
               <Loader2 className="h-3 w-3 animate-spin" aria-hidden /> Replying…

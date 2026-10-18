@@ -1,4 +1,4 @@
-import type { ProviderExtras, ProviderId, Source } from '@/ai/types';
+import type { ProviderExtras, ProviderId, Source, TruncatedReason } from '@/ai/types';
 
 export type ChatFilterMode = 'all' | 'user_only' | 'model_only';
 
@@ -29,6 +29,8 @@ export interface ChatMessage {
   model?: string | null;
   status?: ChatMessageStatus;
   error?: { code: string; message: string } | null;
+  /** Set on a complete reply the provider stopped early. */
+  truncated?: TruncatedReason;
   sources?: Source[];
   usedWebSearch?: boolean;
   usedReadUrls?: boolean;

@@ -14,6 +14,8 @@ import { normalizeSources } from '../sources.js';
  *  - events: response.output_text.delta {delta}; response.output_text.annotation.added {annotation};
  *    response.completed|response.incomplete {response:{model,usage,output[]}}; response.failed {response.error};
  *    `error` {code,message}
+ *  - truncated: response.incomplete -> response.incomplete_details.reason max_output_tokens -> 'max_tokens',
+ *    anything else (content_filter) -> 'other'
  *  - sources: url_citation annotations {url,title} (streamed and in the completed output), http(s) only, deduped
  *  - temperature: rejected by reasoning models (o-series, gpt-5 and later) except the `-chat` variants
  *  - jsonSchema (extraction) -> text.format { type: 'json_schema', name, schema, strict: true }; strict schemas list
@@ -119,6 +121,8 @@ export function createOpenAiAdapter({ baseUrl = DEFAULT_BASE_URL, fetchFn = glob
             let model = request.model;
             /** @type {{ inputTokens?: number, outputTokens?: number } | undefined} */
             let usage;
+            /** @type {string | undefined} */
+            let truncated;
 
             for await (const ev of readSse(body, { signal, secrets })) {
                 if (signal.aborted) throw new LlmError('CANCELLED', 'Request cancelled.');
@@ -145,6 +149,9 @@ export function createOpenAiAdapter({ baseUrl = DEFAULT_BASE_URL, fetchFn = glob
                     case 'response.incomplete': {
                         const r = msg.response || {};
                         if (r.model) model = r.model;
+                        if (msg.type === 'response.incomplete') {
+                            truncated = r.incomplete_details && r.incomplete_details.reason === 'max_output_tokens' ? 'max_tokens' : 'other';
+                        }
                         if (r.usage) {
                             usage = {};
                             if (typeof r.usage.input_tokens === 'number') usage.inputTokens = r.usage.input_tokens;
@@ -163,7 +170,7 @@ export function createOpenAiAdapter({ baseUrl = DEFAULT_BASE_URL, fetchFn = glob
 
             const sources = normalizeSources(cited);
             if (sources.length) onEvent({ type: 'sources', sources });
-            onEvent(usage ? { type: 'done', model, usage } : { type: 'done', model });
+            onEvent({ type: 'done', model, ...(usage && { usage }), ...(truncated && { truncated }) });
         },
     };
 }

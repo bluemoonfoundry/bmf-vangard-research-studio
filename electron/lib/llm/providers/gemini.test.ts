@@ -77,6 +77,16 @@ describe('gemini adapter', () => {
         ]);
     });
 
+    it('marks a reply that hit the token limit as truncated', async () => {
+        const finished = async (reason: string) => {
+            const body = fixture('gemini-text.txt').replace('"finishReason":"STOP"', `"finishReason":"${reason}"`);
+            return (await run({}, [{ body }])).events.at(-1);
+        };
+        expect(await finished('MAX_TOKENS')).toMatchObject({ type: 'done', truncated: 'max_tokens' });
+        expect(await finished('CONTINUATION')).toMatchObject({ type: 'done', truncated: 'max_tokens' });
+        expect(await finished('STOP')).not.toHaveProperty('truncated');
+    });
+
     it('emits deduped http(s) sources and the search entry point', async () => {
         const { events } = await run({ webSearch: true }, [{ body: fixture('gemini-grounded.txt') }]);
         expect(events.map((e) => e.type)).toEqual(['text', 'text', 'sources', 'extras', 'done']);

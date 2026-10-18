@@ -13,6 +13,8 @@ import { normalizeSources } from '../sources.js';
  *  - webSearch -> tools[{ google_search: {} }]; readUrls -> tools[{ url_context: {} }]
  *  - sources: candidates[].groundingMetadata.groundingChunks[].web {uri,title}, deduped, http(s) only
  *  - searchEntryPoint.renderedContent -> one `extras` event
+ *  - truncated: candidates[].finishReason MAX_TOKENS | CONTINUATION (per-request token limit, not yet complete)
+ *    -> 'max_tokens' (FinishReason enum, verified Oct 2026)
  *  - web search / URL context: model ids `gemini-<major>` with major >= 2
  *  - jsonSchema (extraction) -> generationConfig.responseMimeType 'application/json' + responseJsonSchema
  *    (JSON Schema subset; verified Oct 2026 against /api/generate-content GenerationConfig)
@@ -115,6 +117,8 @@ export function createGeminiAdapter({ baseUrl = DEFAULT_BASE_URL, fetchFn = glob
             let usage;
             let blocked = '';
             let gotText = false;
+            /** @type {string | undefined} */
+            let truncated;
 
             for await (const ev of readSse(body, { signal, secrets })) {
                 if (signal.aborted) throw new LlmError('CANCELLED', 'Request cancelled.');
@@ -140,6 +144,7 @@ export function createGeminiAdapter({ baseUrl = DEFAULT_BASE_URL, fetchFn = glob
                     gotText = true;
                     onEvent({ type: 'text', delta: part.text });
                 }
+                if (cand.finishReason === 'MAX_TOKENS' || cand.finishReason === 'CONTINUATION') truncated = 'max_tokens';
                 collectSources(cited, cand.groundingMetadata);
                 const html = cand.groundingMetadata && cand.groundingMetadata.searchEntryPoint && cand.groundingMetadata.searchEntryPoint.renderedContent;
                 if (html) entryPointHtml = html;
@@ -149,7 +154,7 @@ export function createGeminiAdapter({ baseUrl = DEFAULT_BASE_URL, fetchFn = glob
             const sources = normalizeSources(cited);
             if (sources.length) onEvent({ type: 'sources', sources });
             if (entryPointHtml) onEvent({ type: 'extras', extras: { gemini: { searchEntryPointHtml: entryPointHtml } } });
-            onEvent(usage ? { type: 'done', model, usage } : { type: 'done', model });
+            onEvent({ type: 'done', model, ...(usage && { usage }), ...(truncated && { truncated }) });
         },
     };
 }

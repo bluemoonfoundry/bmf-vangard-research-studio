@@ -99,6 +99,19 @@ describe('openai adapter', () => {
         ]);
     });
 
+    it('marks a response.incomplete reply as truncated', async () => {
+        const incomplete = async (reason: string) => {
+            const body = fixture('openai-text.txt')
+                .replace(/response\.completed/g, 'response.incomplete')
+                .replace('"status":"completed","model"', `"status":"incomplete","incomplete_details":{"reason":"${reason}"},"model"`);
+            return (await run({}, [{ body }])).events.at(-1);
+        };
+        expect(await incomplete('max_output_tokens')).toEqual({
+            type: 'done', model: 'gpt-4.1-2025-04-14', usage: { inputTokens: 12, outputTokens: 5 }, truncated: 'max_tokens',
+        });
+        expect(await incomplete('content_filter')).toMatchObject({ type: 'done', truncated: 'other' });
+    });
+
     it('collects url_citation sources', async () => {
         const { events } = await run({ webSearch: true }, [{ body: fixture('openai-search.txt') }]);
         expect(events.map((e) => e.type)).toEqual(['text', 'text', 'sources', 'done']);

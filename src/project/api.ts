@@ -1,3 +1,4 @@
+import { normalizeChatText } from '@/bible/entities';
 import type { IpcResult } from '@/project/types';
 
 /** A failed project operation, carrying the main process's error code (NOT_A_PROJECT, TOO_NEW, ...). */
@@ -41,7 +42,8 @@ export function createProjectApi(bridge: VrsApi): ProjectApi {
     listRecent: () => unwrap(raw.listRecent()),
     removeRecent: (root) => unwrap(raw.removeRecent(root)),
     close: (options) => unwrap(raw.close(options)),
-    readDoc: (id) => unwrap(raw.readDoc(id)),
+    // The editor's textarea reports LF-only text; bodies match it so captured offsets resolve (CRLF files from other editors).
+    readDoc: (id) => unwrap(raw.readDoc(id)).then(normalizeChatText),
     readChat: (id) => unwrap(raw.readChat(id)),
     readStructure: () => unwrap(raw.readStructure()),
     readAsset: (name) => unwrap(raw.readAsset(name)),
