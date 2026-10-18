@@ -3,7 +3,7 @@ import type { ProviderId } from '@/ai/types';
 import { pruneOrphans, removeEntities } from '@/bible/ops';
 import { appendSources, isSourceItem } from '@/bible/sourceOrder';
 import { emptyExtraction, type Canon, type ExtractionState } from '@/extraction/types';
-import { pruneExtraction } from '@/extraction/review';
+import { pruneExtraction } from '@/extraction/prune';
 import { forPersistence, newTranscript, normalizeTranscript } from '@/chat/transcript';
 import type { ChatTranscript } from '@/chat/types';
 import { descendantIds, moveItem, type DropPosition } from '@/workspace/treeOps';
