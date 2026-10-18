@@ -295,6 +295,27 @@ is enough.
   writer sometimes rewrites a chat from scratch and the older one may be the keeper. When both versions'
   evidence comes from the same source, the in-source rule (`replaces`) already applies.
 
+### Part 3 implementation decisions
+
+- Structured output rides each adapter's existing streaming call (stream-then-collect), avoiding long-request
+  timeouts. One schema serves Gemini (`responseJsonSchema`), Claude (`output_config.format`, Claude 4.5+) and OpenAI
+  (`text.format`, strict): every property required, no nulls; "none" is `''` or turn `0`. `when` comes back as text
+  ("season 2, episode 3") and is parsed; unparsable ones are dropped.
+- A fact set aside by hand *is* its rejection (derived, not stored); `extraction.json` stores only rejected cards and
+  dismissed suggestions. Lifting a derived rejection returns the fact to review. A value set aside by a keep-one
+  decision is skipped when re-applied with the same evidence, and comes back only with new evidence.
+- `said`/`built_on` need a quote from a writer turn, else they're downgraded to `suggested`. `ownWriting` makes every
+  proposal of the source `said`.
+- Quotes are matched exactly, then whitespace-tolerantly; the stored quote is the source's text. Older imports of raw
+  exporter Markdown get their turns found in place, so the body (and existing offsets) never change.
+- Cache key: hash of the source text as sent, `EXTRACTION_PROMPT_VERSION`, provider and model. Budget: 60% of the
+  model's input limit (100k tokens assumed when unknown) for source text; the canon is capped at 40,000 characters,
+  then trimmed to entities named in the source.
+- An error or cancel stops the run; nothing from the source it stopped on is applied.
+- UI: an "Extract" toolbar button (the open source preselected) and a "Review" workspace mode with a count, both AI
+  only. "Keep the newer" shows on a conflict whose versions sit in different sources, in the conflict queue and on the
+  card. No binder context-menu entry: the dialog lists every source.
+
 ### Semantic conflict check
 
 - It's user-triggered from a card's full view (that entity) or the card wall (one kind), and bounded to

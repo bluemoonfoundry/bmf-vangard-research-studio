@@ -40,6 +40,17 @@ export interface FakeProvider {
   close(): Promise<void>;
 }
 
+/**
+ * A structured extraction reply (the JSON llm:extract asks for), split into stream chunks the way
+ * Gemini sends JSON output as text deltas. Pass it to setReply.
+ */
+export function extractionReply(result: { proposals: unknown[]; summary?: string }, chunkSize = 40): string[] {
+  const text = JSON.stringify({ summary: '', ...result });
+  const chunks: string[] = [];
+  for (let i = 0; i < text.length; i += chunkSize) chunks.push(text.slice(i, i + chunkSize));
+  return chunks;
+}
+
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 function readBody(req: http.IncomingMessage): Promise<string> {
