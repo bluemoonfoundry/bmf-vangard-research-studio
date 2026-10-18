@@ -2,7 +2,10 @@ import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import App from '@/App';
 import type { Bible, TreeItem } from '@/project/types';
-import { createFakeBridge, makeOpened } from '@/test/fakeBridge';
+import { createFakeBridge, makeAiStatus, makeOpened } from '@/test/fakeBridge';
+import type { ModelInfo } from '@/ai/types';
+import { newTranscript } from '@/chat/transcript';
+import type { ChatMessage } from '@/chat/types';
 
 type Fake = ReturnType<typeof createFakeBridge>;
 let bridge: Fake['bridge'];
@@ -495,5 +498,100 @@ describe('delete warning for story bible facts', () => {
     fireEvent.click(within(screen.getByRole('dialog', { name: 'Delete item' })).getByRole('button', { name: 'Cancel' }));
     fireEvent.click(within(tree()).getByRole('button', { name: 'Delete Mara' }));
     expect(screen.getByRole('dialog', { name: 'Delete item' })).toHaveTextContent('This removes 1 fact about it.');
+  });
+});
+
+describe('AI chat items', () => {
+  const MODELS: ModelInfo[] = [{ id: 'claude-x', name: 'Claude X', capabilities: { webSearch: true, readUrls: false, temperature: true } }];
+  const chat = (messages: ChatMessage[]) => ({ ...newTranscript({ provider: 'anthropic', model: 'claude-x' }), messages });
+  const TALK: ChatMessage[] = [
+    { id: 'u1', role: 'user', text: 'Who kept the lighthouse?', createdAt: 'T0' },
+    { id: 'a1', role: 'assistant', text: 'Old Tamsin kept it.', createdAt: 'T0', provider: 'anthropic', model: 'claude-x', status: 'complete' },
+  ];
+
+  const enableAi = () => {
+    fake.ai.status = makeAiStatus({
+      enabled: true, defaultProvider: 'anthropic', defaultModel: 'claude-x',
+      providers: { ...makeAiStatus().providers, anthropic: { configured: true, lastTestOk: 'T0' } },
+    });
+    fake.ai.models = { anthropic: MODELS };
+  };
+
+  it('AI Chat is not offered while AI is off', async () => {
+    await open();
+    fireEvent.click(screen.getByRole('button', { name: 'New item' }));
+    const dialog = screen.getByRole('dialog', { name: 'Add to binder' });
+    expect(within(dialog).getByRole('radio', { name: 'Document' })).toBeInTheDocument();
+    expect(within(dialog).queryByRole('radio', { name: 'AI Chat' })).toBeNull();
+  });
+
+  it('creates an AI chat from the Settings default when AI is on', async () => {
+    enableAi();
+    await open();
+    fireEvent.click(screen.getByRole('button', { name: 'New item' }));
+    const dialog = screen.getByRole('dialog', { name: 'Add to binder' });
+    fireEvent.click(await within(dialog).findByRole('radio', { name: 'AI Chat' }));
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Title' }), { target: { value: 'Lighthouse questions' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Create' }));
+    expect(await screen.findByRole('textbox', { name: 'Message' })).toBeInTheDocument();
+    const saved = await save();
+    const created = saved.tree!.items[0];
+    expect(created).toMatchObject({ type: 'ai-chat', title: 'Lighthouse questions' });
+    expect(saved.chats?.[created.id]?.settings).toMatchObject({ provider: 'anthropic', model: 'claude-x' });
+    expect(saved.docs?.[created.id]).toBe('');
+  });
+
+  it('existing AI chats open read-only while AI is off', async () => {
+    fake.disk.chats = { c: chat(TALK) };
+    await open([item('c', 'Lighthouse', { type: 'ai-chat' })]);
+    fireEvent.click(treeItem('Lighthouse'));
+    expect(await screen.findByText('Turn on AI in Settings to continue this chat.')).toBeInTheDocument();
+    expect(screen.getByText('Old Tamsin kept it.')).toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: 'Message' })).toBeNull();
+  });
+
+  it('streams a reply that survives switching items, with a replying… marker in the binder', async () => {
+    enableAi();
+    fake.disk.chats = { c: chat([]) };
+    await open([item('c', 'Lighthouse', { type: 'ai-chat' }), item('d', 'Notes', { order: 1 })]);
+    fireEvent.click(treeItem('Lighthouse'));
+    const box = await screen.findByRole('textbox', { name: 'Message' });
+    fireEvent.change(box, { target: { value: 'Who kept it?' } });
+    // Send waits for the provider's model list.
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled());
+    fireEvent.keyDown(box, { key: 'Enter' });
+    await waitFor(() => expect(fake.ai.startedChats).toHaveLength(1));
+    expect(within(treeItem('Lighthouse')).getByText('replying…')).toBeInTheDocument();
+
+    fireEvent.click(treeItem('Notes'));
+    const { requestId } = fake.ai.startedChats[0];
+    act(() => {
+      fake.ai.emitChatEvent(requestId, { type: 'text', delta: 'Tamsin.' });
+      fake.ai.emitChatEvent(requestId, { type: 'done', model: 'claude-x' });
+    });
+    expect(within(treeItem('Lighthouse')).queryByText('replying…')).toBeNull();
+    fireEvent.click(treeItem('Lighthouse'));
+    expect(await screen.findByText('Tamsin.')).toBeInTheDocument();
+  });
+
+  it('binder search finds text inside an AI chat', async () => {
+    fake.disk.chats = { c: chat(TALK) };
+    await open([item('c', 'Lighthouse', { type: 'ai-chat' }), item('d', 'Notes', { order: 1 })], { d: 'Nothing here' });
+    await waitFor(() => expect(bridge.project.readChat).toHaveBeenCalled());
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search the binder' }), { target: { value: 'Tamsin' } });
+    const results = await screen.findByRole('list', { name: 'Search results' });
+    await waitFor(() => expect(within(results).getAllByRole('listitem')).toHaveLength(1));
+    expect(within(results).getByText('Lighthouse')).toBeInTheDocument();
+  });
+
+  it('dossier export includes the transcript', async () => {
+    fake.disk.chats = { c: chat(TALK) };
+    await open([item('c', 'Lighthouse', { type: 'ai-chat' })]);
+    await waitFor(() => expect(bridge.project.readChat).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole('button', { name: 'Export' }));
+    const preview = within(screen.getByRole('dialog', { name: 'Export research dossier' })).getByLabelText('Dossier preview');
+    await waitFor(() => expect(preview).toHaveTextContent('You: Who kept the lighthouse?'));
+    expect(preview).toHaveTextContent('AI (claude-x): Old Tamsin kept it.');
+    expect(preview).toHaveTextContent('**Type:** AI Chat');
   });
 });

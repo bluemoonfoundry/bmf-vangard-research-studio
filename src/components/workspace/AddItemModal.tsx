@@ -4,7 +4,7 @@ import type { ImportedAsset, ItemType, LabelId, MediaKind, StatusId, TreeItem } 
 import type { NewItem } from '@/project/useProject';
 import type { AssetCache } from '@/workspace/assetCache';
 import { ENTITY_KINDS } from '@/bible/entities';
-import { ITEM_TYPES, LABEL_LIST, STATUS_LIST } from '@/workspace/research';
+import { addableItemTypes, LABEL_LIST, STATUS_LIST } from '@/workspace/research';
 import { ancestorsOf, isFolder } from '@/workspace/treeOps';
 import { useAssetUrl } from '@/workspace/useAssetUrl';
 import { ItemIcon } from '@/components/workspace/ItemIcon';
@@ -16,6 +16,8 @@ export interface AddItemModalProps {
   initialParentId: string | null;
   items: TreeItem[];
   assets: AssetCache | null;
+  /** AI Chat is offered only while AI is on. */
+  aiEnabled: boolean;
   importMedia(kind: MediaKind): Promise<ImportedAsset | null>;
   /** An imported file the user didn't keep (cancelled, or picked another). */
   discardAsset(asset: string): void;
@@ -37,7 +39,8 @@ function ImportedPreview({ asset, assets }: { asset: string; assets: AssetCache 
  * only while open) so its fields start from the current defaults.
  */
 export function AddItemModal(props: AddItemModalProps) {
-  const { initialType, initialParentId, items, assets, importMedia, discardAsset, onCreate, onClose } = props;
+  const { initialType, initialParentId, items, assets, aiEnabled, importMedia, discardAsset, onCreate, onClose } = props;
+  const types = addableItemTypes(aiEnabled);
   const [type, setType] = useState<ItemType>(initialType);
   const [title, setTitle] = useState('');
   const [parentId, setParentId] = useState<string | null>(initialParentId);
@@ -113,8 +116,8 @@ export function AddItemModal(props: AddItemModalProps) {
       <form id="add-item-form" onSubmit={submit} className="flex flex-col gap-4 text-xs">
         <fieldset>
           <legend className={`${fieldLabel} mb-2`}>Type</legend>
-          <div className="grid grid-cols-3 gap-2 sm:grid-cols-6" role="radiogroup" aria-label="Type">
-            {ITEM_TYPES.map(t => (
+          <div className={`grid grid-cols-3 gap-2 ${types.length > 6 ? 'sm:grid-cols-7' : 'sm:grid-cols-6'}`} role="radiogroup" aria-label="Type">
+            {types.map(t => (
               <button
                 key={t.id}
                 type="button"

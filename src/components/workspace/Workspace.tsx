@@ -2,6 +2,13 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, BookOpen, CalendarRange, MessageSquare, Columns2, LayoutGrid, Plus, Rows2, SlidersHorizontal, Square, Table, Download, X } from 'lucide-react';
 import type { FactSource, ItemType, MediaKind, TreeItem } from '@/project/types';
 import type { ProjectController } from '@/project/useProject';
+import { AI_CHAT_TYPE } from '@/project/projectState';
+import type { AiApi } from '@/ai/aiApi';
+import type { AiController } from '@/ai/useAi';
+import { PROVIDERS, type Capabilities, type ProviderId } from '@/ai/types';
+import { newTranscript, transcriptPlainText } from '@/chat/transcript';
+import { useChatStreams } from '@/chat/useChatStreams';
+import { ChatEditor } from '@/components/chat/ChatEditor';
 import { openExternal } from '@/project/api';
 import { ancestorsOf, descendantIds, isFolder } from '@/workspace/treeOps';
 import { Binder } from '@/components/workspace/Binder';
@@ -42,15 +49,34 @@ const VIEWS: { id: FolderView; name: string; icon: typeof BookOpen; key: string 
   { id: 'editor', name: 'Document', icon: BookOpen, key: '1' },
 ];
 
+const NO_CAPS: Capabilities = { webSearch: false, readUrls: false, temperature: false };
+
+export interface WorkspaceProps {
+  project: ProjectController;
+  ai: AiController;
+  /** The AI bridge AI Chat replies stream through; null without a desktop bridge. */
+  aiApi: AiApi | null;
+}
+
 /** The research workspace: binder, one or two content panes, inspector, and dialogs. */
-export function Workspace({ project }: { project: ProjectController }) {
+export function Workspace({ project, ai, aiApi }: WorkspaceProps) {
   const state = project.state!;
   const items = state.tree.items;
-  const { docs } = state;
+  const { docs, chats } = state;
   const {
     addItem, updateItem, editDoc, moveItem, deleteItem, duplicateItem, loadAllDocs, importMedia, importText, discardAsset,
-    renameProject, exportDossier, reportError, assets, updateBible,
+    renameProject, exportDossier, reportError, assets, updateBible, updateChat,
   } = project;
+  const aiEnabled = ai.enabled;
+  const { models, loadModels } = ai;
+  const configuredProviders = useMemo(
+    () => PROVIDERS.map(p => p.id).filter(id => ai.status?.providers[id]?.configured),
+    [ai.status],
+  );
+  const capsOf = useCallback((provider: ProviderId, model: string) =>
+    models(provider)?.find(m => m.id === model)?.capabilities ?? NO_CAPS, [models]);
+  // Streams live here, so replies keep going when the chat's editor unmounts. Turning AI off cancels them.
+  const streams = useChatStreams({ ai: aiEnabled ? aiApi : null, project, capsOf });
 
   const [activeId, setActiveId] = useState<string | null>(null);
   const [folderView, setFolderView] = useState<FolderView>('corkboard');
@@ -75,6 +101,13 @@ export function Workspace({ project }: { project: ProjectController }) {
   const inspected = (inspectedId && byId.get(inspectedId)) || active;
   const quickRef = quickRefId ? byId.get(quickRefId) : undefined;
   const contentOf = useCallback((id: string) => docs[id]?.current, [docs]);
+  const chatOf = useCallback((id: string) => chats[id]?.current, [chats]);
+  /** Searchable, exportable text: an AI chat's transcript, else the body. Word counts keep using `docs`. */
+  const textOf = useCallback((id: string) => {
+    if (byId.get(id)?.type !== AI_CHAT_TYPE) return docs[id]?.current;
+    const chat = chats[id];
+    return chat ? transcriptPlainText(chat.current) : undefined;
+  }, [byId, docs, chats]);
 
   // Search, word counts and export need every body; read them all once, and again for items added on disk.
   useEffect(() => {
@@ -195,6 +228,31 @@ export function Workspace({ project }: { project: ProjectController }) {
 
   /** One content pane: an editor for items, or a corkboard/outliner/editor for folders and the top level. */
   const renderPane = (item: TreeItem | null, view: FolderView, open: (id: string | null) => void) => {
+    if (item?.type === AI_CHAT_TYPE) {
+      return (
+        <ChatEditor
+          key={item.id}
+          item={item}
+          entry={chats[item.id]}
+          aiEnabled={aiEnabled}
+          configuredProviders={configuredProviders}
+          models={models}
+          loadModels={loadModels}
+          capsOf={capsOf}
+          streaming={streams.streamingIds.has(item.id)}
+          onUpdate={(update) => updateChat(item.id, update)}
+          onRename={(title) => updateItem(item.id, { title })}
+          onSend={(text) => streams.send(item.id, text)}
+          onResubmit={(messageId, text) => streams.resubmit(item.id, messageId, text)}
+          onStop={() => streams.stop(item.id)}
+          items={items}
+          bible={state.bible}
+          contentOf={contentOf}
+          chatOf={chatOf}
+          onOpenLink={openLink}
+        />
+      );
+    }
     if (item && (!isFolder(item) || view === 'editor')) {
       return (
         <DocumentEditor
@@ -383,6 +441,8 @@ export function Workspace({ project }: { project: ProjectController }) {
           onRenameProject={renameProject}
           items={items}
           docs={docs}
+          textOf={textOf}
+          streamingIds={streams.streamingIds}
           activeId={active?.id ?? null}
           collapsed={collapsed}
           onToggleFolder={toggleFolder}
@@ -434,11 +494,15 @@ export function Workspace({ project }: { project: ProjectController }) {
           initialParentId={adding.parentId}
           items={items}
           assets={assets}
+          aiEnabled={aiEnabled}
           importMedia={importMedia}
           discardAsset={discardAsset}
           onCreate={(fields, content) => {
             expand(fields.parentId ?? null);
-            navigate(addItem(fields, content));
+            const chat = fields.type === AI_CHAT_TYPE
+              ? newTranscript({ provider: ai.status?.defaultProvider ?? null, model: ai.status?.defaultModel ?? null })
+              : undefined;
+            navigate(chat ? addItem(fields, '', chat) : addItem(fields, content));
           }}
           onClose={() => setAdding(null)}
         />
@@ -458,7 +522,7 @@ export function Workspace({ project }: { project: ProjectController }) {
           projectName={state.manifest.name}
           items={items}
           bible={state.bible}
-          contentOf={contentOf}
+          contentOf={textOf}
           onExport={exportDossier}
           onClose={() => setExporting(false)}
         />

@@ -16,9 +16,12 @@ export default function App() {
   const [version, setVersion] = useState<string | null>(null);
   const bridge = window.vrs;
   const api = useMemo(() => (bridge ? createProjectApi(bridge) : null), [bridge]);
-  const project = useProject(api, bridge?.app ?? null);
   const aiApi = useMemo(() => (bridge?.ai ? createAiApi(bridge) : null), [bridge]);
   const ai = useAi(aiApi);
+  // New AI chats start from Settings' default provider and model (read when a chat needs them).
+  const project = useProject(api, bridge?.app ?? null, {
+    chatDefaults: () => ({ provider: ai.status?.defaultProvider ?? null, model: ai.status?.defaultModel ?? null }),
+  });
   const [settingsOpen, setSettingsOpen] = useState(false);
   const { state, dirty, saving, save } = project;
   const projectName = state?.manifest.name;
@@ -77,7 +80,7 @@ export default function App() {
       <ProjectNotices project={project} />
       <main className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
         {state ? (
-          <Workspace key={state.root} project={project} />
+          <Workspace key={state.root} project={project} ai={ai} aiApi={aiApi} />
         ) : (
           <WelcomeScreen
             recents={project.recents}

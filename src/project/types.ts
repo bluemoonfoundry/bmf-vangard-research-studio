@@ -11,7 +11,7 @@ export interface ProjectManifest {
   settings: Record<string, unknown>;
 }
 
-export type ItemType = 'folder' | 'document' | 'image' | 'webpage' | 'audio' | 'entity' | 'chat';
+export type ItemType = 'folder' | 'document' | 'image' | 'webpage' | 'audio' | 'entity' | 'chat' | 'ai-chat';
 
 export type LabelId =
   | 'concept' | 'character' | 'setting' | 'plot' | 'verified_fact' | 'unverified' | 'primary_source' | 'lore';
