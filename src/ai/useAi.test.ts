@@ -34,4 +34,29 @@ describe('useAi', () => {
     });
     expect(result.current.models('openai')).toBeUndefined();
   });
+
+  it('keeps a per-provider model load error until a load succeeds, with a stable models()', async () => {
+    const { bridge, fake } = createFakeBridge();
+    bridge.ai.listModels.mockImplementationOnce(() => Promise.resolve({ ok: false, error: { code: 'NETWORK', message: 'Network is down' } }));
+    const api = createAiApi(bridge);
+    const { result, rerender } = renderHook(() => useAi(api));
+    await waitFor(() => expect(result.current.status).not.toBeNull());
+    const models = result.current.models;
+    rerender();
+    expect(result.current.models).toBe(models);
+
+    await act(async () => {
+      await result.current.loadModels('gemini');
+    });
+    expect(result.current.modelsError('gemini')).toBe('Network is down');
+    expect(result.current.modelsError('openai')).toBeNull();
+    expect(result.current.models('gemini')).toBeUndefined();
+
+    fake.ai.models.gemini = [{ id: 'g1', name: 'G1', capabilities: { webSearch: true, readUrls: true, temperature: true } }];
+    await act(async () => {
+      await result.current.loadModels('gemini', true);
+    });
+    expect(result.current.modelsError('gemini')).toBeNull();
+    expect(result.current.models('gemini')?.[0].id).toBe('g1');
+  });
 });

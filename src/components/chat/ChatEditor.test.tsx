@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { useState } from 'react';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import type { Capabilities, ModelInfo, ProviderId } from '@/ai/types';
 import type { TreeItem } from '@/project/types';
 import type { ChatEntry } from '@/project/projectState';
@@ -8,7 +8,14 @@ import { emptyBible } from '@/bible/normalize';
 import { CHAT_PERSONAS } from '@/chat/personas';
 import { newTranscript, updateSettings } from '@/chat/transcript';
 import type { ChatMessage, ChatTranscript } from '@/chat/types';
+import { buildCanonText } from '@/chat/buildChatRequest';
 import { ChatEditor, type ChatEditorProps } from '@/components/chat/ChatEditor';
+
+// Counts canon builds (the context estimate must not rebuild canon on every streamed delta).
+vi.mock('@/chat/buildChatRequest', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/chat/buildChatRequest')>();
+  return { ...actual, buildCanonText: vi.fn(actual.buildCanonText) };
+});
 
 const CAPS_ALL: Capabilities = { webSearch: true, readUrls: true, temperature: true };
 const CAPS_NONE: Capabilities = { webSearch: false, readUrls: false, temperature: false };
@@ -45,7 +52,6 @@ function setup({ initial = transcript(), ...overrides }: Overrides = {}) {
         aiEnabled
         configuredProviders={['anthropic']}
         models={() => MODELS}
-        capsOf={() => CAPS_ALL}
         streaming={false}
         onUpdate={(update) => setEntry(e => {
           const next = update(e.current);
@@ -75,6 +81,9 @@ describe('ChatEditor', () => {
     expect(screen.queryByRole('combobox', { name: 'Provider' })).toBeNull();
     expect(screen.queryByRole('checkbox', { name: 'Web search' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Delete message' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull();
+    // Copy isn't an AI feature: it stays in a read-only transcript.
+    expect(screen.getAllByRole('button', { name: 'Copy' })).toHaveLength(4);
   });
 
   it('filters a read-only chat without changing the file', () => {
@@ -90,7 +99,7 @@ describe('ChatEditor', () => {
       return (
         <ChatEditor
           item={chatItem} entry={{ saved: null, current: t, problem: 'not valid JSON' }} aiEnabled configuredProviders={['anthropic']}
-          models={() => MODELS} loadModels={() => Promise.resolve(MODELS)} capsOf={() => CAPS_ALL} streaming={false}
+          models={() => MODELS} loadModels={() => Promise.resolve(MODELS)} streaming={false}
           onUpdate={vi.fn()} onRename={vi.fn()} onSend={vi.fn()} onResubmit={vi.fn()} onStop={vi.fn()}
           items={[chatItem]} bible={emptyBible()} contentOf={() => ''} onOpenLink={vi.fn()}
         />
@@ -286,4 +295,71 @@ describe('ChatEditor', () => {
     expect(screen.getByText(/~\d[\d,]* tokens/)).toHaveTextContent(/of 1,000/);
     expect(screen.getByRole('status', { name: 'Context size' })).toHaveAttribute('data-warning', 'true');
   });
+
+  it('shows Loading models… while the list loads', () => {
+    setup({ models: () => undefined, loadModels: vi.fn(() => new Promise<ModelInfo[]>(() => {})) });
+    expect(screen.getByText('Loading models…')).toBeInTheDocument();
+  });
+
+  it('shows a failed model load with Retry instead of loading again', async () => {
+    let failed = false;
+    const loadModels = vi.fn(async () => {
+      failed = true;
+      return [];
+    });
+    const { rerender } = render(<StaticEditor loadModels={loadModels} models={() => undefined} modelsError={() => null} />);
+    await act(async () => {});
+    expect(loadModels).toHaveBeenCalledTimes(1);
+    expect(failed).toBe(true);
+    rerender(<StaticEditor loadModels={loadModels} models={() => undefined} modelsError={() => 'Network is down'} />);
+    await act(async () => {});
+    expect(screen.getByRole('alert')).toHaveTextContent("Couldn't load models: Network is down");
+    expect(loadModels).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(loadModels).toHaveBeenLastCalledWith('anthropic', true);
+  });
+
+  it('"Save text only" is disabled once a reply is streaming', () => {
+    const t = transcript(THREE);
+    const { rerender } = render(<StaticEditor entry={{ saved: t, current: t }} />);
+    const first = () => screen.getByRole('article', { name: 'You: Who ran the harbour?' });
+    fireEvent.click(within(first()).getByRole('button', { name: 'Edit' }));
+    rerender(<StaticEditor entry={{ saved: t, current: t }} streaming />);
+    expect(within(first()).getByRole('button', { name: 'Save text only' })).toBeDisabled();
+    expect(within(first()).getByRole('button', { name: 'Save & resubmit' })).toBeDisabled();
+  });
+
+  it('does not rebuild canon when only a streaming reply grows', () => {
+    const streamingAt = (text: string) => transcript([user('u1', 'Who?'), reply('a1', text, { status: 'streaming' })]);
+    const first = streamingAt('Ta');
+    const { rerender } = render(<StaticEditor entry={{ saved: first, current: first }} streaming />);
+    const builds = vi.mocked(buildCanonText).mock.calls.length;
+    expect(builds).toBeGreaterThan(0);
+    for (const text of ['Tam', 'Tamsin', 'Tamsin kept it.']) {
+      const next = streamingAt(text);
+      rerender(<StaticEditor entry={{ saved: first, current: next }} streaming />);
+    }
+    expect(vi.mocked(buildCanonText).mock.calls.length).toBe(builds);
+    expect(screen.getByText('Tamsin kept it.')).toBeInTheDocument();
+  });
 });
+
+const STATIC_ITEMS = [chatItem];
+const STATIC_BIBLE = emptyBible();
+const STATIC_ENTRY: ChatEntry = { saved: transcript(), current: transcript() };
+const noContent = () => '';
+const noop = () => {};
+
+/** ChatEditor with stable props (no state), for rerender tests. */
+function StaticEditor(props: Partial<ChatEditorProps>) {
+  return (
+    <ChatEditor
+      item={chatItem} entry={STATIC_ENTRY} aiEnabled configuredProviders={['anthropic']}
+      models={() => MODELS} loadModels={() => Promise.resolve(MODELS)} streaming={false}
+      onUpdate={noop} onRename={noop} onSend={noop} onResubmit={noop} onStop={noop}
+      items={STATIC_ITEMS} bible={STATIC_BIBLE} contentOf={noContent} onOpenLink={noop}
+      {...props}
+    />
+  );
+}

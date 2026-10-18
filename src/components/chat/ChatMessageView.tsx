@@ -19,7 +19,7 @@ export interface ChatMessageActions {
 
 interface ChatMessageViewProps {
   message: ChatMessage;
-  /** Actions are hidden in a read-only chat (AI off). */
+  /** Editing actions; null in a read-only chat (AI off), where only Copy is offered. */
   actions: ChatMessageActions | null;
   /** True while this chat streams: actions are disabled. */
   busy: boolean;
@@ -69,12 +69,12 @@ export function ChatMessageView({ message, actions, busy, onOpenLink }: ChatMess
             </span>
           )}
         </div>
-        {actions && draft === null && (
+        {draft === null && (
           <div className="flex items-center gap-0.5">
             <button type="button" className={btnGhost} aria-label="Copy" title="Copy" onClick={copy}>
               {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
             </button>
-            {isUser && (
+            {actions && isUser && (
               <>
                 <button type="button" className={btnGhost} aria-label="Edit" title="Edit" disabled={busy} onClick={() => setDraft(message.text)}>
                   <Pencil className="h-3.5 w-3.5" />
@@ -84,15 +84,19 @@ export function ChatMessageView({ message, actions, busy, onOpenLink }: ChatMess
                 </button>
               </>
             )}
-            <button type="button" className={btnGhost} aria-label="Delete message" title="Delete message" disabled={busy} onClick={actions.onDelete}>
-              <Trash2 className="h-3.5 w-3.5" />
-            </button>
-            <button type="button" className={btnGhost} aria-label="Delete all before" title="Delete all before" disabled={busy || actions.countBefore === 0} onClick={actions.onDeleteBefore}>
-              <ArrowUpToLine className="h-3.5 w-3.5" />
-            </button>
-            <button type="button" className={btnGhost} aria-label="Delete all after" title="Delete all after" disabled={busy || actions.countAfter === 0} onClick={actions.onDeleteAfter}>
-              <ArrowDownToLine className="h-3.5 w-3.5" />
-            </button>
+            {actions && (
+              <>
+                <button type="button" className={btnGhost} aria-label="Delete message" title="Delete message" disabled={busy} onClick={actions.onDelete}>
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+                <button type="button" className={btnGhost} aria-label="Delete all before" title="Delete all before" disabled={busy || actions.countBefore === 0} onClick={actions.onDeleteBefore}>
+                  <ArrowUpToLine className="h-3.5 w-3.5" />
+                </button>
+                <button type="button" className={btnGhost} aria-label="Delete all after" title="Delete all after" disabled={busy || actions.countAfter === 0} onClick={actions.onDeleteAfter}>
+                  <ArrowDownToLine className="h-3.5 w-3.5" />
+                </button>
+              </>
+            )}
           </div>
         )}
       </header>
@@ -107,7 +111,7 @@ export function ChatMessageView({ message, actions, busy, onOpenLink }: ChatMess
           />
           <div className="flex justify-end gap-2">
             <button type="button" className={btn} onClick={() => setDraft(null)}>Cancel</button>
-            <button type="button" className={btn} onClick={() => finishEdit(actions.onSaveText)}>Save text only</button>
+            <button type="button" className={btn} disabled={busy} onClick={() => finishEdit(actions.onSaveText)}>Save text only</button>
             <button type="button" className={btnPrimary} disabled={busy || !draft.trim()} onClick={() => finishEdit(actions.onSaveAndResubmit)}>
               Save &amp; resubmit
             </button>

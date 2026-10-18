@@ -41,7 +41,9 @@ function ImportedPreview({ asset, assets }: { asset: string; assets: AssetCache 
 export function AddItemModal(props: AddItemModalProps) {
   const { initialType, initialParentId, items, assets, aiEnabled, importMedia, discardAsset, onCreate, onClose } = props;
   const types = addableItemTypes(aiEnabled);
-  const [type, setType] = useState<ItemType>(initialType);
+  const [chosenType, setType] = useState<ItemType>(initialType);
+  // AI turned off while the dialog is open: an AI chat can no longer be created.
+  const type: ItemType = chosenType === 'ai-chat' && !aiEnabled ? 'document' : chosenType;
   const [title, setTitle] = useState('');
   const [parentId, setParentId] = useState<string | null>(initialParentId);
   const [synopsis, setSynopsis] = useState('');

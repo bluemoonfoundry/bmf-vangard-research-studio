@@ -6,7 +6,7 @@ import { AI_CHAT_TYPE } from '@/project/projectState';
 import type { AiApi } from '@/ai/aiApi';
 import type { AiController } from '@/ai/useAi';
 import { PROVIDERS, type Capabilities, type ProviderId } from '@/ai/types';
-import { newTranscript, transcriptPlainText } from '@/chat/transcript';
+import { transcriptPlainText } from '@/chat/transcript';
 import { useChatStreams } from '@/chat/useChatStreams';
 import { ChatEditor } from '@/components/chat/ChatEditor';
 import { openExternal } from '@/project/api';
@@ -238,7 +238,7 @@ export function Workspace({ project, ai, aiApi }: WorkspaceProps) {
           configuredProviders={configuredProviders}
           models={models}
           loadModels={loadModels}
-          capsOf={capsOf}
+          modelsError={ai.modelsError}
           streaming={streams.streamingIds.has(item.id)}
           onUpdate={(update) => updateChat(item.id, update)}
           onRename={(title) => updateItem(item.id, { title })}
@@ -499,10 +499,8 @@ export function Workspace({ project, ai, aiApi }: WorkspaceProps) {
           discardAsset={discardAsset}
           onCreate={(fields, content) => {
             expand(fields.parentId ?? null);
-            const chat = fields.type === AI_CHAT_TYPE
-              ? newTranscript({ provider: ai.status?.defaultProvider ?? null, model: ai.status?.defaultModel ?? null })
-              : undefined;
-            navigate(chat ? addItem(fields, '', chat) : addItem(fields, content));
+            // An AI chat's transcript starts from Settings' default (useProject's chatDefaults).
+            navigate(addItem(fields, content));
           }}
           onClose={() => setAdding(null)}
         />

@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Send, Square } from 'lucide-react';
-import type { Capabilities, ModelInfo, ProviderId } from '@/ai/types';
+import type { ModelInfo, ProviderId } from '@/ai/types';
 import type { Bible, EntityKind, TreeItem } from '@/project/types';
 import type { ChatEntry } from '@/project/projectState';
-import { buildChatRequest, estimateTokens, type ChatOf, type ContentOf } from '@/chat/buildChatRequest';
+import {
+  buildAttachmentsText, buildCanonText, historyOf, systemText, type ChatOf, type ContentOf,
+} from '@/chat/buildChatRequest';
 import { deleteAfter, deleteBefore, deleteMessage, editMessageText, updateSettings } from '@/chat/transcript';
 import type { ChatFilterMode, ChatSettings, ChatTranscript } from '@/chat/types';
 import { ChatHeader } from '@/components/chat/ChatHeader';
@@ -28,7 +30,8 @@ export interface ChatEditorProps {
   configuredProviders: ProviderId[];
   models(provider: ProviderId): ModelInfo[] | undefined;
   loadModels(provider: ProviderId, refresh?: boolean): Promise<ModelInfo[]>;
-  capsOf(provider: ProviderId, model: string): Capabilities;
+  /** Why the provider's last model-list load failed, or null. */
+  modelsError?(provider: ProviderId): string | null;
   /** True while a reply streams into this chat. */
   streaming: boolean;
   onUpdate(update: (t: ChatTranscript) => ChatTranscript): void;
@@ -46,7 +49,6 @@ export interface ChatEditorProps {
   highlight?: { messageId: string; start: number; end: number } | null;
 }
 
-const NO_CAPS: Capabilities = { webSearch: false, readUrls: false, temperature: false };
 /** The context indicator turns into a warning from this share of the model's input limit. */
 const WARN_SHARE = 0.9;
 
@@ -56,7 +58,7 @@ const WARN_SHARE = 0.9;
  */
 export function ChatEditor(props: ChatEditorProps) {
   const {
-    item, entry, aiEnabled, configuredProviders, models, loadModels, capsOf, streaming,
+    item, entry, aiEnabled, configuredProviders, models, loadModels, modelsError, streaming,
     onUpdate, onRename, onSend, onResubmit, onStop, items, bible, contentOf, chatOf, onOpenLink,
   } = props;
   const [composer, setComposer] = useState('');
@@ -64,6 +66,7 @@ export function ChatEditor(props: ChatEditorProps) {
   const [attachmentsOpen, setAttachmentsOpen] = useState(false);
   /** The filter in a read-only chat (AI off): a view choice that isn't written to the file. */
   const [viewFilter, setViewFilter] = useState<ChatFilterMode | null>(null);
+  const [loadingModels, setLoadingModels] = useState(false);
   const [confirm, setConfirm] = useState<{ messageId: string; side: 'before' | 'after'; count: number } | null>(null);
 
   const transcript = entry?.current;
@@ -73,20 +76,29 @@ export function ChatEditor(props: ChatEditorProps) {
   const list = provider && configured ? models(provider) : undefined;
   const model = settings?.model ? list?.find(m => m.id === settings.model) : undefined;
   const listLoaded = list !== undefined;
+  const loadError = provider && configured ? modelsError?.(provider) ?? null : null;
 
+  const fetchModels = useCallback((p: ProviderId, refresh = false) => {
+    setLoadingModels(true);
+    void loadModels(p, refresh).finally(() => setLoadingModels(false));
+  }, [loadModels]);
+
+  // Loads once per provider; a failure waits for Retry instead of looping.
   useEffect(() => {
-    if (aiEnabled && provider && configured && !listLoaded) void loadModels(provider);
-  }, [aiEnabled, provider, configured, listLoaded, loadModels]);
+    if (aiEnabled && provider && configured && !listLoaded && !loadError) fetchModels(provider);
+  }, [aiEnabled, provider, configured, listLoaded, loadError, fetchModels]);
 
-  const tokens = useMemo(() => {
-    if (!transcript || !aiEnabled) return 0;
-    const caps = provider && settings?.model ? capsOf(provider, settings.model) : NO_CAPS;
-    // Only the text matters for the estimate; placeholders stand in for a missing provider/model.
-    const probe = updateSettings(transcript, { provider: provider ?? 'anthropic', model: settings?.model ?? '?' });
-    return estimateTokens(buildChatRequest({
-      transcript: probe, uptoIndex: probe.messages.length, items, bible, contentOf, chatOf, chatId: item.id, caps,
-    }));
-  }, [transcript, aiEnabled, provider, settings?.model, capsOf, items, bible, contentOf, chatOf, item.id]);
+  // The estimate mirrors buildChatRequest's text without rebuilding canon on every streamed delta.
+  const canon = useMemo(() => (aiEnabled ? buildCanonText(items, bible) : ''), [aiEnabled, items, bible]);
+  const attachmentIds = settings?.attachments;
+  const attached = useMemo(
+    () => (aiEnabled && attachmentIds?.length ? buildAttachmentsText(attachmentIds, items, contentOf, chatOf, item.id).text : ''),
+    [aiEnabled, attachmentIds, items, contentOf, chatOf, item.id],
+  );
+  const systemLength = useMemo(
+    () => systemText(settings?.systemPrompt ?? '', canon, attached).length,
+    [settings?.systemPrompt, canon, attached],
+  );
 
   if (!entry || !transcript || !settings) {
     return <p className="p-6 text-sm text-content-muted">Loading…</p>;
@@ -103,6 +115,8 @@ export function ChatEditor(props: ChatEditorProps) {
     : messages.filter(m => (filterMode === 'user_only' ? m.role === 'user' : m.role === 'assistant'));
   const unavailable = listLoaded && settings.model !== null && !model;
   const canSend = aiEnabled && !streaming && model !== undefined && composer.trim() !== '';
+  // About four characters per token, as estimateTokens counts.
+  const tokens = aiEnabled ? Math.ceil((systemLength + historyOf(messages).reduce((n, m) => n + m.text.length, 0)) / 4) : 0;
   const limit = model?.inputTokenLimit;
   const warn = limit !== undefined && tokens >= limit * WARN_SHARE;
 
@@ -123,7 +137,9 @@ export function ChatEditor(props: ChatEditorProps) {
         configuredProviders={configuredProviders}
         models={list}
         model={model}
-        onRefreshModels={() => provider && void loadModels(provider, true)}
+        modelsLoading={loadingModels}
+        modelsError={loadError}
+        onRefreshModels={() => provider && fetchModels(provider, true)}
         personaOpen={personaOpen}
         onTogglePersona={() => setPersonaOpen(o => !o)}
         attachmentsOpen={attachmentsOpen}

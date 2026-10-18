@@ -1,3 +1,4 @@
+import { useId } from 'react';
 import { Paperclip, RefreshCw, Sparkles } from 'lucide-react';
 import { PROVIDERS, type ModelInfo, type ProviderId } from '@/ai/types';
 import type { ChatFilterMode, ChatSettings } from '@/chat/types';
@@ -22,6 +23,10 @@ interface ChatHeaderProps {
   models: ModelInfo[] | undefined;
   /** The chat's model, when it is listed. */
   model: ModelInfo | undefined;
+  modelsLoading: boolean;
+  /** Why the model list couldn't load, or null. */
+  modelsError: string | null;
+  /** Reloads the provider's models (also the Retry after a failure). */
   onRefreshModels(): void;
   personaOpen: boolean;
   onTogglePersona(): void;
@@ -34,13 +39,14 @@ const providerName = (id: ProviderId) => PROVIDERS.find(p => p.id === id)?.name 
 /** Title, filter, and (while AI is on) the provider/model picker, capability toggles, persona and temperature. */
 export function ChatHeader(props: ChatHeaderProps) {
   const {
-    title, onRename, settings, onSettings, editable, configuredProviders, models, model, onRefreshModels,
+    title, onRename, settings, onSettings, editable, configuredProviders, models, model, modelsLoading, modelsError, onRefreshModels,
     personaOpen, onTogglePersona, attachmentsOpen, onToggleAttachments,
   } = props;
   const { provider } = settings;
   const caps = model?.capabilities;
   const providerListed = provider !== null && configuredProviders.includes(provider);
   const savedModelMissing = settings.model !== null && models !== undefined && !model;
+  const temperatureId = useId();
 
   return (
     <div className="flex shrink-0 flex-col gap-2 border-b border-line px-4 py-2.5 text-xs">
@@ -88,6 +94,13 @@ export function ChatHeader(props: ChatHeaderProps) {
           <button type="button" className={btnGhost} aria-label="Refresh models" title="Refresh models" disabled={!providerListed} onClick={onRefreshModels}>
             <RefreshCw className="h-3.5 w-3.5" />
           </button>
+          {modelsLoading && <span role="status" className="text-content-muted">Loading models…</span>}
+          {!modelsLoading && modelsError && (
+            <span role="alert" className="inline-flex items-center gap-1.5 text-danger">
+              Couldn&apos;t load models: {modelsError}
+              <button type="button" className={btn} onClick={onRefreshModels}>Retry</button>
+            </span>
+          )}
           {caps?.webSearch && (
             <label className="inline-flex items-center gap-1">
               <input type="checkbox" checked={settings.webSearch} onChange={(e) => onSettings({ webSearch: e.target.checked })} /> Web search
@@ -100,9 +113,9 @@ export function ChatHeader(props: ChatHeaderProps) {
           )}
           {caps?.temperature && (
             <span className="inline-flex items-center gap-1.5">
-              <label htmlFor="chat-temperature" className="text-content-muted">Temperature</label>
+              <label htmlFor={temperatureId} className="text-content-muted">Temperature</label>
               <input
-                id="chat-temperature"
+                id={temperatureId}
                 type="range"
                 min={0}
                 max={2}

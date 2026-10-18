@@ -16,6 +16,8 @@ export interface AiController {
   /** Cached models for a provider, once loaded. */
   models(provider: ProviderId): ModelInfo[] | undefined;
   loadModels(provider: ProviderId, refresh?: boolean): Promise<ModelInfo[]>;
+  /** Why the provider's last model-list load failed, or null. */
+  modelsError(provider: ProviderId): string | null;
   error: string | null;
 }
 
@@ -25,6 +27,7 @@ const messageOf = (e: unknown) => (e instanceof Error ? e.message : String(e));
 export function useAi(api: AiApi | null): AiController {
   const [status, setStatus] = useState<AiStatus | null>(null);
   const [modelCache, setModelCache] = useState<Partial<Record<ProviderId, ModelInfo[]>>>({});
+  const [modelErrors, setModelErrors] = useState<Partial<Record<ProviderId, string>>>({});
   const [error, setError] = useState<string | null>(null);
   const alive = useRef(true);
 
@@ -63,14 +66,22 @@ export function useAi(api: AiApi | null): AiController {
       const list = await api.listModels(provider, refreshList ? { refresh: true } : undefined);
       if (alive.current) {
         setModelCache(c => ({ ...c, [provider]: list }));
+        setModelErrors(({ [provider]: _cleared, ...rest }) => rest);
         setError(null);
       }
       return list;
     } catch (e) {
-      if (alive.current) setError(messageOf(e));
+      if (alive.current) {
+        setModelErrors(m => ({ ...m, [provider]: messageOf(e) }));
+        setError(messageOf(e));
+      }
       return [];
     }
   }, [api]);
+
+  // Stable between cache changes, so callers can memoize on them.
+  const models = useCallback((provider: ProviderId) => modelCache[provider], [modelCache]);
+  const modelsError = useCallback((provider: ProviderId) => modelErrors[provider] ?? null, [modelErrors]);
 
   return {
     available: api !== null,
@@ -94,7 +105,8 @@ export function useAi(api: AiApi | null): AiController {
       }
     },
     testKey: (provider) => (api ? adopt(() => api.testKey(provider)) : Promise.resolve(false)),
-    models: (provider) => modelCache[provider],
+    models,
+    modelsError,
     loadModels,
     error,
   };

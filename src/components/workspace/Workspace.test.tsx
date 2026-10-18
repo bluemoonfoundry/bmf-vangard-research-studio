@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import App from '@/App';
+import { AddItemModal } from '@/components/workspace/AddItemModal';
 import type { Bible, TreeItem } from '@/project/types';
 import { createFakeBridge, makeAiStatus, makeOpened } from '@/test/fakeBridge';
 import type { ModelInfo } from '@/ai/types';
@@ -523,6 +524,19 @@ describe('AI chat items', () => {
     const dialog = screen.getByRole('dialog', { name: 'Add to binder' });
     expect(within(dialog).getByRole('radio', { name: 'Document' })).toBeInTheDocument();
     expect(within(dialog).queryByRole('radio', { name: 'AI Chat' })).toBeNull();
+  });
+
+  it('cannot create an AI chat once AI is turned off while the dialog is open', () => {
+    const onCreate = vi.fn();
+    const props = { initialType: 'document' as const, initialParentId: null, items: [], assets: null, importMedia: vi.fn(), discardAsset: vi.fn(), onCreate, onClose: vi.fn() };
+    const { rerender } = render(<AddItemModal {...props} aiEnabled />);
+    fireEvent.click(screen.getByRole('radio', { name: 'AI Chat' }));
+    rerender(<AddItemModal {...props} aiEnabled={false} />);
+    expect(screen.queryByRole('radio', { name: 'AI Chat' })).toBeNull();
+    expect(screen.getByRole('radio', { name: 'Document' })).toHaveAttribute('aria-checked', 'true');
+    fireEvent.change(screen.getByRole('textbox', { name: 'Title' }), { target: { value: 'Notes' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }));
+    expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({ type: 'document' }), '');
   });
 
   it('creates an AI chat from the Settings default when AI is on', async () => {

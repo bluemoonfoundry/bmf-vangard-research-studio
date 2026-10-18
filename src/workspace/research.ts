@@ -18,13 +18,13 @@ export const ITEM_TYPES: ItemTypeInfo[] = [
 /** Chat items are created only by Import chat, so chat isn't offered in the Add Item list. */
 const CHAT_TYPE: ItemTypeInfo = { id: 'chat', name: 'Chat' };
 /** An AI chat (transcript in chats/<id>.json); offered in Add Item only while AI is on. */
-export const AI_CHAT_TYPE: ItemTypeInfo = { id: 'ai-chat', name: 'AI Chat' };
-const TYPE_NAMES = new Map<string, string>([...ITEM_TYPES, CHAT_TYPE, AI_CHAT_TYPE].map(t => [t.id, t.name]));
+export const AI_CHAT_TYPE_INFO: ItemTypeInfo = { id: 'ai-chat', name: 'AI Chat' };
+const TYPE_NAMES = new Map<string, string>([...ITEM_TYPES, CHAT_TYPE, AI_CHAT_TYPE_INFO].map(t => [t.id, t.name]));
 const KNOWN_TYPES = new Set<string>(TYPE_NAMES.keys());
 
 /** The types the Add Item dialog offers: AI Chat only while AI is enabled. */
 export const addableItemTypes = (aiEnabled: boolean): ItemTypeInfo[] =>
-  (aiEnabled ? [...ITEM_TYPES, AI_CHAT_TYPE] : ITEM_TYPES);
+  (aiEnabled ? [...ITEM_TYPES, AI_CHAT_TYPE_INFO] : ITEM_TYPES);
 
 /** The display name of an item's type (covers chat as well as the Add Item types). */
 export const itemTypeName = (item: Pick<TreeItem, 'type'>): string => TYPE_NAMES.get(itemType(item)) ?? 'Document';

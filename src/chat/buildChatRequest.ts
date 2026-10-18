@@ -88,8 +88,6 @@ export function buildCanonText(items: TreeItem[], bible: Bible): string {
   return blocks.join('\n\n');
 }
 
-const typeNameOf = (item: TreeItem): string => (item.type === AI_CHAT_TYPE ? 'AI Chat' : itemTypeName(item));
-
 function bodyOf(item: TreeItem, contentOf: ContentOf, chatOf: ChatOf): string {
   if (item.type === 'image' || item.type === 'audio') return item.synopsis ?? '';
   if (item.type === AI_CHAT_TYPE) {
@@ -130,10 +128,24 @@ export function buildAttachmentsText(
     else if (!missing.includes(id)) missing.push(id);
   }
   const text = picked
-    .map(item => `### ${titleOf(item)} (${typeNameOf(item)})\n${bodyOf(item, contentOf, chatOf)}`)
+    .map(item => `### ${titleOf(item)} (${itemTypeName(item)})\n${bodyOf(item, contentOf, chatOf)}`)
     .join('\n\n');
   return { text, missing };
 }
+
+/** The system prompt: the chat's own prompt, the VRS preamble, then canon and attachments when present. */
+export const systemText = (systemPrompt: string, canon: string, attachments: string): string => [
+  systemPrompt.trim(),
+  VRS_PREAMBLE,
+  canon && `## Canon\n\n${canon}`,
+  attachments && `## Attached documents\n\n${attachments}`,
+].filter(Boolean).join('\n\n');
+
+/** Messages sent as history: errored, streaming and empty assistant messages are skipped. */
+export const historyOf = (messages: ChatTranscript['messages']): ChatRequest['messages'] => messages
+  .filter(m => m.role === 'user'
+    || (m.status !== 'error' && m.status !== 'streaming' && m.text.trim() !== ''))
+  .map(m => ({ role: m.role, text: m.text }));
 
 export interface BuildChatRequestArgs {
   transcript: ChatTranscript;
@@ -158,17 +170,8 @@ export function buildChatRequest({
 
   const canon = buildCanonText(items, bible);
   const attachments = buildAttachmentsText(s.attachments, items, contentOf, chatOf, chatId).text;
-  const system = [
-    s.systemPrompt.trim(),
-    VRS_PREAMBLE,
-    canon && `## Canon\n\n${canon}`,
-    attachments && `## Attached documents\n\n${attachments}`,
-  ].filter(Boolean).join('\n\n');
-
-  const messages = transcript.messages.slice(0, uptoIndex)
-    .filter(m => m.role === 'user'
-      || (m.status !== 'error' && m.status !== 'streaming' && m.text.trim() !== ''))
-    .map(m => ({ role: m.role, text: m.text }));
+  const system = systemText(s.systemPrompt, canon, attachments);
+  const messages = historyOf(transcript.messages.slice(0, uptoIndex));
 
   const request: ChatRequest = {
     provider: s.provider,
