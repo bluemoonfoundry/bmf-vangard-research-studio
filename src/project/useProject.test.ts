@@ -227,3 +227,28 @@ describe('useProject: AI chats', () => {
     expect(hook.result.current.dirty).toBe(true);
   });
 });
+
+describe('useProject: extraction', () => {
+  const card = { id: 'c1', kind: 'character' as const, title: 'Ivo', reason: '', createdAt: 'T' };
+
+  it('updateExtraction and updateCanon dirty the project and save extraction.json', async () => {
+    const ctx = setup();
+    ctx.fake.nextDialogResult = makeOpened();
+    await act(() => ctx.hook.result.current.openProject());
+    act(() => ctx.hook.result.current.updateExtraction(x => ({ ...x, cards: [card] })));
+    expect(ctx.hook.result.current.dirty).toBe(true);
+    act(() => ctx.hook.result.current.updateCanon(c => ({ ...c, extraction: { ...c.extraction, cards: [] } })));
+    await act(async () => { await ctx.hook.result.current.save(); });
+    expect(ctx.fake.saves.at(-1)!.extraction?.cards).toEqual([]);
+    expect(ctx.hook.result.current.dirty).toBe(false);
+  });
+
+  it('reloads when bible/extraction.json changes on disk while clean', async () => {
+    const ctx = setup();
+    ctx.fake.nextDialogResult = makeOpened();
+    await act(() => ctx.hook.result.current.openProject());
+    ctx.fake.disk.extraction = { rejections: [], runs: [], pending: [], cards: [card] };
+    act(() => ctx.fake.emitExternalChange([{ path: 'bible/extraction.json', deleted: false }]));
+    await waitFor(() => expect(ctx.hook.result.current.state?.extraction.cards).toEqual([card]));
+  });
+});

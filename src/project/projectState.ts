@@ -2,6 +2,8 @@ import type { Bible, OpenedProject, ProjectManifest, ProjectTree, RecoverySnapsh
 import type { ProviderId } from '@/ai/types';
 import { pruneOrphans, removeEntities } from '@/bible/ops';
 import { appendSources, isSourceItem } from '@/bible/sourceOrder';
+import { emptyExtraction, type Canon, type ExtractionState } from '@/extraction/types';
+import { pruneExtraction } from '@/extraction/review';
 import { forPersistence, newTranscript, normalizeTranscript } from '@/chat/transcript';
 import type { ChatTranscript } from '@/chat/types';
 import { descendantIds, moveItem, type DropPosition } from '@/workspace/treeOps';
@@ -45,6 +47,9 @@ export interface ProjectState {
   savedTree: ProjectTree;
   bible: Bible;
   savedBible: Bible;
+  /** bible/extraction.json: AI extraction's pending proposals, rejections and run cache. */
+  extraction: ExtractionState;
+  savedExtraction: ExtractionState;
   /** Loaded documents only; bodies are read on demand. */
   docs: Record<string, DocEntry>;
   /** Ids removed from the tree since the last save whose files may exist on disk. */
@@ -78,6 +83,8 @@ export type ProjectAction =
   | { type: 'itemMoved'; id: string; targetId: string | null; position: DropPosition }
   | { type: 'itemDeleted'; id: string }
   | { type: 'bibleUpdated'; update: (b: Bible) => Bible }
+  | { type: 'extractionUpdated'; update: (x: ExtractionState) => ExtractionState }
+  | { type: 'canonUpdated'; update: (c: Canon) => Canon }
   | { type: 'assetDiscarded'; asset: string }
   | { type: 'projectRenamed'; name: string }
   | { type: 'saved'; payload: SavePayload; manifest: ProjectManifest }
@@ -85,7 +92,7 @@ export type ProjectAction =
   | { type: 'docReloaded'; id: string; content: string }
   | { type: 'docDiskChanged'; id: string; content: string }
   | { type: 'structureKeptMine' }
-  | { type: 'structureReloaded'; manifest: ProjectManifest; tree: ProjectTree; bible: Bible };
+  | { type: 'structureReloaded'; manifest: ProjectManifest; tree: ProjectTree; bible: Bible; extraction?: ExtractionState };
 
 const withAsset = (list: string[], asset: string | undefined) =>
   asset && !list.includes(asset) ? [...list, asset] : list;
@@ -124,8 +131,10 @@ function updateItems(state: ProjectState, update: (item: TreeItem) => TreeItem):
 export function projectReducer(state: ProjectState | null, action: ProjectAction): ProjectState | null {
   if (action.type === 'opened') {
     const { root, manifest, tree, bible } = action.project;
+    const extraction = action.project.extraction ?? emptyExtraction();
     return {
       root, manifest, savedName: manifest.name, tree, savedTree: tree, bible, savedBible: bible,
+      extraction, savedExtraction: extraction,
       docs: {}, deletedDocs: [], chats: {}, deletedChats: [], deletedAssets: [],
     };
   }
@@ -231,6 +240,17 @@ export function projectReducer(state: ProjectState | null, action: ProjectAction
       return bible === state.bible ? state : { ...state, bible };
     }
 
+    case 'extractionUpdated': {
+      const extraction = action.update(state.extraction);
+      return extraction === state.extraction ? state : { ...state, extraction };
+    }
+
+    case 'canonUpdated': {
+      const next = action.update({ bible: state.bible, extraction: state.extraction });
+      if (next.bible === state.bible && next.extraction === state.extraction) return state;
+      return { ...state, bible: next.bible, extraction: next.extraction };
+    }
+
     case 'assetDiscarded':
       return { ...state, deletedAssets: withAsset(state.deletedAssets, action.asset) };
 
@@ -255,6 +275,11 @@ export function projectReducer(state: ProjectState | null, action: ProjectAction
         const pruned = pruneOrphans(state.bible, state.tree.items);
         if (pruned === payload.bible || JSON.stringify(pruned) === JSON.stringify(payload.bible)) bible = payload.bible;
       }
+      let { extraction } = state;
+      if (payload.extraction) {
+        const pruned = pruneExtraction(state.extraction, state.tree.items);
+        if (pruned === payload.extraction || JSON.stringify(pruned) === JSON.stringify(payload.extraction)) extraction = payload.extraction;
+      }
       return {
         ...state,
         manifest: { ...action.manifest, name: state.manifest.name },
@@ -262,6 +287,8 @@ export function projectReducer(state: ProjectState | null, action: ProjectAction
         savedTree: payload.tree ?? state.savedTree,
         bible,
         savedBible: payload.bible ?? state.savedBible,
+        extraction,
+        savedExtraction: payload.extraction ?? state.savedExtraction,
         docs,
         deletedDocs: state.deletedDocs.filter(id => payload.docs?.[id] !== null),
         chats,
@@ -297,6 +324,7 @@ export function projectReducer(state: ProjectState | null, action: ProjectAction
         manifest: snapshot.manifest ? { ...state.manifest, name: snapshot.manifest.name } : state.manifest,
         tree: snapshot.tree ?? state.tree,
         bible: snapshot.bible ?? state.bible,
+        extraction: snapshot.extraction ?? state.extraction,
         docs,
         deletedDocs,
         chats,
@@ -318,9 +346,13 @@ export function projectReducer(state: ProjectState | null, action: ProjectAction
       // The disk copy changed under unsaved work. Mark every structure part
       // unsaved (fresh sentinels never equal the current values) so the next
       // save writes the user's whole structure, not just the part that was dirty.
-      return { ...state, savedName: ' ', savedTree: { items: [] }, savedBible: { facts: [], dependencies: [], decisions: [] } };
+      return {
+        ...state, savedName: ' ', savedTree: { items: [] }, savedBible: { facts: [], dependencies: [], decisions: [] },
+        savedExtraction: emptyExtraction(),
+      };
 
     case 'structureReloaded': {
+      const extraction = action.extraction ?? emptyExtraction();
       const ids = new Set(action.tree.items.map(i => i.id));
       const docs = Object.fromEntries(Object.entries(state.docs).filter(([id]) => ids.has(id)));
       const chats = Object.fromEntries(Object.entries(state.chats).filter(([id]) => ids.has(id)));
@@ -332,6 +364,8 @@ export function projectReducer(state: ProjectState | null, action: ProjectAction
         savedTree: action.tree,
         bible: action.bible,
         savedBible: action.bible,
+        extraction,
+        savedExtraction: extraction,
         docs,
         deletedDocs: [],
         chats,
@@ -353,7 +387,8 @@ export const isChatDirty = (state: ProjectState, id: string) => {
 };
 
 export const isStructureDirty = (state: ProjectState) =>
-  state.manifest.name !== state.savedName || state.tree !== state.savedTree || state.bible !== state.savedBible || state.deletedDocs.length > 0;
+  state.manifest.name !== state.savedName || state.tree !== state.savedTree || state.bible !== state.savedBible
+  || state.extraction !== state.savedExtraction || state.deletedDocs.length > 0;
 
 export const isDirty = (state: ProjectState | null) =>
   !!state && (
@@ -371,6 +406,8 @@ export function buildSavePayload(state: ProjectState): SavePayload {
   // Facts about missing entities are tolerated on load and dropped here.
   const bible = pruneOrphans(state.bible, state.tree.items);
   if (state.bible !== state.savedBible || bible !== state.bible) payload.bible = bible;
+  const extraction = pruneExtraction(state.extraction, state.tree.items);
+  if (state.extraction !== state.savedExtraction || extraction !== state.extraction) payload.extraction = extraction;
 
   const docs: Record<string, string | null> = {};
   for (const [id, doc] of Object.entries(state.docs)) {

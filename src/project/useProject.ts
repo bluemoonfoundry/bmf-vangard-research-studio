@@ -7,6 +7,7 @@ import type { ProjectApi } from '@/project/api';
 import type { Bible, ExternalChange, MediaKind, OpenedProject, RecentProject, RecoverySnapshot, TreeItem } from '@/project/types';
 import { forPersistence, newTranscript, normalizeTranscript } from '@/chat/transcript';
 import type { ChatTranscript } from '@/chat/types';
+import type { Canon, ExtractionState } from '@/extraction/types';
 import { createAssetCache } from '@/workspace/assetCache';
 import { descendantIds, duplicateSubtree, nextOrder, type DropPosition } from '@/workspace/treeOps';
 
@@ -15,6 +16,9 @@ export const RECOVERY_DEBOUNCE_MS = 1000;
 
 /** Marker in `conflicts` for tree.json / vrs.json changing on disk while the structure has unsaved edits. */
 export const STRUCTURE_CONFLICT = 'structure';
+
+/** Files reloaded (or flagged) as one structure. */
+const STRUCTURE_FILES = ['tree.json', 'vrs.json', 'bible/bible.json', 'bible/extraction.json'];
 
 const DOC_PATH = /^docs\/([A-Za-z0-9_-]+)\.md$/;
 const CHAT_PATH = /^chats\/([A-Za-z0-9_-]+)\.json$/;
@@ -264,6 +268,10 @@ export function useProject(
   }, [api, run]);
 
   const updateBible = useCallback((update: (b: Bible) => Bible) => dispatch({ type: 'bibleUpdated', update }), []);
+  const updateExtraction = useCallback(
+    (update: (x: ExtractionState) => ExtractionState) => dispatch({ type: 'extractionUpdated', update }), []);
+  /** Changes the bible and the extraction state together (extraction runs and review). */
+  const updateCanon = useCallback((update: (c: Canon) => Canon) => dispatch({ type: 'canonUpdated', update }), []);
 
   /** Saves Markdown to a file the user picks; resolves to its path, or null if cancelled or failed. */
   const exportDossier = useCallback(async (markdown: string) => {
@@ -378,7 +386,7 @@ export function useProject(
                 : await run(() => readDiskChat(id));
               if (disk) dispatch({ type: 'chatReloaded', id, ...disk });
             }
-          } else if (change.path === 'tree.json' || change.path === 'vrs.json' || change.path === 'bible/bible.json') {
+          } else if (STRUCTURE_FILES.includes(change.path)) {
             if (isStructureDirty(current)) {
               setConflicts(c => (c.includes(STRUCTURE_CONFLICT) ? c : [...c, STRUCTURE_CONFLICT]));
             } else {
@@ -422,7 +430,7 @@ export function useProject(
     state, dirty, saving, error, recents, recovery, migratedFrom, conflicts, assets,
     createProject, openProject, openRecent, removeRecent, closeProject, save,
     loadDoc, loadAllDocs, loadAllChats, updateChat, addDocument, addItem, updateItem, moveItem, duplicateItem, editDoc, renameItem, deleteItem,
-    renameProject, discardAsset, importMedia, importTexts, updateBible, exportDossier,
+    renameProject, discardAsset, importMedia, importTexts, updateBible, updateExtraction, updateCanon, exportDossier,
     restoreRecovery, discardRecovery, reloadFromDisk, keepMine, reportError,
     dismissError: () => setError(null),
     dismissMigration: () => setMigratedFrom(null),
@@ -430,7 +438,7 @@ export function useProject(
     state, dirty, saving, error, recents, recovery, migratedFrom, conflicts, assets,
     createProject, openProject, openRecent, removeRecent, closeProject, save,
     loadDoc, loadAllDocs, loadAllChats, updateChat, addDocument, addItem, updateItem, moveItem, duplicateItem, editDoc, renameItem, deleteItem,
-    renameProject, discardAsset, importMedia, importTexts, updateBible, exportDossier,
+    renameProject, discardAsset, importMedia, importTexts, updateBible, updateExtraction, updateCanon, exportDossier,
     restoreRecovery, discardRecovery, reloadFromDisk, keepMine, reportError,
   ]);
 }

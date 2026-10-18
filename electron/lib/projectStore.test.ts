@@ -57,7 +57,10 @@ describe('openProject', () => {
     it('round-trips a created project', async () => {
         const created = await createProject(root, { id: 'p1', name: 'X', now: NOW });
         const opened = await openProject(root);
-        expect(opened).toEqual({ manifest: created.manifest, tree: { items: [] }, bible: { facts: [], dependencies: [], decisions: [] }, migratedFrom: null });
+        expect(opened).toEqual({
+            manifest: created.manifest, tree: { items: [] }, bible: { facts: [], dependencies: [], decisions: [] },
+            extraction: { rejections: [], runs: [], cards: [], pending: [] }, migratedFrom: null,
+        });
     });
 
     it('rejects a folder without vrs.json', async () => {
@@ -334,5 +337,39 @@ describe('chat transcripts', () => {
 
     it('readChat rejects an invalid id', async () => {
         await expect(readChat(root, '../vrs')).rejects.toMatchObject({ code: 'INVALID' });
+    });
+});
+
+describe('extraction persistence', () => {
+    const bible = { facts: [], dependencies: [], decisions: [] };
+    const extraction = {
+        rejections: [], runs: [], pending: [],
+        cards: [{ id: 'c1', kind: 'character', title: 'Ivo', reason: '', createdAt: NOW }],
+    };
+
+    beforeEach(async () => {
+        await createProject(root, { id: 'p1', name: 'X', now: NOW });
+    });
+
+    it('opens a project without extraction.json as empty', async () => {
+        expect((await openProject(root)).extraction).toEqual({ rejections: [], runs: [], cards: [], pending: [] });
+    });
+
+    it('writes bible/extraction.json right after bible/bible.json', async () => {
+        const writes: string[] = [];
+        await saveProject(root, { tree: { items: [] }, bible, extraction }, { now: LATER, onWrite: (rel) => writes.push(rel) });
+        expect(writes).toEqual(['tree.json', 'bible/bible.json', 'bible/extraction.json', 'vrs.json']);
+        expect(await readJson(path.join(root, 'bible', 'extraction.json'))).toEqual(extraction);
+    });
+
+    it('open and readStructure return the saved extraction', async () => {
+        await saveProject(root, { extraction }, { now: LATER });
+        expect((await openProject(root)).extraction).toEqual(extraction);
+        expect((await readStructure(root)).extraction).toEqual(extraction);
+    });
+
+    it('rejects a corrupt extraction.json', async () => {
+        await fs.writeFile(path.join(root, 'bible', 'extraction.json'), '{"pending": 3}');
+        await expect(openProject(root)).rejects.toMatchObject({ code: 'CORRUPT' });
     });
 });

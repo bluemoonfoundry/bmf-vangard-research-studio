@@ -4,6 +4,7 @@ import { applyStreamEvent, beginSend, newTranscript, updateSettings } from '@/ch
 import type { ChatTranscript } from '@/chat/types';
 import { emptyBible } from '@/bible/normalize';
 import type { OpenedProject, TreeItem } from '@/project/types';
+import { emptyExtraction, type PendingCard, type PendingProposal } from '@/extraction/types';
 
 const item = (id: string, order = 0, parentId: string | null = null): TreeItem =>
   ({ id, parentId, type: 'document', title: id.toUpperCase(), order, keywords: [] });
@@ -411,5 +412,67 @@ describe('projectReducer: AI chats', () => {
     let s = loaded([aiChat('a'), aiChat('b', 1)], { a: fresh(), b: fresh() });
     s = projectReducer(s, { type: 'structureReloaded', manifest: s.manifest, tree: { items: [aiChat('a')] }, bible: emptyBible() })!;
     expect(Object.keys(s.chats)).toEqual(['a']);
+  });
+});
+
+describe('extraction state', () => {
+  const ent = (id: string): TreeItem => ({ id, parentId: null, type: 'entity', entityKind: 'character', title: id, order: 0, keywords: [] }) as TreeItem;
+  const pending = (id: string, entityId: string): PendingProposal => ({
+    id, ref: { entityId }, attribute: 'eyes', value: 'green', strength: 'suggested', evidence: [], createdAt: 'T',
+  });
+  const card: PendingCard = { id: 'c1', kind: 'character', title: 'Ivo', reason: '', createdAt: 'T' };
+
+  it('opens with the project extraction, or empty when missing', () => {
+    expect(open().extraction).toEqual(emptyExtraction());
+    const o = opened();
+    o.extraction = { ...emptyExtraction(), cards: [card] };
+    expect(projectReducer(null, { type: 'opened', project: o })!.extraction.cards).toEqual([card]);
+  });
+
+  it('extractionUpdated makes the project dirty and a save cleans it', () => {
+    let s = projectReducer(open(), { type: 'extractionUpdated', update: x => ({ ...x, cards: [card] }) })!;
+    expect(isDirty(s)).toBe(true);
+    const payload = buildSavePayload(s);
+    expect(payload.extraction?.cards).toEqual([card]);
+    s = projectReducer(s, { type: 'saved', payload, manifest: s.manifest })!;
+    expect(isDirty(s)).toBe(false);
+    expect(buildSavePayload(s)).toEqual({});
+  });
+
+  it('canonUpdated changes the bible and the extraction in one action', () => {
+    const fact = { id: 'f1', entityId: 'e1', attribute: 'a', value: 'v', status: 'proposed' as const, origin: 'ai', createdAt: 'T', updatedAt: 'T' };
+    const s = projectReducer(open([ent('e1')]), {
+      type: 'canonUpdated',
+      update: c => ({ bible: { ...c.bible, facts: [fact] }, extraction: { ...c.extraction, cards: [card] } }),
+    })!;
+    expect(s.bible.facts).toEqual([fact]);
+    expect(s.extraction.cards).toEqual([card]);
+  });
+
+  it('prunes pending proposals about deleted entities on save, keeping card proposals', () => {
+    let s = projectReducer(open([ent('e1'), ent('e2')]), {
+      type: 'extractionUpdated',
+      update: x => ({ ...x, cards: [card], pending: [pending('p1', 'e1'), pending('p2', 'e2'), { ...pending('p3', 'x'), ref: { cardId: 'c1' } }] }),
+    })!;
+    s = projectReducer(s, { type: 'itemDeleted', id: 'e2' })!;
+    expect(buildSavePayload(s).extraction?.pending.map(p => p.id)).toEqual(['p1', 'p3']);
+  });
+
+  it('a recovery snapshot restores the extraction', () => {
+    const snapshot = { savedAt: 'T', extraction: { ...emptyExtraction(), cards: [card] } };
+    const s = projectReducer(open(), { type: 'recoveryRestored', snapshot, diskDocs: {}, diskChats: {} })!;
+    expect(s.extraction.cards).toEqual([card]);
+    expect(isDirty(s)).toBe(true);
+  });
+
+  it('structureKeptMine and structureReloaded cover the extraction', () => {
+    const kept = projectReducer(open(), { type: 'structureKeptMine' })!;
+    expect(buildSavePayload(kept).extraction).toEqual(emptyExtraction());
+    const reloaded = projectReducer(open(), {
+      type: 'structureReloaded', manifest: kept.manifest, tree: { items: [] }, bible: emptyBible(),
+      extraction: { ...emptyExtraction(), cards: [card] },
+    })!;
+    expect(reloaded.extraction.cards).toEqual([card]);
+    expect(isDirty(reloaded)).toBe(false);
   });
 });

@@ -9,6 +9,8 @@ import {
     migrateProject,
     normalizeTree,
     normalizeBible,
+    normalizeExtraction,
+    createEmptyExtraction,
     normalizeChat,
     createEmptyBible,
     normalizeText,
@@ -302,5 +304,68 @@ describe('normalizeChat', () => {
         expect(() => validateSavePayload({ chats: { '../x': chat } })).toThrow(expect.objectContaining({ code: 'INVALID' }));
         expect(() => validateSavePayload({ chats: { ok: { version: 1 } } })).toThrow(expect.objectContaining({ code: 'INVALID' }));
         expect(validateSavePayload({ chats: { ok: chat, gone: null } }).chats).toEqual({ ok: chat, gone: null });
+    });
+});
+
+describe('normalizeExtraction', () => {
+    const corrupt = /extraction\.json/;
+    const source = { itemId: 'chat-1', quote: 'green', start: 0, end: 5 };
+    const pending = {
+        id: 'p1', ref: { entityId: 'e1' }, attribute: 'eyes', value: 'green', strength: 'suggested',
+        evidence: [{ source, strength: 'suggested' }], createdAt: 'T',
+    };
+    const full = {
+        rejections: [{ fingerprint: 'e1\u0000eyes\u0000blue', label: 'Mara · eyes: blue', at: 'T' }],
+        runs: [{ itemId: 'chat-1', key: 'k', provider: 'gemini', model: 'm', at: 'T', proposals: [], dropped: 0 }],
+        cards: [{ id: 'c1', kind: 'character', title: 'Ivo', reason: 'Recurring', createdAt: 'T' }],
+        pending: [pending, { ...pending, id: 'p2', ref: { cardId: 'c1' } }],
+        extra: { kept: true },
+    };
+
+    it('reads a missing file as empty', () => {
+        expect(normalizeExtraction(undefined)).toEqual(createEmptyExtraction());
+        expect(createEmptyExtraction()).toEqual({ rejections: [], runs: [], cards: [], pending: [] });
+    });
+
+    it('keeps valid entries and unknown fields', () => {
+        expect(normalizeExtraction(full)).toEqual(full);
+    });
+
+    it('fills missing lists', () => {
+        expect(normalizeExtraction({ cards: [] })).toEqual(createEmptyExtraction());
+    });
+
+    it('refuses malformed files', () => {
+        expect(() => normalizeExtraction([])).toThrow(corrupt);
+        expect(() => normalizeExtraction({ pending: 'x' })).toThrow(corrupt);
+        expect(() => normalizeExtraction({ pending: [{ ...pending, id: '../x' }] })).toThrow(corrupt);
+        expect(() => normalizeExtraction({ pending: [{ ...pending, ref: { entityId: '../e' } }] })).toThrow(corrupt);
+        expect(() => normalizeExtraction({ pending: [{ ...pending, ref: {} }] })).toThrow(corrupt);
+        expect(() => normalizeExtraction({ pending: [{ ...pending, evidence: [{ source: { ...source, itemId: '../x' }, strength: 'said' }] }] })).toThrow(corrupt);
+        expect(() => normalizeExtraction({ cards: [{ id: 'c1', kind: 'character' }] })).toThrow(corrupt);
+        expect(() => normalizeExtraction({ runs: [{ itemId: 'a', key: 'k' }] })).toThrow(corrupt);
+        expect(() => normalizeExtraction({ rejections: [{ label: 'x' }] })).toThrow(corrupt);
+    });
+});
+
+describe('fact evidence', () => {
+    const fact = { id: 'f1', entityId: 'e1', attribute: 'eyes', value: 'green', status: 'proposed' };
+    const source = { itemId: 'chat-1', quote: 'green', start: 0, end: 5 };
+
+    it('accepts facts with valid evidence', () => {
+        const withEvidence = { ...fact, evidence: [{ source, strength: 'said' }] };
+        expect(normalizeBible({ facts: [withEvidence] }).facts[0]).toEqual(withEvidence);
+    });
+
+    it('refuses evidence with an invalid source', () => {
+        expect(() => normalizeBible({ facts: [{ ...fact, evidence: [{ source: { ...source, itemId: '../x' }, strength: 'said' }] }] })).toThrow(/invalid evidence/);
+        expect(() => normalizeBible({ facts: [{ ...fact, evidence: 'x' }] })).toThrow(/invalid evidence/);
+    });
+});
+
+describe('validateSavePayload extraction', () => {
+    it('accepts and validates extraction', () => {
+        expect(validateSavePayload({ extraction: { cards: [] } }).extraction).toEqual(createEmptyExtraction());
+        expect(() => validateSavePayload({ extraction: { pending: 1 } })).toThrow(/extraction\.json/);
     });
 });

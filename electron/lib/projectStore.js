@@ -6,16 +6,19 @@ import {
     MANIFEST_FILE,
     TREE_FILE,
     BIBLE_FILE,
+    EXTRACTION_FILE,
     PROJECT_DIRS,
     ProjectFormatError,
     createManifest,
     createEmptyTree,
     createEmptyBible,
+    createEmptyExtraction,
     isValidAssetName,
     isValidItemId,
     migrateProject,
     normalizeTree,
     normalizeBible,
+    normalizeExtraction,
     normalizeChat,
     referencedAssets,
     validateSavePayload,
@@ -87,7 +90,7 @@ export async function createProject(root, { id, name, now }) {
     await atomicWriteFile(path.join(root, TREE_FILE), toJson(tree));
     // vrs.json last: a folder is only recognised as a project once it's complete.
     await atomicWriteFile(path.join(root, MANIFEST_FILE), toJson(manifest));
-    return { manifest, tree, bible: createEmptyBible() };
+    return { manifest, tree, bible: createEmptyBible(), extraction: createEmptyExtraction() };
 }
 
 export async function openProject(root, migrationOptions) {
@@ -100,12 +103,14 @@ export async function openProject(root, migrationOptions) {
     }
     const rawTree = await readJsonFile(treePath, { optional: true });
     const rawBible = await readJsonFile(path.join(root, BIBLE_FILE), { optional: true });
+    const rawExtraction = await readJsonFile(path.join(root, EXTRACTION_FILE), { optional: true });
 
     await cleanupStaleTempFiles(root);
 
     const { project, migratedFrom } = migrateProject({ manifest: rawManifest, tree: rawTree ?? createEmptyTree() }, migrationOptions);
     const tree = normalizeTree(project.tree);
     const bible = normalizeBible(rawBible);
+    const extraction = normalizeExtraction(rawExtraction);
 
     if (migratedFrom !== null) {
         // Keep the pre-migration files so an upgrade is always reversible by hand.
@@ -115,7 +120,7 @@ export async function openProject(root, migrationOptions) {
         await atomicWriteFile(manifestPath, toJson(project.manifest));
     }
 
-    return { manifest: project.manifest, tree, bible, migratedFrom };
+    return { manifest: project.manifest, tree, bible, extraction, migratedFrom };
 }
 
 export async function readDoc(root, id) {
@@ -185,16 +190,16 @@ export async function importAsset(root, sourcePath, { kind, newId }) {
 
 /** Re-reads only the structure files, for picking up changes made outside VRS. */
 export async function readStructure(root) {
-    const { manifest, tree, bible } = await openProject(root);
-    return { manifest, tree, bible };
+    const { manifest, tree, bible, extraction } = await openProject(root);
+    return { manifest, tree, bible, extraction };
 }
 
 /**
- * Saves the parts of a project named in `payload` ({ manifest?, tree?, bible?, docs?, chats?, deletedAssets? }).
+ * Saves the parts of a project named in `payload` ({ manifest?, tree?, bible?, extraction?, docs?, chats?, deletedAssets? }).
  *
  * Each file is written atomically, and the order keeps the folder consistent
  * if the save is interrupted part-way: document bodies, then chat
- * transcripts, then the tree that references them, then bible/bible.json, then vrs.json, and
+ * transcripts, then the tree that references them, then bible/bible.json and bible/extraction.json, then vrs.json, and
  * deletions (docs, chats, assets) only once nothing references the deleted files. The worst case is an orphaned docs/*.md,
  * never a tree entry pointing at a missing or half-written file. Assets the
  * saved tree still references (e.g. shared by a duplicated item) are kept.
@@ -227,6 +232,7 @@ export async function saveProject(root, payload, { now, onWrite = () => {} } = {
     }
     if (request.tree) await write(TREE_FILE, toJson(request.tree));
     if (request.bible) await write(BIBLE_FILE, toJson(request.bible));
+    if (request.extraction) await write(EXTRACTION_FILE, toJson(request.extraction));
 
     const current = await readJsonFile(path.join(root, MANIFEST_FILE));
     const manifest = { ...current, ...request.manifest, updatedAt: now };

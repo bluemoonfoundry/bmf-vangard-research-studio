@@ -4,6 +4,7 @@ import type {
   Bible, ExternalChange, ImportedAsset, IpcResult, MediaKind, OpenedProject, ProjectManifest, ProjectTree, RecentProject,
   SavePayload, TextImportBatch, UnsavedChoice,
 } from '@/project/types';
+import { emptyExtraction, type ExtractionState } from '@/extraction/types';
 import type { AiSettingsPatch, AiStatus, ChatEvent, ChatRequest, ExtractRequest, ExtractResult, ModelInfo, ProviderId, StreamEvent } from '@/ai/types';
 import type { ChatTranscript } from '@/chat/types';
 
@@ -55,6 +56,7 @@ export function createFakeBridge() {
       manifest: null as ProjectManifest | null,
       tree: { items: [] } as ProjectTree,
       bible: emptyBible() as Bible,
+      extraction: emptyExtraction() as ExtractionState,
       docs: {} as Record<string, string>,
       chats: {} as Record<string, ChatTranscript>,
       assets: {} as Record<string, Uint8Array>,
@@ -86,7 +88,7 @@ export function createFakeBridge() {
     },
 
     load(project: OpenedProject, docs: Record<string, string> = {}) {
-      fake.disk = { ...fake.disk, manifest: project.manifest, tree: project.tree, bible: project.bible, docs };
+      fake.disk = { ...fake.disk, manifest: project.manifest, tree: project.tree, bible: project.bible, extraction: project.extraction ?? emptyExtraction(), docs };
     },
     emitExternalChange(changes: ExternalChange[]) {
       externalListeners.forEach(l => l(changes));
@@ -127,7 +129,7 @@ export function createFakeBridge() {
       close: vi.fn((_options?: { discardRecovery?: boolean }) => ok(undefined)),
       readDoc: vi.fn((id: string) => ok(fake.disk.docs[id] ?? '')),
       readChat: vi.fn((id: string) => ok<{ transcript: ChatTranscript | null; problem: string | null }>({ transcript: fake.disk.chats[id] ?? null, problem: null })),
-      readStructure: vi.fn(() => ok({ manifest: fake.disk.manifest!, tree: fake.disk.tree, bible: fake.disk.bible })),
+      readStructure: vi.fn(() => ok({ manifest: fake.disk.manifest!, tree: fake.disk.tree, bible: fake.disk.bible, extraction: fake.disk.extraction })),
       readAsset: vi.fn((name: string): Promise<IpcResult<Uint8Array>> => {
         const bytes = fake.disk.assets[name];
         if (!bytes) return Promise.resolve({ ok: false, error: { code: 'NOT_FOUND', message: `${name} is missing` } });
@@ -156,6 +158,7 @@ export function createFakeBridge() {
         }
         if (payload.tree) fake.disk.tree = payload.tree;
         if (payload.bible) fake.disk.bible = payload.bible;
+        if (payload.extraction) fake.disk.extraction = payload.extraction;
         for (const name of payload.deletedAssets ?? []) delete fake.disk.assets[name];
         fake.disk.manifest = { ...fake.disk.manifest!, ...payload.manifest, updatedAt: `T${fake.saves.length}` };
         return ok({ manifest: fake.disk.manifest });
