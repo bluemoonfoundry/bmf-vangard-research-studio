@@ -106,6 +106,14 @@ describe('applyStreamEvent', () => {
     expect(t.messages[1].sources?.map(s => s.url)).toEqual(['https://a', 'https://b', 'https://c']);
     expect(isStreaming(t)).toBe(false);
   });
+  it('done stores why a reply was cut short, and only then', () => {
+    let t = beginSend(fresh(), { text: 'q', userId: 'u', assistantId: 'a', at: 'T', caps: ALL });
+    t = applyStreamEvent(t, 'a', { type: 'done', model: 'm', truncated: 'max_tokens' });
+    expect(t.messages[1]).toMatchObject({ status: 'complete', truncated: 'max_tokens' });
+    t = beginResubmit(t, { messageId: 'u', assistantId: 'b', at: 'T2', caps: ALL });
+    t = applyStreamEvent(t, 'b', { type: 'done', model: 'm' });
+    expect(t.messages[1]).not.toHaveProperty('truncated');
+  });
   it('cancelled error keeps partial text', () => {
     let t = beginSend(fresh(), { text: 'q', userId: 'u', assistantId: 'a', at: 'T', caps: ALL });
     t = applyStreamEvent(t, 'a', { type: 'text', delta: 'part' });

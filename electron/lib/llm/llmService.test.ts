@@ -398,6 +398,17 @@ describe('llmService extract', () => {
         expect(await codeOf(service.extract('x1', extractRequest()))).toBe('PROVIDER');
     });
 
+    it('says the reply was cut short when a truncated reply is not JSON', async () => {
+        const { service, adapters } = await enabled();
+        adapters.gemini.stream.mockImplementation(async (_r, _k, _s, onEvent) => {
+            onEvent({ type: 'text', delta: '{"proposals":[{"entity"' });
+            onEvent({ type: 'done', model: 'gemini-model', truncated: 'max_tokens' });
+        });
+        const err = await service.extract('x1', extractRequest()).catch((e: Error) => e);
+        expect((err as LlmError).code).toBe('PROVIDER');
+        expect((err as Error).message).toMatch(/cut short/);
+    });
+
     it('rejects with the code of an error event or a thrown adapter error', async () => {
         const { service, adapters } = await enabled();
         adapters.gemini.stream.mockImplementationOnce(async (_r, _k, _s, onEvent) => onEvent({ type: 'error', code: 'RATE_LIMIT', message: 'Slow down' }));

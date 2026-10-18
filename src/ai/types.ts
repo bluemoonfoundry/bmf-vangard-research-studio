@@ -61,11 +61,17 @@ export interface ProviderExtras {
   gemini?: { searchEntryPointHtml: string };
 }
 
+/**
+ * Why a reply that ended normally is unfinished: the output token limit (or the context window), a server-tool turn the
+ * provider paused (Anthropic pause_turn), or another early stop (e.g. OpenAI content_filter).
+ */
+export type TruncatedReason = 'max_tokens' | 'pause_turn' | 'other';
+
 export type StreamEvent =
   | { type: 'text'; delta: string }
   | { type: 'sources'; sources: Source[] }
   | { type: 'extras'; extras: ProviderExtras }
-  | { type: 'done'; model: string; usage?: { inputTokens?: number; outputTokens?: number } }
+  | { type: 'done'; model: string; usage?: { inputTokens?: number; outputTokens?: number }; truncated?: TruncatedReason }
   | { type: 'error'; code: string; message: string };
 
 export interface ChatEvent {

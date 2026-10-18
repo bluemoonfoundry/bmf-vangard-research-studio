@@ -119,6 +119,8 @@ A project is a folder (`Name.vrs/`) of plain files: `vrs.json` (manifest + `sche
 - **IPC results** are `{ ok, value | error: { code, message } }` envelopes; `src/project/api.ts` unwraps them.
 - **Binder items** are `tree.json` entries (synopsis, label, status, notes, citations, references by id, `asset`);
   every item's body is `docs/<id>.md`. All bodies are loaded on open (search, word counts and export need them).
+  `readDoc` (`src/project/api.ts`) strips a BOM and turns CRLF/CR into LF, matching the editor textarea, so fact offsets
+  captured there resolve against the stored body.
 - **Imported chats** (`type: 'chat'`) come from `project:import-texts` (multi-select; extensionless files only if UTF-8
   text) or paste. `src/chat/importFormats.ts` recognises AI Chat Exporter Markdown (AI Studio) and stores it in the
   canonical turn layout (`=== You ===` / `=== <Model> ===` heading lines; `turnSpans()` finds turns in a stored body),
@@ -190,7 +192,9 @@ Strictly opt-in (see Project Overview). Main-process code in `electron/lib/`, re
 - **Transcripts**: `chats/<id>.json` is `{ version: 1, settings, messages }`; unknown fields are kept (`src/chat/transcript.ts`).
   The item type is `'ai-chat'` (`AI_CHAT_TYPE`), distinct from the imported `'chat'` type (a pasted text transcript whose body is
   `docs/<id>.md`). Chats ride in the save payload's `chats` (`null` deletes the file). `forPersistence()` saves any `streaming`
-  message as `cancelled`; a transcript still streaming is never written as streaming.
+  message as `cancelled`; a transcript still streaming is never written as streaming. A reply the provider stopped early
+  ends with `done.truncated` (`max_tokens` | `pause_turn` | `other`, set by each adapter), stored on the message and shown as
+  "Reply cut short"; a truncated extraction reply that isn't JSON says so.
 - **Streaming is project-level**: `src/chat/useChatStreams.ts` is mounted in `Workspace`, so streams survive switching tabs
   and several chats can stream at once. The renderer generates each `requestId` and routes stream events by it to
   `{ chatId, assistantId }`; the stream registry in main keys on the same id.

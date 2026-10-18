@@ -300,6 +300,13 @@ describe('ChatEditor', () => {
     expect(screen.getByText('Too many requests')).toBeInTheDocument();
   });
 
+  it('marks a reply that was cut short', () => {
+    setup({ initial: transcript([user('u1', 'One'), reply('a1', 'Half an ans', { truncated: 'max_tokens' }), user('u2', 'Two'), reply('a2', 'Whole')]) });
+    const badges = screen.getAllByText('Reply cut short');
+    expect(badges).toHaveLength(1);
+    expect(badges[0]).toHaveAttribute('title', expect.stringMatching(/output limit/));
+  });
+
   it('actions disabled and Stop shown while streaming', () => {
     const streamingReply = reply('a2', 'A penny', { status: 'streaming' });
     const { onStop } = setup({ initial: transcript([...THREE.slice(0, 3), streamingReply]), streaming: true });

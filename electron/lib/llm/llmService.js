@@ -280,7 +280,15 @@ export function createLlmService({ settings, keys, adapters, emit, now = () => n
             });
             if (failed) throw new LlmError(failed.code, String(failed.message ?? 'The provider reported an error.'));
             if (!done) throw new LlmError('PROVIDER', 'The reply ended unexpectedly.');
-            return { ...parseExtraction(text), model: done.model, ...(done.usage && { usage: done.usage }) };
+            let parsed;
+            try {
+                parsed = parseExtraction(text);
+            } catch (err) {
+                // A reply cut off mid-JSON: say why rather than "not valid JSON".
+                if (done.truncated) throw new LlmError('PROVIDER', "The AI's reply was cut short before it finished. Try a smaller source.");
+                throw err;
+            }
+            return { ...parsed, model: done.model, ...(done.usage && { usage: done.usage }) };
         })();
         // The losing promise must not surface as an unhandled rejection.
         streamed.catch(() => {});

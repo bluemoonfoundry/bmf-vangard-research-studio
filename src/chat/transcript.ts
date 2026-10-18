@@ -87,7 +87,7 @@ export function applyStreamEvent(t: ChatTranscript, assistantId: string, e: Stre
       case 'extras':
         return { ...m, providerExtras: e.extras };
       case 'done':
-        return { ...m, status: 'complete', model: e.model };
+        return { ...m, status: 'complete', model: e.model, ...(e.truncated && { truncated: e.truncated }) };
       case 'error':
         return e.code === 'CANCELLED'
           ? { ...m, status: 'cancelled' }
