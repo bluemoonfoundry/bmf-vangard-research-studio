@@ -22,6 +22,10 @@ import { insertSources, isSourceItem, orderedSources, setSourceOrder } from '@/b
 import { estimateRun, useExtraction } from '@/extraction/useExtraction';
 import { extractionSource } from '@/extraction/sourceText';
 import { ExtractModal } from '@/components/extraction/ExtractModal';
+import { useConflictCheck } from '@/extraction/useConflictCheck';
+import { dismissFlag, estimateCheck, flagCounts, liveFlags } from '@/extraction/conflictCheck';
+import { ConflictCheckModal } from '@/components/extraction/ConflictCheck';
+import { setFactStatus } from '@/bible/ops';
 import { ReviewQueue } from '@/components/extraction/ReviewQueue';
 import { reviewCount } from '@/extraction/review';
 import { SourceOrderModal } from '@/components/bible/SourceOrderModal';
@@ -93,6 +97,7 @@ export function Workspace({ project, ai, aiApi }: WorkspaceProps) {
   const streams = useChatStreams({ ai: aiEnabled ? aiApi : null, project, capsOf });
   // Extraction runs live here too, so closing the dialog doesn't stop one. Turning AI off cancels it.
   const extractionRun = useExtraction({ ai: aiEnabled ? aiApi : null, project });
+  const conflictCheck = useConflictCheck({ ai: aiEnabled ? aiApi : null, project });
 
   const [activeId, setActiveId] = useState<string | null>(null);
   const [folderView, setFolderView] = useState<FolderView>('corkboard');
@@ -107,6 +112,8 @@ export function Workspace({ project, ai, aiApi }: WorkspaceProps) {
   const [orderingSources, setOrderingSources] = useState(false);
   /** The extraction dialog, with the sources it opened with. */
   const [extracting, setExtracting] = useState<{ ids: string[] } | null>(null);
+  /** The semantic conflict check dialog and its scope (one card, or one kind on the card wall). */
+  const [checkingConflicts, setCheckingConflicts] = useState<{ entityIds: string[]; label: string } | null>(null);
   /** A fact's passage to show once its source opens; cleared by any other navigation. */
   const [highlight, setHighlight] = useState<{ itemId: string; messageId?: string; start: number; end: number } | null>(null);
   const [chosenMode, setMode] = useState<WorkspaceMode>('research');
@@ -157,6 +164,14 @@ export function Workspace({ project, ai, aiApi }: WorkspaceProps) {
     [aiEnabled, items, state.bible, state.extraction],
   );
   const sourceOrderIds = useMemo(() => orderedSources(state.bible, items).map(i => i.id), [state.bible, items]);
+  const wallFlagCounts = useMemo(
+    () => (aiEnabled ? flagCounts(state.bible, state.extraction) : undefined),
+    [aiEnabled, state.bible, state.extraction],
+  );
+  const checkConflicts = (entityIds: string[], label: string) => {
+    conflictCheck.reset();
+    setCheckingConflicts({ entityIds, label });
+  };
 
   const openContradictionCount = useMemo(() => {
     const ids = new Set(items.filter(i => i.type === 'entity').map(i => i.id));
@@ -551,6 +566,7 @@ export function Workspace({ project, ai, aiApi }: WorkspaceProps) {
                 aiEnabled={aiEnabled}
                 extraction={state.extraction}
                 updateCanon={updateCanon}
+                onCheckConflicts={() => checkConflicts([card.id], card.title || 'Untitled')}
               />
             ) : (
               <CardWall
@@ -561,6 +577,9 @@ export function Workspace({ project, ai, aiApi }: WorkspaceProps) {
                 onTab={setCardTab}
                 onOpenCard={openCard}
                 onNewEntity={newEntityOfKind}
+                aiEnabled={aiEnabled}
+                flagCounts={wallFlagCounts}
+                onCheckConflicts={checkConflicts}
               />
             )
           ) : mode === 'conflicts' ? (
@@ -662,6 +681,25 @@ export function Workspace({ project, ai, aiApi }: WorkspaceProps) {
           onSetOwnWriting={(id, value) => updateItem(id, { ownWriting: value })}
           onReview={() => { setExtracting(null); setMode('review'); }}
           onClose={() => setExtracting(null)}
+        />
+      )}
+      {checkingConflicts && aiEnabled && (
+        <ConflictCheckModal
+          scopeLabel={checkingConflicts.label}
+          estimate={estimateCheck(items, state.bible, checkingConflicts.entityIds)}
+          defaultProvider={ai.status?.defaultProvider ?? null}
+          defaultModel={ai.status?.defaultModel ?? null}
+          configuredProviders={configuredProviders}
+          models={models}
+          loadModels={loadModels}
+          check={conflictCheck}
+          flags={liveFlags(state.bible, state.extraction).filter(f => f.facts.some(x => checkingConflicts.entityIds.includes(x.entityId)))}
+          items={items}
+          onStart={(provider, model) => conflictCheck.start(checkingConflicts.entityIds, provider, model)}
+          onDismiss={(flag) => updateCanon(c => ({ ...c, extraction: dismissFlag(c.extraction, flag, c.bible, new Date().toISOString()) }))}
+          onSetAside={(id) => updateBible(b => setFactStatus(b, id, 'set_aside', new Date().toISOString()))}
+          onOpenCard={(id) => { setCheckingConflicts(null); openCard(id); }}
+          onClose={() => { conflictCheck.cancel(); setCheckingConflicts(null); }}
         />
       )}
       {orderingSources && (

@@ -3,6 +3,7 @@ import { isValidItemId } from '../projectSchema.js';
 import { logger } from '../logger.main.js';
 import { LlmError, scrub } from './http.js';
 import { EXTRACTION_SCHEMA, parseExtraction } from './extractionSchema.js';
+import { CONFLICT_SCHEMA, parseConflicts } from './conflictSchema.js';
 
 /** @typedef {import('../appSettings.js').ProviderId} ProviderId */
 /** @typedef {{ configured: boolean, lastTestOk: string | null }} ProviderStatus */
@@ -34,11 +35,22 @@ import { EXTRACTION_SCHEMA, parseExtraction } from './extractionSchema.js';
  */
 
 /**
+ * A structured-output request (llm:extract, llm:conflict-check).
  * @typedef {object} ExtractRequest
  * @property {ProviderId} provider
  * @property {string} model
  * @property {string} system
- * @property {string} text  The source text and canon, built by the renderer.
+ * @property {string} text  Built by the renderer: the source and canon, or the facts to check.
+ */
+/**
+ * What differs between the structured-output calls.
+ * @typedef {object} StructuredKind
+ * @property {string} noun  "extraction", "conflict check": used in error messages.
+ * @property {string} tooLong
+ * @property {object} schema
+ * @property {number} maxOutputTokens
+ * @property {(reply: string) => object} parse
+ * @property {string} truncated  Said when a reply cut short isn't valid JSON.
  */
 /** @typedef {{ controller: AbortController, finished: boolean, onAbort?: () => void }} ActiveEntry */
 
@@ -46,6 +58,8 @@ import { EXTRACTION_SCHEMA, parseExtraction } from './extractionSchema.js';
 export const MAX_REQUEST_CHARS = 4_000_000;
 /** Output budget for an extraction reply (Anthropic needs it stated; every model with structured outputs allows it). */
 export const EXTRACT_MAX_OUTPUT_TOKENS = 32_000;
+/** Output budget for a conflict check reply: a list of short flags. */
+export const CONFLICT_MAX_OUTPUT_TOKENS = 8_000;
 /** How long a key test / model-list call may take. */
 const LIST_TIMEOUT_MS = 30_000;
 
@@ -100,18 +114,39 @@ function sanitizeRequest(raw) {
     return request;
 }
 
+/** @type {Record<'extract' | 'conflicts', StructuredKind>} */
+const KINDS = {
+    extract: {
+        noun: 'extraction',
+        tooLong: 'This source is too long to send in one request.',
+        schema: EXTRACTION_SCHEMA,
+        maxOutputTokens: EXTRACT_MAX_OUTPUT_TOKENS,
+        parse: parseExtraction,
+        truncated: "The AI's reply was cut short before it finished. Try a smaller source.",
+    },
+    conflicts: {
+        noun: 'conflict check',
+        tooLong: 'There are too many facts to check in one request.',
+        schema: CONFLICT_SCHEMA,
+        maxOutputTokens: CONFLICT_MAX_OUTPUT_TOKENS,
+        parse: parseConflicts,
+        truncated: "The AI's reply was cut short before it finished. Try checking fewer facts.",
+    },
+};
+
 /**
- * Validates a renderer-supplied extraction request.
+ * Validates a renderer-supplied structured-output request.
  * @param {unknown} raw
+ * @param {StructuredKind} kind
  * @returns {ExtractRequest}
  */
-function sanitizeExtractRequest(raw) {
-    if (!isObject(raw)) invalid('The extraction request is malformed.');
+function sanitizeStructuredRequest(raw, kind) {
+    if (!isObject(raw)) invalid(`The ${kind.noun} request is malformed.`);
     const r = /** @type {Record<string, unknown>} */ (raw);
     const provider = checkProvider(r.provider);
-    if (typeof r.model !== 'string' || !r.model) invalid('The extraction request has no model.');
-    if (typeof r.system !== 'string' || typeof r.text !== 'string' || !r.text) invalid('The extraction request is malformed.');
-    if (r.model.length + r.system.length + r.text.length > MAX_REQUEST_CHARS) invalid('This source is too long to send in one request.');
+    if (typeof r.model !== 'string' || !r.model) invalid(`The ${kind.noun} request has no model.`);
+    if (typeof r.system !== 'string' || typeof r.text !== 'string' || !r.text) invalid(`The ${kind.noun} request is malformed.`);
+    if (r.model.length + r.system.length + r.text.length > MAX_REQUEST_CHARS) invalid(kind.tooLong);
     return { provider, model: r.model, system: r.system, text: r.text };
 }
 
@@ -251,13 +286,14 @@ export function createLlmService({ settings, keys, adapters, emit, now = () => n
     }
 
     /**
-     * Streams an extraction request and collects the reply text. Rejects CANCELLED as soon as the
-     * entry is aborted, whether or not the adapter notices.
+     * Streams a structured-output request, then collects and parses the reply text. Rejects CANCELLED
+     * as soon as the entry is aborted, whether or not the adapter notices.
      * @param {ExtractRequest} request
      * @param {string} key
      * @param {ActiveEntry} entry
+     * @param {StructuredKind} kind
      */
-    function collectReply(request, key, entry) {
+    function collectReply(request, key, entry, kind) {
         const cancelled = new Promise((_resolve, reject) => {
             entry.onAbort = () => reject(new LlmError('CANCELLED', 'Cancelled'));
         });
@@ -271,7 +307,7 @@ export function createLlmService({ settings, keys, adapters, emit, now = () => n
                 provider: request.provider, model: request.model, system: request.system,
                 messages: [{ role: 'user', text: request.text }],
                 webSearch: false, readUrls: false,
-                jsonSchema: EXTRACTION_SCHEMA, maxOutputTokens: EXTRACT_MAX_OUTPUT_TOKENS,
+                jsonSchema: kind.schema, maxOutputTokens: kind.maxOutputTokens,
             }, key, entry.controller.signal, (event) => {
                 if (!event || failed) return;
                 if (event.type === 'text') text += event.delta;
@@ -282,10 +318,10 @@ export function createLlmService({ settings, keys, adapters, emit, now = () => n
             if (!done) throw new LlmError('PROVIDER', 'The reply ended unexpectedly.');
             let parsed;
             try {
-                parsed = parseExtraction(text);
+                parsed = kind.parse(text);
             } catch (err) {
                 // A reply cut off mid-JSON: say why rather than "not valid JSON".
-                if (done.truncated) throw new LlmError('PROVIDER', "The AI's reply was cut short before it finished. Try a smaller source.");
+                if (done.truncated) throw new LlmError('PROVIDER', kind.truncated);
                 throw err;
             }
             return { ...parsed, model: done.model, ...(done.usage && { usage: done.usage }) };
@@ -294,6 +330,40 @@ export function createLlmService({ settings, keys, adapters, emit, now = () => n
         streamed.catch(() => {});
         cancelled.catch(() => {});
         return Promise.race([streamed, cancelled]);
+    }
+
+    /**
+     * The shared body of extract and conflictCheck.
+     * @param {unknown} requestId
+     * @param {unknown} rawRequest
+     * @param {StructuredKind} kind
+     */
+    async function runStructured(requestId, rawRequest, kind) {
+        const epoch = abortEpoch;
+        await requireEnabled();
+        if (!isValidItemId(requestId)) invalid(`The ${kind.noun} request id is invalid.`);
+        const id = /** @type {string} */ (requestId);
+        const request = sanitizeStructuredRequest(rawRequest, kind);
+        const key = await keys.get(request.provider);
+        if (!key) invalid(`${request.provider} is not set up. Add its API key in Settings → AI.`);
+        if (active.has(id)) invalid(`That ${kind.noun} is already running.`);
+        // AI was turned off (or the project/window closed) while this was starting: never send it.
+        if (abortEpoch !== epoch) throw new LlmError('CANCELLED', 'Cancelled');
+        /** @type {ActiveEntry} */
+        const entry = { controller: new globalThis.AbortController(), finished: false };
+        active.set(id, entry);
+        try {
+            return await collectReply(request, /** @type {string} */ (key), entry, kind);
+        } catch (err) {
+            if (entry.finished) throw new LlmError('CANCELLED', 'Cancelled');
+            const e = /** @type {any} */ (err);
+            if (err instanceof LlmError) throw new LlmError(e.code, scrub(e.message, [/** @type {string} */ (key)]));
+            logger.warn(`The ${kind.noun} failed unexpectedly`, scrub(String(e?.message ?? e), [/** @type {string} */ (key)]));
+            throw new LlmError('PROVIDER', 'The provider reported an error.');
+        } finally {
+            entry.finished = true;
+            if (active.get(id) === entry) active.delete(id);
+        }
     }
 
     return {
@@ -442,36 +512,28 @@ export function createLlmService({ settings, keys, adapters, emit, now = () => n
          * @param {unknown} requestId
          * @param {unknown} rawRequest
          */
-        async extract(requestId, rawRequest) {
-            const epoch = abortEpoch;
-            await requireEnabled();
-            if (!isValidItemId(requestId)) invalid('The extraction request id is invalid.');
-            const id = /** @type {string} */ (requestId);
-            const request = sanitizeExtractRequest(rawRequest);
-            const key = await keys.get(request.provider);
-            if (!key) invalid(`${request.provider} is not set up. Add its API key in Settings → AI.`);
-            if (active.has(id)) invalid('That extraction is already running.');
-            // AI was turned off (or the project/window closed) while this was starting: never send it.
-            if (abortEpoch !== epoch) throw new LlmError('CANCELLED', 'Cancelled');
-            /** @type {ActiveEntry} */
-            const entry = { controller: new globalThis.AbortController(), finished: false };
-            active.set(id, entry);
-            try {
-                return await collectReply(request, /** @type {string} */ (key), entry);
-            } catch (err) {
-                if (entry.finished) throw new LlmError('CANCELLED', 'Cancelled');
-                const e = /** @type {any} */ (err);
-                if (err instanceof LlmError) throw new LlmError(e.code, scrub(e.message, [/** @type {string} */ (key)]));
-                logger.warn('Extraction failed unexpectedly', scrub(String(e?.message ?? e), [/** @type {string} */ (key)]));
-                throw new LlmError('PROVIDER', 'The provider reported an error.');
-            } finally {
-                entry.finished = true;
-                if (active.get(id) === entry) active.delete(id);
-            }
+        extract(requestId, rawRequest) {
+            return runStructured(requestId, rawRequest, KINDS.extract);
         },
 
         /** @param {unknown} requestId */
         async cancelExtract(requestId) {
+            await requireEnabled();
+            if (typeof requestId === 'string') abortOne(requestId);
+        },
+
+        /**
+         * Sends one semantic conflict check and resolves with the validated flags
+         * ({ conflicts: { a, b, reason }[], dropped, model, usage? }). Cancelled by cancelConflictCheck or abortAll.
+         * @param {unknown} requestId
+         * @param {unknown} rawRequest
+         */
+        conflictCheck(requestId, rawRequest) {
+            return runStructured(requestId, rawRequest, KINDS.conflicts);
+        },
+
+        /** @param {unknown} requestId */
+        async cancelConflictCheck(requestId) {
             await requireEnabled();
             if (typeof requestId === 'string') abortOne(requestId);
         },

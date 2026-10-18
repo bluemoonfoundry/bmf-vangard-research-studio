@@ -230,6 +230,12 @@ the Extract button, the Review mode, "This is my own writing" and the card's Rej
   (bump it when the prompt changes). Re-running an unchanged source makes no request.
 - **Keep the newer** (`src/bible/newer.ts`, non-AI) suggests the version whose latest evidence is furthest down the
   source order; never automatic.
+- **Semantic conflict check** (`llm:conflict-check` / `llm:conflict-check-cancel`, same rules as `llm:extract`; schema in
+  `electron/lib/llm/conflictSchema.js`): "Check for conflicts" on a full card (that entity) or the card wall (the shown kind),
+  AI only. `src/extraction/conflictCheck.ts` sends up to `MAX_CHECK_FACTS` live facts as refs (`F1`...) and maps the reply back;
+  same-entity same-attribute pairs are left to exact contradictions. Flags (`extraction.json` `flags`, optional) are advisory and
+  never change a fact; one shows only while both facts are live and unchanged (`pairFingerprint`). Dismissing is sticky
+  (`dismissedFlags`, by value fingerprint). A re-check replaces earlier flags among the facts it sent. `useConflictCheck` in Workspace.
 
 ## Security Rules (non-negotiable)
 

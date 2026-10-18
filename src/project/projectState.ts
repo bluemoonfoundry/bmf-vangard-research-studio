@@ -277,7 +277,7 @@ export function projectReducer(state: ProjectState | null, action: ProjectAction
       }
       let { extraction } = state;
       if (payload.extraction) {
-        const pruned = pruneExtraction(state.extraction, state.tree.items);
+        const pruned = pruneExtraction(state.extraction, state.tree.items, pruneOrphans(state.bible, state.tree.items));
         if (pruned === payload.extraction || JSON.stringify(pruned) === JSON.stringify(payload.extraction)) extraction = payload.extraction;
       }
       return {
@@ -406,7 +406,7 @@ export function buildSavePayload(state: ProjectState): SavePayload {
   // Facts about missing entities are tolerated on load and dropped here.
   const bible = pruneOrphans(state.bible, state.tree.items);
   if (state.bible !== state.savedBible || bible !== state.bible) payload.bible = bible;
-  const extraction = pruneExtraction(state.extraction, state.tree.items);
+  const extraction = pruneExtraction(state.extraction, state.tree.items, bible);
   if (state.extraction !== state.savedExtraction || extraction !== state.extraction) payload.extraction = extraction;
 
   const docs: Record<string, string | null> = {};

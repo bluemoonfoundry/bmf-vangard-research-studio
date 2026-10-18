@@ -54,12 +54,37 @@ export interface CachedRun {
   [extra: string]: unknown;
 }
 
+/**
+ * A semantic conflict check's flag: two live facts the AI says can't both be true. Advisory: it never
+ * changes a fact. `fingerprint` (pairFingerprint) is of the facts as flagged, so editing either hides it.
+ */
+export interface ConflictFlag {
+  id: string;
+  factIds: [string, string];
+  reason: string;
+  fingerprint: string;
+  at: string;
+  [extra: string]: unknown;
+}
+
+/** A flag the writer dismissed; the same pair of values is never flagged again. */
+export interface DismissedFlag {
+  fingerprint: string;
+  /** "age: 24 / born: 40 years before the story". */
+  label: string;
+  at: string;
+  [extra: string]: unknown;
+}
+
 export interface ExtractionState {
   rejections: StoredRejection[];
   /** One per source item: the latest run. */
   runs: CachedRun[];
   cards: PendingCard[];
   pending: PendingProposal[];
+  /** Semantic conflict check flags (absent until the first check). */
+  flags?: ConflictFlag[];
+  dismissedFlags?: DismissedFlag[];
   [extra: string]: unknown;
 }
 

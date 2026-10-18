@@ -216,6 +216,8 @@ function registerIpcHandlers() {
     handle('llm:cancel-all', () => llm.cancelAll());
     handle('llm:extract', (requestId, request) => llm.extract(requestId, request));
     handle('llm:extract-cancel', (requestId) => llm.cancelExtract(requestId));
+    handle('llm:conflict-check', (requestId, request) => llm.conflictCheck(requestId, request));
+    handle('llm:conflict-check-cancel', (requestId) => llm.cancelConflictCheck(requestId));
 }
 
 function createLlm(userData) {

@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { AlertTriangle, Plus } from 'lucide-react';
+import { AlertTriangle, Plus, ScanSearch } from 'lucide-react';
 import type { Bible, TreeItem } from '@/project/types';
 import type { AssetCache } from '@/workspace/assetCache';
 import { findContradictions, openContradictions } from '@/bible/contradictions';
@@ -7,7 +7,7 @@ import { ENTITY_KINDS } from '@/bible/entities';
 import { cardLines, cardStats, portraitOf, wallTabs, type CardStats, type WallTabId } from '@/bible/cards';
 import { valueText } from '@/components/bible/FactRow';
 import { Portrait } from '@/components/bible/Portrait';
-import { btnPrimary, segment, segmentGroup } from '@/components/workspace/ui';
+import { btn, btnPrimary, segment, segmentGroup } from '@/components/workspace/ui';
 
 export interface CardWallProps {
   items: TreeItem[];
@@ -18,18 +18,26 @@ export interface CardWallProps {
   onOpenCard(id: string): void;
   /** Creates an entity of a known kind and opens its card. */
   onNewEntity(kind: Exclude<WallTabId, 'other'>): void;
+  /** AI on: offers a semantic conflict check of the shown kind, and badges flagged cards. */
+  aiEnabled?: boolean;
+  /** Live conflict check flags per entity id. */
+  flagCounts?: ReadonlyMap<string, number>;
+  onCheckConflicts?(entityIds: string[], label: string): void;
 }
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
-/** The open-conflict and to-review badges shared by cards and the full card view. */
-export function CardBadges({ stats }: { stats: CardStats }) {
+/** The open-conflict, flagged and to-review badges shared by cards and the full card view. */
+export function CardBadges({ stats, flagged = 0 }: { stats: CardStats; flagged?: number }) {
   return (
     <span className="flex flex-wrap gap-1 text-[11px]">
       {stats.openConflicts > 0 && (
         <span className="inline-flex items-center gap-1 rounded-full border border-warning px-1.5">
           <AlertTriangle className="h-3 w-3" aria-hidden />{plural(stats.openConflicts, 'conflict')}
         </span>
+      )}
+      {flagged > 0 && (
+        <span className="rounded-full border border-dashed border-warning px-1.5" title="Possible conflicts found by the AI check">{flagged} flagged</span>
       )}
       {stats.proposed > 0
         ? <span className="rounded-full border border-accent px-1.5 text-accent">{stats.proposed} to review</span>
@@ -39,7 +47,7 @@ export function CardBadges({ stats }: { stats: CardStats }) {
 }
 
 /** Entities of one kind as a wall of cards showing their kept facts at a glance. */
-export function CardWall({ items, bible, assets, tab, onTab, onOpenCard, onNewEntity }: CardWallProps) {
+export function CardWall({ items, bible, assets, tab, onTab, onOpenCard, onNewEntity, aiEnabled = false, flagCounts, onCheckConflicts }: CardWallProps) {
   const tabs = useMemo(() => wallTabs(items), [items]);
   const byId = useMemo(() => new Map(items.map(i => [i.id, i])), [items]);
   const open = useMemo(() => {
@@ -59,11 +67,23 @@ export function CardWall({ items, bible, assets, tab, onTab, onOpenCard, onNewEn
             </button>
           ))}
         </div>
-        {current.id !== 'other' && kindName && (
-          <button type="button" className={btnPrimary} onClick={() => onNewEntity(current.id as Exclude<WallTabId, 'other'>)}>
-            <Plus className="h-3.5 w-3.5" /> New {kindName.toLowerCase()}
-          </button>
-        )}
+        <span className="flex gap-2">
+          {aiEnabled && onCheckConflicts && current.entities.length > 0 && (
+            <button
+              type="button"
+              className={btn}
+              title={`Ask the AI for ${current.name.toLowerCase()} facts that can't all be true`}
+              onClick={() => onCheckConflicts(current.entities.map(e => e.id), current.name)}
+            >
+              <ScanSearch className="h-3.5 w-3.5" /> Check for conflicts
+            </button>
+          )}
+          {current.id !== 'other' && kindName && (
+            <button type="button" className={btnPrimary} onClick={() => onNewEntity(current.id as Exclude<WallTabId, 'other'>)}>
+              <Plus className="h-3.5 w-3.5" /> New {kindName.toLowerCase()}
+            </button>
+          )}
+        </span>
       </div>
 
       <div className="flex-1 overflow-y-auto p-6">
@@ -99,7 +119,7 @@ export function CardWall({ items, bible, assets, tab, onTab, onOpenCard, onNewEn
                         ))}
                       </dl>
                     )}
-                    <CardBadges stats={stats} />
+                    <CardBadges stats={stats} flagged={aiEnabled ? flagCounts?.get(e.id) : 0} />
                   </button>
                 </li>
               );

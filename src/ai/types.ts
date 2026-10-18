@@ -108,6 +108,18 @@ export interface ExtractRequest {
   text: string;
 }
 
+/** One flag of a semantic conflict check: two fact refs ("F1") from the request and why they clash. */
+export interface RawConflict { a: string; b: string; reason: string }
+
+/** What llm:conflict-check resolves with (electron/lib/llm/conflictSchema.js). */
+export interface ConflictCheckResult {
+  conflicts: RawConflict[];
+  /** Malformed flags the main process dropped. */
+  dropped: number;
+  model: string;
+  usage?: { inputTokens?: number; outputTokens?: number };
+}
+
 export interface ExtractResult {
   proposals: RawProposal[];
   /** What was established so far, carried into the next chunk's request. */

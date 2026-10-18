@@ -45,7 +45,16 @@ export interface FakeProvider {
  * Gemini sends JSON output as text deltas. Pass it to setReply.
  */
 export function extractionReply(result: { proposals: unknown[]; summary?: string }, chunkSize = 40): string[] {
-  const text = JSON.stringify({ summary: '', ...result });
+  return jsonChunks({ summary: '', ...result }, chunkSize);
+}
+
+/** A semantic conflict check reply (the JSON llm:conflict-check asks for); facts are named by their refs ("F1"). */
+export function conflictReply(conflicts: { a: string; b: string; reason: string }[], chunkSize = 40): string[] {
+  return jsonChunks({ conflicts }, chunkSize);
+}
+
+function jsonChunks(value: unknown, chunkSize: number): string[] {
+  const text = JSON.stringify(value);
   const chunks: string[] = [];
   for (let i = 0; i < text.length; i += chunkSize) chunks.push(text.slice(i, i + chunkSize));
   return chunks;

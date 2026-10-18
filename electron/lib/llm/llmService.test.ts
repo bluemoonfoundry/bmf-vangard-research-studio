@@ -461,3 +461,72 @@ describe('llmService extract', () => {
         await first.catch(() => {});
     });
 });
+
+describe('llmService conflictCheck', () => {
+    const checkRequest = (overrides: Record<string, unknown> = {}) => ({
+        provider: 'gemini', model: 'gemini-model', system: 'Find conflicts.', text: 'F1 Mara · age: 24\nF2 Mara · born: 40 years before the story', ...overrides,
+    });
+    const REPLY = JSON.stringify({ conflicts: [{ a: 'F1', b: 'F2', reason: 'Ages disagree.' }, { a: 'F1', b: 'F1', reason: 'x' }] });
+    const replyWith = (text: string): StreamImpl => async (_req, _key, _signal, onEvent) => {
+        onEvent({ type: 'text', delta: text });
+        onEvent({ type: 'done', model: 'gemini-model-001', usage: { inputTokens: 5, outputTokens: 7 } });
+    };
+
+    it('is refused while AI is disabled', async () => {
+        const { service } = setup();
+        expect(await codeOf(service.conflictCheck('c1', checkRequest()))).toBe('AI_DISABLED');
+        expect(await codeOf(service.cancelConflictCheck('c1'))).toBe('AI_DISABLED');
+    });
+
+    it('rejects malformed requests', async () => {
+        const { service } = await enabled();
+        expect(await codeOf(service.conflictCheck('../c', checkRequest()))).toBe('INVALID');
+        expect(await codeOf(service.conflictCheck('c1', checkRequest({ provider: 'nope' })))).toBe('INVALID');
+        expect(await codeOf(service.conflictCheck('c1', checkRequest({ text: '' })))).toBe('INVALID');
+        expect(await codeOf(service.conflictCheck('c1', checkRequest({ text: 'x'.repeat(MAX_REQUEST_CHARS) })))).toBe('INVALID');
+    });
+
+    it('sends the conflict schema and returns the validated flags', async () => {
+        const { service, adapters } = await enabled();
+        adapters.gemini.stream.mockImplementation(replyWith(REPLY));
+        const result = await service.conflictCheck('c1', checkRequest());
+        const sent = adapters.gemini.stream.mock.calls[0][0] as Record<string, unknown>;
+        expect(sent).toMatchObject({ system: 'Find conflicts.', webSearch: false, readUrls: false, messages: [{ role: 'user' }] });
+        expect(Object.keys((sent.jsonSchema as { properties: object }).properties)).toEqual(['conflicts']);
+        expect(result).toEqual({
+            conflicts: [{ a: 'F1', b: 'F2', reason: 'Ages disagree.' }], dropped: 1, model: 'gemini-model-001', usage: { inputTokens: 5, outputTokens: 7 },
+        });
+    });
+
+    it('rejects with PROVIDER when the reply is not JSON', async () => {
+        const { service, adapters } = await enabled();
+        adapters.gemini.stream.mockImplementation(replyWith('No conflicts!'));
+        expect(await codeOf(service.conflictCheck('c1', checkRequest()))).toBe('PROVIDER');
+    });
+
+    it('is cancelled by cancelConflictCheck and by abortAll', async () => {
+        const { service, adapters } = await enabled();
+        adapters.gemini.stream.mockImplementation(waitForAbort);
+        const first = service.conflictCheck('c1', checkRequest());
+        await vi.waitFor(() => expect(adapters.gemini.stream).toHaveBeenCalledTimes(1));
+        await service.cancelConflictCheck('c1');
+        expect(await codeOf(first)).toBe('CANCELLED');
+        const second = service.conflictCheck('c2', checkRequest());
+        await vi.waitFor(() => expect(adapters.gemini.stream).toHaveBeenCalledTimes(2));
+        service.abortAll();
+        expect(await codeOf(second)).toBe('CANCELLED');
+    });
+
+    it('a check still starting when abortAll runs never reaches the provider', async () => {
+        const { service, adapters, settings } = await enabled();
+        let release!: () => void;
+        const gate = new Promise<void>(r => { release = r; });
+        const read = settings.read;
+        settings.read = async () => { await gate; return read(); };
+        const pending = service.conflictCheck('c1', checkRequest());
+        service.abortAll();
+        release();
+        expect(await codeOf(pending)).toBe('CANCELLED');
+        expect(adapters.gemini.stream).not.toHaveBeenCalled();
+    });
+});

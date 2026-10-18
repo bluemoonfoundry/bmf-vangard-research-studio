@@ -3,7 +3,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import type { Bible, Fact, TreeItem } from '@/project/types';
 import { EntityCard, type EntityCardProps } from '@/components/bible/EntityCard';
-import { emptyExtraction } from '@/extraction/types';
+import { emptyExtraction, type ExtractionState } from '@/extraction/types';
+import { pairFingerprint } from '@/extraction/conflictCheck';
 
 const base = (id: string, title: string, extra: Partial<TreeItem> = {}): TreeItem =>
   ({ id, parentId: null, type: 'document', title, order: 0, keywords: [], ...extra });
@@ -30,9 +31,9 @@ const initialBible: Bible = {
   dependencies: [], decisions: [],
 };
 
-function Harness({ startBible = initialBible, ...over }: Partial<EntityCardProps> & { startBible?: Bible }) {
+function Harness({ startBible = initialBible, startExtraction = emptyExtraction(), ...over }: Partial<EntityCardProps> & { startBible?: Bible; startExtraction?: ExtractionState }) {
   const [bible, setBible] = useState(startBible);
-  const [extraction, setExtraction] = useState(emptyExtraction());
+  const [extraction, setExtraction] = useState(startExtraction);
   const [items, setItems] = useState(initialItems);
   const [body, setBody] = useState('Grew up in the keep.');
   const entity = items.find(i => i.id === 'e1')!;
@@ -160,6 +161,30 @@ describe('EntityCard: extraction', () => {
     fireEvent.click(within(rejected).getByRole('button', { name: 'Lift rejection of Hair: red' }));
     expect(within(region('Needs a decision')).getByText('red')).toBeInTheDocument();
     expect(screen.queryByRole('region', { name: 'Rejected' })).toBeNull();
+  });
+
+  it('with AI on, shows its conflict flags and offers a check; dismissing removes a flag', () => {
+    const age = fact({ id: 'fa', attribute: 'Age', value: '24' });
+    const born = fact({ id: 'fb', attribute: 'Born', value: '40 years before the story' });
+    const startBible: Bible = { ...initialBible, facts: [age, born] };
+    const startExtraction = { ...emptyExtraction(), flags: [{ id: 'g1', factIds: ['fa', 'fb'] as [string, string], reason: 'Ages disagree.', fingerprint: pairFingerprint(age, born), at: 'T' }] };
+    const onCheckConflicts = vi.fn();
+    render(<Harness startBible={startBible} startExtraction={startExtraction} aiEnabled onCheckConflicts={onCheckConflicts} />);
+    const needs = region('Needs a decision');
+    expect(within(needs).getByText('Ages disagree.')).toBeInTheDocument();
+    fireEvent.click(within(needs).getByRole('button', { name: 'Check for conflicts' }));
+    expect(onCheckConflicts).toHaveBeenCalled();
+    fireEvent.click(within(needs).getByRole('button', { name: 'Dismiss' }));
+    expect(within(needs).queryByText('Ages disagree.')).toBeNull();
+  });
+
+  it('hides conflict flags and the check while AI is off', () => {
+    const age = fact({ id: 'fa', attribute: 'Age', value: '24' });
+    const born = fact({ id: 'fb', attribute: 'Born', value: '40 years before the story' });
+    const startExtraction = { ...emptyExtraction(), flags: [{ id: 'g1', factIds: ['fa', 'fb'] as [string, string], reason: 'Ages disagree.', fingerprint: pairFingerprint(age, born), at: 'T' }] };
+    render(<Harness startBible={{ ...initialBible, facts: [age, born] }} startExtraction={startExtraction} onCheckConflicts={vi.fn()} />);
+    expect(screen.queryByText('Ages disagree.')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Check for conflicts' })).toBeNull();
   });
 
   it('hides the Rejected list while AI is off', () => {
