@@ -346,6 +346,20 @@ describe('normalizeExtraction', () => {
         expect(() => normalizeExtraction({ runs: [{ itemId: 'a', key: 'k' }] })).toThrow(corrupt);
         expect(() => normalizeExtraction({ rejections: [{ label: 'x' }] })).toThrow(corrupt);
     });
+
+    it('validates conflict flags and dismissals only when present', () => {
+        const flag = { id: 'g1', factIds: ['f1', 'f2'], reason: 'Ages disagree.', fingerprint: 'fp', at: 'T' };
+        const dismissed = { fingerprint: 'fp2', label: 'age: 24 / born: 40', at: 'T' };
+        expect(normalizeExtraction({ flags: [flag], dismissedFlags: [dismissed] })).toEqual({
+            ...createEmptyExtraction(), flags: [flag], dismissedFlags: [dismissed],
+        });
+        expect(normalizeExtraction({})).not.toHaveProperty('flags');
+        expect(() => normalizeExtraction({ flags: {} })).toThrow(corrupt);
+        expect(() => normalizeExtraction({ flags: [{ ...flag, factIds: ['f1'] }] })).toThrow(corrupt);
+        expect(() => normalizeExtraction({ flags: [{ ...flag, factIds: ['f1', '../x'] }] })).toThrow(corrupt);
+        expect(() => normalizeExtraction({ flags: [{ ...flag, reason: 1 }] })).toThrow(corrupt);
+        expect(() => normalizeExtraction({ dismissedFlags: [{ label: 'x' }] })).toThrow(corrupt);
+    });
 });
 
 describe('fact evidence', () => {

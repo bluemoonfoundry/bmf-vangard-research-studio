@@ -1,20 +1,16 @@
-import { useEffect, useMemo, useState } from 'react';
-import { PROVIDERS, type ModelInfo, type ProviderId } from '@/ai/types';
+import { useMemo, useState } from 'react';
+import type { ModelInfo, ProviderId } from '@/ai/types';
 import type { TreeItem } from '@/project/types';
 import type { ApplySummary } from '@/extraction/apply';
 import type { ExtractionRun, RunSourceStatus } from '@/extraction/useExtraction';
 import { Modal } from '@/components/workspace/Modal';
-import { btn, btnPrimary, fieldLabel, input } from '@/components/workspace/ui';
+import { ModelPicker, useModelChoice, type ModelSource } from '@/components/extraction/ModelPicker';
+import { btn, btnPrimary, fieldLabel } from '@/components/workspace/ui';
 
-export interface ExtractModalProps {
+export interface ExtractModalProps extends ModelSource {
   /** Chats, AI chats and documents, oldest first. */
   sources: TreeItem[];
   initialIds: string[];
-  defaultProvider: ProviderId | null;
-  defaultModel: string | null;
-  configuredProviders: ProviderId[];
-  models(provider: ProviderId): ModelInfo[] | undefined;
-  loadModels(provider: ProviderId): Promise<ModelInfo[]>;
   /** False for a source with no turn structure. */
   hasTurns(id: string): boolean;
   estimate(ids: string[], provider: ProviderId, model: ModelInfo): { tokens: number; cached: number; empty: number };
@@ -55,19 +51,10 @@ function statusText(s: RunSourceStatus): string {
  * it only while AI is on. The run itself lives in Workspace, so closing this doesn't stop it.
  */
 export function ExtractModal(props: ExtractModalProps) {
-  const { sources, configuredProviders, models, loadModels, run } = props;
+  const { sources, configuredProviders, run } = props;
   const [chosen, setChosen] = useState<string[]>(props.initialIds);
-  const [provider, setProvider] = useState<ProviderId | null>(
-    props.defaultProvider && configuredProviders.includes(props.defaultProvider) ? props.defaultProvider : configuredProviders[0] ?? null,
-  );
-  const listed = provider ? models(provider) : undefined;
-  const [modelId, setModelId] = useState<string | null>(props.defaultModel);
-
-  useEffect(() => {
-    if (provider && !listed) void loadModels(provider).catch(() => {});
-  }, [provider, listed, loadModels]);
-
-  const model = listed?.find(m => m.id === modelId) ?? listed?.[0];
+  const choice = useModelChoice(props);
+  const { provider, model } = choice;
   const ids = sources.map(s => s.id).filter(id => chosen.includes(id));
   const estimate = useMemo(
     () => (provider && model && ids.length ? props.estimate(ids, provider, model) : null),
@@ -167,21 +154,7 @@ export function ExtractModal(props: ExtractModalProps) {
             </ul>
           </fieldset>
 
-          <div className="flex flex-wrap gap-3">
-            <label className="flex flex-col gap-1">
-              <span className={fieldLabel}>Provider</span>
-              <select aria-label="Provider" className={input} value={provider ?? ''} onChange={(e) => { setProvider(e.target.value as ProviderId); setModelId(null); }}>
-                {configuredProviders.map(p => <option key={p} value={p}>{PROVIDERS.find(x => x.id === p)?.name ?? p}</option>)}
-              </select>
-            </label>
-            <label className="flex min-w-0 flex-1 flex-col gap-1">
-              <span className={fieldLabel}>Model</span>
-              <select aria-label="Model" className={input} value={model?.id ?? ''} onChange={(e) => setModelId(e.target.value)} disabled={!listed?.length}>
-                {!listed && <option value="">Loading models…</option>}
-                {listed?.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-              </select>
-            </label>
-          </div>
+          <ModelPicker choice={choice} configuredProviders={configuredProviders} />
 
           {estimate && model && (
             <p className="text-content-muted">

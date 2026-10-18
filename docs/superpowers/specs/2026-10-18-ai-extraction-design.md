@@ -325,6 +325,21 @@ is enough.
   dismiss a flag (sticky, stored in `extraction.json`) or act on it with the normal fact controls.
   Flags are advisory and never change fact status.
 
+### Part 4 implementation decisions
+
+- `llm:conflict-check` shares `llm:extract`'s path in `llmService.js` (`runStructured`): structured output with its own schema
+  (`{ conflicts: [{ a, b, reason }] }`), 8,000 output tokens, cancel channel `llm:conflict-check-cancel`.
+- Facts are sent as short refs (`F1`, grouped by entity, with status) so the reply can't invent ids; the renderer maps them back
+  and drops unknown refs, self-pairs, repeats and same-entity same-attribute pairs (exact contradictions already cover those).
+- Scope: the card's entity, or the entities on the shown card wall tab. Up to 300 live facts, kept first; the dialog says when a
+  scope has more. The estimate is the request size; there's no cache (the writer runs it on demand).
+- Flags are stored in `extraction.json` (`flags`, optional) so they survive closing the app. A flag stores the pair's value
+  fingerprint and shows only while both facts are live and unchanged; editing or setting aside either fact hides it. A re-check
+  replaces earlier flags among the facts it sent. Save pruning drops flags on deleted facts.
+- Dismissal is sticky by value fingerprint (`dismissedFlags`), so re-extraction producing the same values doesn't bring it back.
+- Flags show in the full card's "Needs a decision" section (Dismiss, Set aside per fact, links to the other card) and as a
+  "N flagged" badge on cards; the check dialog lists the scope's flags when done.
+
 ### Main process and IPC
 
 - A new `llm:extract` channel (non-streaming result, or stream-then-collect internally) and

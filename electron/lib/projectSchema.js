@@ -243,15 +243,24 @@ const EXTRACTION_CHECKS = {
         && isText(p.strength) && isValidEvidenceList(p.evidence),
 };
 
+/** Semantic conflict check lists: validated when present, never added (older files have none). */
+const OPTIONAL_EXTRACTION_CHECKS = {
+    flags: (f) => isValidItemId(f.id) && Array.isArray(f.factIds) && f.factIds.length === 2 && f.factIds.every(isValidItemId)
+        && isText(f.reason) && isText(f.fingerprint),
+    dismissedFlags: (d) => isText(d.fingerprint) && isText(d.label),
+};
+
 /**
  * Validates bible/extraction.json: AI extraction's rejections, run cache, pending new cards and
- * pending proposals (src/extraction/types.ts). Missing reads as empty; unknown fields are preserved.
+ * pending proposals, plus conflict check flags (src/extraction/types.ts). Missing reads as empty;
+ * unknown fields are preserved.
  */
 export function normalizeExtraction(raw) {
     if (raw === undefined) return createEmptyExtraction();
     if (!isPlainObject(raw)) throw new ProjectFormatError('CORRUPT', 'extraction.json must be an object.');
     const lists = {};
-    for (const [key, check] of Object.entries(EXTRACTION_CHECKS)) {
+    for (const [key, check] of [...Object.entries(EXTRACTION_CHECKS), ...Object.entries(OPTIONAL_EXTRACTION_CHECKS)]) {
+        if (key in OPTIONAL_EXTRACTION_CHECKS && raw[key] === undefined) continue;
         const list = raw[key] ?? [];
         if (!Array.isArray(list)) throw new ProjectFormatError('CORRUPT', `extraction.json "${key}" must be an array.`);
         list.forEach((entry, index) => {

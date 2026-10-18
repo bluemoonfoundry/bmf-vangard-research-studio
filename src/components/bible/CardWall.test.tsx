@@ -69,4 +69,18 @@ describe('CardWall', () => {
     renderWall({ tab: 'faction' });
     expect(screen.getByText('No factions yet.')).toBeInTheDocument();
   });
+
+  it('with AI on, checks the shown kind for conflicts and badges flagged cards', () => {
+    const onCheckConflicts = vi.fn();
+    renderWall({ aiEnabled: true, onCheckConflicts, flagCounts: new Map([['e2', 2]]) });
+    expect(card('Bryn')).toHaveTextContent('2 flagged');
+    fireEvent.click(screen.getByRole('button', { name: 'Check for conflicts' }));
+    expect(onCheckConflicts).toHaveBeenCalledWith(['e2', 'e1'], 'Characters');
+  });
+
+  it('has no conflict check while AI is off', () => {
+    renderWall({ onCheckConflicts: vi.fn(), flagCounts: new Map([['e2', 2]]) });
+    expect(screen.queryByRole('button', { name: 'Check for conflicts' })).toBeNull();
+    expect(card('Bryn')).not.toHaveTextContent('flagged');
+  });
 });

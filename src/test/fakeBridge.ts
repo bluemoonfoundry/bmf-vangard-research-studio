@@ -5,7 +5,7 @@ import type {
   SavePayload, TextImportBatch, UnsavedChoice,
 } from '@/project/types';
 import { emptyExtraction, type ExtractionState } from '@/extraction/types';
-import type { AiSettingsPatch, AiStatus, ChatEvent, ChatRequest, ExtractRequest, ExtractResult, ModelInfo, ProviderId, StreamEvent } from '@/ai/types';
+import type { AiSettingsPatch, AiStatus, ChatEvent, ChatRequest, ConflictCheckResult, ExtractRequest, ExtractResult, ModelInfo, ProviderId, StreamEvent } from '@/ai/types';
 import type { ChatTranscript } from '@/chat/types';
 
 const ok = <T,>(value: T): Promise<IpcResult<T>> => Promise.resolve({ ok: true, value });
@@ -82,6 +82,11 @@ export function createFakeBridge() {
       /** What `extract` resolves with: a value, a function of the request, or a function that throws to fail. */
       extractResult: { proposals: [], summary: '', dropped: 0, model: 'fake-model' } as ExtractResult
         | ((request: ExtractRequest, requestId: string) => ExtractResult | Promise<ExtractResult>),
+      conflictChecks: [] as { requestId: string; request: ExtractRequest }[],
+      cancelledConflictChecks: [] as string[],
+      /** What `conflictCheck` resolves with, like extractResult. */
+      conflictResult: { conflicts: [], dropped: 0, model: 'fake-model' } as ConflictCheckResult
+        | ((request: ExtractRequest, requestId: string) => ConflictCheckResult | Promise<ConflictCheckResult>),
       emitChatEvent(requestId: string, event: StreamEvent) {
         chatListeners.forEach(l => l({ requestId, event }));
       },
@@ -224,6 +229,20 @@ export function createFakeBridge() {
       }),
       cancelExtract: vi.fn((requestId: string) => {
         fake.ai.cancelledExtractions.push(requestId);
+        return ok(undefined);
+      }),
+      conflictCheck: vi.fn(async (requestId: string, request: ExtractRequest): Promise<VrsIpcResult<ConflictCheckResult>> => {
+        fake.ai.conflictChecks.push({ requestId, request });
+        const r = fake.ai.conflictResult;
+        try {
+          return { ok: true, value: typeof r === 'function' ? await r(request, requestId) : r };
+        } catch (e) {
+          const err = e as { code?: string; message?: string };
+          return { ok: false, error: { code: err.code ?? 'PROVIDER', message: err.message ?? String(e) } };
+        }
+      }),
+      cancelConflictCheck: vi.fn((requestId: string) => {
+        fake.ai.cancelledConflictChecks.push(requestId);
         return ok(undefined);
       }),
     },

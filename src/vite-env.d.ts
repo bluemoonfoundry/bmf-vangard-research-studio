@@ -52,6 +52,9 @@ interface VrsApi {
     onChatEvent(callback: (payload: import('@/ai/types').ChatEvent) => void): () => void;
     extract(requestId: string, request: import('@/ai/types').ExtractRequest): Promise<VrsIpcResult<import('@/ai/types').ExtractResult>>;
     cancelExtract(requestId: string): Promise<VrsIpcResult<void>>;
+    /** Semantic conflict check: the renderer builds the text; the main process adds the schema. */
+    conflictCheck(requestId: string, request: import('@/ai/types').ExtractRequest): Promise<VrsIpcResult<import('@/ai/types').ConflictCheckResult>>;
+    cancelConflictCheck(requestId: string): Promise<VrsIpcResult<void>>;
   };
 }
 

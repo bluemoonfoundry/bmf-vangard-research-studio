@@ -47,4 +47,15 @@ describe('aiApi extraction', () => {
     await ai.cancelExtract('x1');
     expect(fake.ai.cancelledExtractions).toEqual(['x1']);
   });
+
+  it('unwraps conflictCheck and cancelConflictCheck', async () => {
+    const { bridge, fake } = createFakeBridge();
+    const ai = createAiApi(bridge);
+    fake.ai.conflictResult = { conflicts: [{ a: 'F1', b: 'F2', reason: 'r' }], dropped: 0, model: 'm' };
+    const request = { provider: 'gemini' as const, model: 'm', system: 'sys', text: 'txt' };
+    expect((await ai.conflictCheck('c1', request)).conflicts).toHaveLength(1);
+    expect(fake.ai.conflictChecks).toEqual([{ requestId: 'c1', request }]);
+    await ai.cancelConflictCheck('c1');
+    expect(fake.ai.cancelledConflictChecks).toEqual(['c1']);
+  });
 });

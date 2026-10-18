@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { ArrowLeft, ExternalLink, Pin, PinOff, Plus, RotateCcw, Star, X } from 'lucide-react';
+import { ArrowLeft, ExternalLink, Pin, PinOff, Plus, RotateCcw, ScanSearch, Star, X } from 'lucide-react';
 import type { Bible, EntityKind, Fact, FactSource, TreeItem } from '@/project/types';
 import type { ChatOf } from '@/chat/types';
 import type { AssetCache } from '@/workspace/assetCache';
@@ -14,6 +14,8 @@ import { cameFrom, canonLines, cardStats, linkedItems, portraitOf, togglePin } f
 import { newerVersion } from '@/bible/newer';
 import { emptyExtraction, type Canon, type ExtractionState } from '@/extraction/types';
 import { liftRejection, rejectionsFor } from '@/extraction/review';
+import { dismissFlag, liveFlags } from '@/extraction/conflictCheck';
+import { ConflictFlagList } from '@/components/extraction/ConflictCheck';
 import { CardBadges } from '@/components/bible/CardWall';
 import { FactForm } from '@/components/bible/FactForm';
 import { FactRow, valueText } from '@/components/bible/FactRow';
@@ -41,10 +43,12 @@ export interface EntityCardProps {
   onBack(): void;
   /** Source item ids, oldest first, for the "Keep the newer" suggestion. */
   sourceOrder?: readonly string[];
-  /** AI on: shows the Rejected list (needs `extraction` and `updateCanon`). */
+  /** AI on: shows the Rejected list and conflict check flags (needs `extraction` and `updateCanon`). */
   aiEnabled?: boolean;
   extraction?: ExtractionState;
   updateCanon?(update: (c: Canon) => Canon): void;
+  /** AI on: opens the semantic conflict check for this card. */
+  onCheckConflicts?(): void;
 }
 
 const now = () => new Date().toISOString();
@@ -87,6 +91,7 @@ export function EntityCard(props: EntityCardProps) {
   const appearsIn = eventsLinkingTo(items, entity.id);
   const sources = cameFrom(bible, entity.id);
   const rejections = aiEnabled && updateCanon ? rejectionsFor(entity, bible, extraction) : [];
+  const flags = aiEnabled && updateCanon ? liveFlags(bible, extraction, entity.id) : [];
   const kind = entityKindOf(entity);
   const kindName = ENTITY_KINDS.find(k => k.id === kind)?.name ?? (entity.entityKind || 'Entity');
   const references = entity.references ?? [];
@@ -147,7 +152,7 @@ export function EntityCard(props: EntityCardProps) {
             <p className="text-xs text-content-muted">
               {kindName} · in {plural(stats.sources, 'source')} · {plural(stats.kept + stats.proposed, 'fact')}
             </p>
-            <CardBadges stats={stats} />
+            <CardBadges stats={stats} flagged={flags.length} />
             <input
               aria-label="Summary"
               className={`${input} w-full`}
@@ -213,8 +218,15 @@ export function EntityCard(props: EntityCardProps) {
             </section>
 
             <section aria-label="Needs a decision" className="flex flex-col gap-2">
-              <h3 className={fieldLabel}>Needs a decision</h3>
-              {conflicts.length === 0 && pending.length === 0 && <p className="text-xs text-content-muted">Nothing needs a decision.</p>}
+              <div className="flex items-center justify-between">
+                <h3 className={fieldLabel}>Needs a decision</h3>
+                {aiEnabled && props.onCheckConflicts && (
+                  <button type="button" className={btn} title="Ask the AI for facts on this card that can't all be true" onClick={props.onCheckConflicts}>
+                    <ScanSearch className="h-3.5 w-3.5" /> Check for conflicts
+                  </button>
+                )}
+              </div>
+              {conflicts.length === 0 && pending.length === 0 && flags.length === 0 && <p className="text-xs text-content-muted">Nothing needs a decision.</p>}
               {conflicts.map(c => (
                 <div key={c.key} className="flex flex-col gap-2 rounded border border-warning p-3">
                   <h4 className="text-xs font-semibold">{c.attribute}</h4>
@@ -250,6 +262,16 @@ export function EntityCard(props: EntityCardProps) {
                   </div>
                 </div>
               ))}
+              {flags.length > 0 && updateCanon && (
+                <ConflictFlagList
+                  flags={flags}
+                  items={items}
+                  currentEntityId={entity.id}
+                  onDismiss={(flag) => updateCanon(c => ({ ...c, extraction: dismissFlag(c.extraction, flag, c.bible, now()) }))}
+                  onSetAside={(id) => updateBible(b => setFactStatus(b, id, 'set_aside', now()))}
+                  onOpenCard={onOpenCard}
+                />
+              )}
               {pending.length > 0 && <ul className="flex flex-col gap-1.5">{pending.map(pendingRow)}</ul>}
             </section>
 
