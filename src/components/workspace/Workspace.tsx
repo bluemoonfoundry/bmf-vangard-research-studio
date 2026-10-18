@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, ArrowDownUp, BookOpen, CalendarRange, Contact, MessageSquare, Columns2, LayoutGrid, Plus, Rows2, SlidersHorizontal, Sparkles, Square, Table, Download, X } from 'lucide-react';
+import { AlertTriangle, ArrowDownUp, BookOpen, CalendarRange, ClipboardCheck, Contact, MessageSquare, Columns2, LayoutGrid, Plus, Rows2, SlidersHorizontal, Sparkles, Square, Table, Download, X } from 'lucide-react';
 import type { EntityKind, FactSource, ItemType, MediaKind, TreeItem } from '@/project/types';
 import type { ProjectController } from '@/project/useProject';
 import { AI_CHAT_TYPE } from '@/project/projectState';
@@ -22,6 +22,8 @@ import { insertSources, isSourceItem, orderedSources, setSourceOrder } from '@/b
 import { estimateRun, useExtraction } from '@/extraction/useExtraction';
 import { extractionSource } from '@/extraction/sourceText';
 import { ExtractModal } from '@/components/extraction/ExtractModal';
+import { ReviewQueue } from '@/components/extraction/ReviewQueue';
+import { reviewCount } from '@/extraction/review';
 import { SourceOrderModal } from '@/components/bible/SourceOrderModal';
 import { findContradictions, openContradictions } from '@/bible/contradictions';
 import { ConflictQueue } from '@/components/bible/ConflictQueue';
@@ -38,8 +40,8 @@ import { ExportModal } from '@/components/workspace/ExportModal';
 import { ConfirmDialog } from '@/components/workspace/ConfirmDialog';
 import { btn, btnGhost, btnPrimary, input, segment, segmentGroup } from '@/components/workspace/ui';
 
-/** What the content area shows: the research panes, the card wall, the conflict queue, or the timeline. */
-export type WorkspaceMode = 'research' | 'cards' | 'conflicts' | 'timeline';
+/** What the content area shows: the research panes, the card wall, the conflict queue, the timeline, or (AI only) the review queue. */
+export type WorkspaceMode = 'research' | 'cards' | 'conflicts' | 'timeline' | 'review';
 
 /** How a folder (or the top level) is shown. Non-folder items always open in the editor. */
 export type FolderView = 'corkboard' | 'outliner' | 'editor';
@@ -75,7 +77,7 @@ export function Workspace({ project, ai, aiApi }: WorkspaceProps) {
     .map(i => ({ id: i.id, title: i.title, ...(i.importedFrom && { detail: i.importedFrom }) }));
   const {
     addItem, updateItem, editDoc, moveItem, deleteItem, duplicateItem, loadAllDocs, importMedia, importTexts, discardAsset,
-    renameProject, exportDossier, reportError, assets, updateBible, updateChat,
+    renameProject, exportDossier, reportError, assets, updateBible, updateChat, updateCanon,
   } = project;
   const aiEnabled = ai.enabled;
   const { models, loadModels } = ai;
@@ -107,7 +109,9 @@ export function Workspace({ project, ai, aiApi }: WorkspaceProps) {
   const [extracting, setExtracting] = useState<{ ids: string[] } | null>(null);
   /** A fact's passage to show once its source opens; cleared by any other navigation. */
   const [highlight, setHighlight] = useState<{ itemId: string; messageId?: string; start: number; end: number } | null>(null);
-  const [mode, setMode] = useState<WorkspaceMode>('research');
+  const [chosenMode, setMode] = useState<WorkspaceMode>('research');
+  // The review queue is an AI surface: turning AI off leaves it.
+  const mode: WorkspaceMode = chosenMode === 'review' && !aiEnabled ? 'research' : chosenMode;
   const [conflictKey, setConflictKey] = useState<string | undefined>(undefined);
   const [cardTab, setCardTab] = useState<WallTabId>('character');
   /** The entity whose full card is open in the card wall; null shows the wall. */
@@ -147,6 +151,12 @@ export function Workspace({ project, ai, aiApi }: WorkspaceProps) {
       return next;
     });
   }, []);
+
+  const toReview = useMemo(
+    () => (aiEnabled ? reviewCount(items, state.bible, state.extraction) : 0),
+    [aiEnabled, items, state.bible, state.extraction],
+  );
+  const sourceOrderIds = useMemo(() => orderedSources(state.bible, items).map(i => i.id), [state.bible, items]);
 
   const openContradictionCount = useMemo(() => {
     const ids = new Set(items.filter(i => i.type === 'entity').map(i => i.id));
@@ -469,6 +479,12 @@ export function Workspace({ project, ai, aiApi }: WorkspaceProps) {
           <button type="button" className={segment(mode === 'timeline')} aria-pressed={mode === 'timeline'} onClick={() => setMode(m => (m === 'timeline' ? 'research' : 'timeline'))}>
             <CalendarRange className="h-3.5 w-3.5" /> Timeline
           </button>
+          {aiEnabled && (
+            <button type="button" className={segment(mode === 'review')} aria-pressed={mode === 'review'} onClick={() => setMode(m => (m === 'review' ? 'research' : 'review'))}>
+              <ClipboardCheck className="h-3.5 w-3.5" /> Review
+              <span className="rounded-full bg-surface-sunken px-1.5 text-[11px] text-content" aria-label={`${toReview} to review`}>{toReview}</span>
+            </button>
+          )}
           <div className={segmentGroup} role="group" aria-label="Layout">
             <button type="button" className={segment(!splitOpen)} aria-pressed={!splitOpen} aria-label="Single pane" title="Single pane" onClick={() => setSplit(null)}>
               <Square className="h-3.5 w-3.5" />
@@ -531,6 +547,10 @@ export function Workspace({ project, ai, aiApi }: WorkspaceProps) {
                 onOpenItem={navigate}
                 onOpenCard={openCard}
                 onBack={() => setCardId(null)}
+                sourceOrder={sourceOrderIds}
+                aiEnabled={aiEnabled}
+                extraction={state.extraction}
+                updateCanon={updateCanon}
               />
             ) : (
               <CardWall
@@ -553,6 +573,22 @@ export function Workspace({ project, ai, aiApi }: WorkspaceProps) {
               onUpdate={updateBible}
               onOpenSource={openSource}
               onOpenEntity={navigate}
+              sourceOrder={sourceOrderIds}
+            />
+          ) : mode === 'review' ? (
+            <ReviewQueue
+              items={items}
+              bible={state.bible}
+              extraction={state.extraction}
+              bodyOf={contentOf}
+              chatOf={chatOf}
+              updateCanon={updateCanon}
+              addEntity={(kind, title, parentId) => {
+                expand(parentId);
+                return addEntity(kind, title, parentId);
+              }}
+              onOpenSource={openSource}
+              onOpenCard={openCard}
             />
           ) : mode === 'timeline' ? (
             <TimelineView bible={state.bible} items={items} onOpenEntity={navigate} onShowConflict={showConflict} />
@@ -624,7 +660,7 @@ export function Workspace({ project, ai, aiApi }: WorkspaceProps) {
           estimate={(ids, provider, model) => estimateRun(state, ids, provider, model)}
           run={extractionRun}
           onSetOwnWriting={(id, value) => updateItem(id, { ownWriting: value })}
-          onReview={() => setExtracting(null)}
+          onReview={() => { setExtracting(null); setMode('review'); }}
           onClose={() => setExtracting(null)}
         />
       )}

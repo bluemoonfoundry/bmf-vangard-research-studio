@@ -709,6 +709,38 @@ describe('AI extraction surfaces', () => {
     expect(await within(dialog).findByText(/1 source · ~\d[\d,]* tokens · 0 cached · Gemini X/)).toBeInTheDocument();
   });
 
+  it('Review is offered only with AI on, with a count, and approves a proposed card', async () => {
+    const project = makeOpened({
+      tree: { items: [notes] },
+      extraction: {
+        rejections: [], runs: [],
+        cards: [{ id: 'c1', kind: 'character', title: 'Ivo', reason: 'Recurring', createdAt: 'T' }],
+        pending: [{
+          id: 'p1', ref: { cardId: 'c1' }, attribute: 'role', value: 'pilot', strength: 'said',
+          evidence: [{ source: { itemId: 'd1', quote: 'Mara', start: 0, end: 4 }, strength: 'said' }], createdAt: 'T',
+        }],
+      },
+    });
+    enableAi();
+    fake.load(project, { d1: 'Mara has green eyes.' });
+    fake.nextDialogResult = project;
+    render(<App />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Open project…' }));
+    const review = await screen.findByRole('button', { name: /Review/ });
+    expect(within(review).getByLabelText('1 to review')).toBeInTheDocument();
+    fireEvent.click(review);
+    fireEvent.click(within(screen.getByRole('region', { name: 'New card: Ivo' })).getByRole('button', { name: 'Approve' }));
+    expect(within(tree()).getByRole('treeitem', { name: 'Ivo' })).toBeInTheDocument();
+    const saved = await save();
+    expect(saved.extraction?.cards).toEqual([]);
+    expect(saved.bible?.facts).toMatchObject([{ attribute: 'role', value: 'pilot', status: 'proposed', origin: 'ai' }]);
+  });
+
+  it('Review is hidden while AI is off', async () => {
+    await open([notes], { d1: 'x' });
+    expect(screen.queryByRole('button', { name: /Review/ })).toBeNull();
+  });
+
   it('the Inspector marks a source as the writer\'s own writing', async () => {
     enableAi();
     await open([notes], { d1: 'Mara has green eyes.' });

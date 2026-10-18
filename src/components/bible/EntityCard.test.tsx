@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import type { Bible, Fact, TreeItem } from '@/project/types';
 import { EntityCard, type EntityCardProps } from '@/components/bible/EntityCard';
+import { emptyExtraction } from '@/extraction/types';
 
 const base = (id: string, title: string, extra: Partial<TreeItem> = {}): TreeItem =>
   ({ id, parentId: null, type: 'document', title, order: 0, keywords: [], ...extra });
@@ -29,8 +30,9 @@ const initialBible: Bible = {
   dependencies: [], decisions: [],
 };
 
-function Harness(over: Partial<EntityCardProps>) {
-  const [bible, setBible] = useState(initialBible);
+function Harness({ startBible = initialBible, ...over }: Partial<EntityCardProps> & { startBible?: Bible }) {
+  const [bible, setBible] = useState(startBible);
+  const [extraction, setExtraction] = useState(emptyExtraction());
   const [items, setItems] = useState(initialItems);
   const [body, setBody] = useState('Grew up in the keep.');
   const entity = items.find(i => i.id === 'e1')!;
@@ -43,6 +45,13 @@ function Harness(over: Partial<EntityCardProps>) {
       bodyOf={(id) => (id === 'e1' ? body : 'twenty-four')}
       chatOf={() => undefined}
       updateBible={(u) => setBible(u)}
+      extraction={extraction}
+      updateCanon={(u) => {
+        const next = u({ bible, extraction });
+        setBible(next.bible);
+        setExtraction(next.extraction);
+      }}
+      sourceOrder={['c0', 'c1']}
       onUpdateItem={(id, patch) => setItems(list => list.map(i => (i.id === id ? { ...i, ...patch } : i)))}
       onChangeBody={(_, text) => setBody(text)}
       onOpenSource={vi.fn()}
@@ -129,5 +138,33 @@ describe('EntityCard', () => {
     fireEvent.change(screen.getByLabelText('Value'), { target: { value: 'red' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save fact' }));
     expect(within(region('Canon')).getByText('red')).toBeInTheDocument();
+  });
+});
+
+describe('EntityCard: extraction', () => {
+  it('offers Keep the newer when the versions come from different sources', () => {
+    const startBible: Bible = {
+      ...initialBible,
+      facts: [fact({ attribute: 'Eyes', value: 'green', status: 'proposed', source: src('c0') }), fact({ attribute: 'Eyes', value: 'blue', status: 'proposed', source: src('c1') })],
+    };
+    render(<Harness startBible={startBible} />);
+    fireEvent.click(within(region('Needs a decision')).getByRole('button', { name: 'Keep the newer' }));
+    expect(within(region('Canon')).getByText('blue')).toBeInTheDocument();
+  });
+
+  it('lists rejections with AI on and lifts one back into review', () => {
+    const startBible: Bible = { ...initialBible, facts: [fact({ attribute: 'Hair', value: 'red', status: 'set_aside', origin: 'ai' })] };
+    render(<Harness startBible={startBible} aiEnabled />);
+    const rejected = region('Rejected');
+    expect(within(rejected).getByText('Hair: red')).toBeInTheDocument();
+    fireEvent.click(within(rejected).getByRole('button', { name: 'Lift rejection of Hair: red' }));
+    expect(within(region('Needs a decision')).getByText('red')).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Rejected' })).toBeNull();
+  });
+
+  it('hides the Rejected list while AI is off', () => {
+    const startBible: Bible = { ...initialBible, facts: [fact({ attribute: 'Hair', value: 'red', status: 'set_aside' })] };
+    render(<Harness startBible={startBible} />);
+    expect(screen.queryByRole('region', { name: 'Rejected' })).toBeNull();
   });
 });

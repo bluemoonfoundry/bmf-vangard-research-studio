@@ -5,8 +5,9 @@ import { isEvent } from '@/bible/entities';
 import { isWhenAttribute } from '@/bible/normalize';
 import { findContradictions, groupVersions, openContradictions } from '@/bible/contradictions';
 import { keepAll, keepOne, reopen } from '@/bible/ops';
+import { newerVersion } from '@/bible/newer';
 import { VersionCard } from '@/components/bible/VersionCard';
-import { btn, fieldLabel, input, segment, segmentGroup } from '@/components/workspace/ui';
+import { btn, btnPrimary, fieldLabel, input, segment, segmentGroup } from '@/components/workspace/ui';
 
 export interface ConflictQueueProps {
   bible: Bible;
@@ -19,11 +20,13 @@ export interface ConflictQueueProps {
   onUpdate(update: (b: Bible) => Bible): void;
   onOpenSource(source: FactSource): void;
   onOpenEntity(id: string): void;
+  /** Source item ids, oldest first, for the "Keep the newer" suggestion. */
+  sourceOrder?: readonly string[];
 }
 
 type Filter = 'open' | 'decided';
 
-export function ConflictQueue({ bible, items, contentOf, chatOf, focusKey, onUpdate, onOpenSource, onOpenEntity }: ConflictQueueProps) {
+export function ConflictQueue({ bible, items, contentOf, chatOf, focusKey, onUpdate, onOpenSource, onOpenEntity, sourceOrder = [] }: ConflictQueueProps) {
   const [filter, setFilter] = useState<Filter>('open');
   const [selectedKey, setSelectedKey] = useState<string | null>(focusKey ?? null);
   const [note, setNote] = useState('');
@@ -61,6 +64,7 @@ export function ConflictQueue({ bible, items, contentOf, chatOf, focusKey, onUpd
   const entity = current ? byId.get(current.entityId) : undefined;
   const checkEventId = current && entity && isEvent(entity) && isWhenAttribute(current.attribute) ? current.entityId : undefined;
   const keepAllLabel = current && current.versions.length >= 3 ? 'Keep all' : 'Keep both';
+  const newer = current ? newerVersion(current, sourceOrder) : null;
 
   // Versions, not facts: corroborating sources add facts without adding versions.
   const kindLabel = (d: Bible['decisions'][number]) => {
@@ -141,9 +145,21 @@ export function ConflictQueue({ bible, items, contentOf, chatOf, focusKey, onUpd
               <span className={fieldLabel}>Note</span>
               <input className={input} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Optional" />
             </label>
-            <button type="button" className={`${btn} self-start`} onClick={() => decide((b, id, now, n) => keepAll(b, current, { id, now, note: n }))}>
-              {keepAllLabel}
-            </button>
+            <div className="flex flex-wrap gap-2">
+              {newer !== null && (
+                <button
+                  type="button"
+                  className={btnPrimary}
+                  title="Keeps the version from the source furthest down the source order"
+                  onClick={() => decide((b, id, now, n) => keepOne(b, current, newer, { id, now, note: n }))}
+                >
+                  Keep the newer
+                </button>
+              )}
+              <button type="button" className={btn} onClick={() => decide((b, id, now, n) => keepAll(b, current, { id, now, note: n }))}>
+                {keepAllLabel}
+              </button>
+            </div>
           </>
         )}
       </section>

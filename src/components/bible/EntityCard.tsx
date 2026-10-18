@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { ArrowLeft, ExternalLink, Pin, PinOff, Plus, Star, X } from 'lucide-react';
+import { ArrowLeft, ExternalLink, Pin, PinOff, Plus, RotateCcw, Star, X } from 'lucide-react';
 import type { Bible, EntityKind, Fact, FactSource, TreeItem } from '@/project/types';
 import type { ChatOf } from '@/chat/types';
 import type { AssetCache } from '@/workspace/assetCache';
@@ -11,13 +11,16 @@ import { isWhenAttribute } from '@/bible/normalize';
 import { eventsLinkingTo } from '@/bible/links';
 import { resolveSource, sourceText } from '@/bible/sources';
 import { cameFrom, canonLines, cardStats, linkedItems, portraitOf, togglePin } from '@/bible/cards';
+import { newerVersion } from '@/bible/newer';
+import { emptyExtraction, type Canon, type ExtractionState } from '@/extraction/types';
+import { liftRejection, rejectionsFor } from '@/extraction/review';
 import { CardBadges } from '@/components/bible/CardWall';
 import { FactForm } from '@/components/bible/FactForm';
 import { FactRow, valueText } from '@/components/bible/FactRow';
 import { Portrait } from '@/components/bible/Portrait';
 import { VersionCard } from '@/components/bible/VersionCard';
 import { AudioPlayer } from '@/components/workspace/MediaViews';
-import { btn, btnGhost, fieldLabel, input } from '@/components/workspace/ui';
+import { btn, btnGhost, btnPrimary, fieldLabel, input } from '@/components/workspace/ui';
 
 export interface EntityCardProps {
   entity: TreeItem;
@@ -36,6 +39,12 @@ export interface EntityCardProps {
   /** Opens another entity's full card. */
   onOpenCard(id: string): void;
   onBack(): void;
+  /** Source item ids, oldest first, for the "Keep the newer" suggestion. */
+  sourceOrder?: readonly string[];
+  /** AI on: shows the Rejected list (needs `extraction` and `updateCanon`). */
+  aiEnabled?: boolean;
+  extraction?: ExtractionState;
+  updateCanon?(update: (c: Canon) => Canon): void;
 }
 
 const now = () => new Date().toISOString();
@@ -60,6 +69,7 @@ function Thumb({ image, assets }: { image: TreeItem; assets: AssetCache | null }
 /** The full-size view of one entity's card: canon, what needs a decision, notes, and what is linked to it. */
 export function EntityCard(props: EntityCardProps) {
   const { entity, items, bible, assets, bodyOf, chatOf, updateBible, onUpdateItem, onChangeBody, onOpenSource, onOpenItem, onOpenCard, onBack } = props;
+  const { sourceOrder = [], aiEnabled = false, extraction = emptyExtraction(), updateCanon } = props;
   const [adding, setAdding] = useState(false);
 
   const byId = useMemo(() => new Map(items.map(i => [i.id, i])), [items]);
@@ -76,6 +86,7 @@ export function EntityCard(props: EntityCardProps) {
   const portrait = portraitOf(entity, byId);
   const appearsIn = eventsLinkingTo(items, entity.id);
   const sources = cameFrom(bible, entity.id);
+  const rejections = aiEnabled && updateCanon ? rejectionsFor(entity, bible, extraction) : [];
   const kind = entityKindOf(entity);
   const kindName = ENTITY_KINDS.find(k => k.id === kind)?.name ?? (entity.entityKind || 'Entity');
   const references = entity.references ?? [];
@@ -222,9 +233,21 @@ export function EntityCard(props: EntityCardProps) {
                       />
                     ))}
                   </div>
-                  <button type="button" className={`${btn} self-start`} onClick={() => decide((b, id, at) => keepAll(b, c, { id, now: at }))}>
-                    {c.versions.length >= 3 ? 'Keep all' : 'Keep both'}
-                  </button>
+                  <div className="flex flex-wrap gap-2">
+                    {newerVersion(c, sourceOrder) !== null && (
+                      <button
+                        type="button"
+                        className={btnPrimary}
+                        title="Keeps the version from the source furthest down the source order"
+                        onClick={() => decide((b, id, at) => keepOne(b, c, newerVersion(c, sourceOrder)!, { id, now: at }))}
+                      >
+                        Keep the newer
+                      </button>
+                    )}
+                    <button type="button" className={btn} onClick={() => decide((b, id, at) => keepAll(b, c, { id, now: at }))}>
+                      {c.versions.length >= 3 ? 'Keep all' : 'Keep both'}
+                    </button>
+                  </div>
                 </div>
               ))}
               {pending.length > 0 && <ul className="flex flex-col gap-1.5">{pending.map(pendingRow)}</ul>}
@@ -316,6 +339,27 @@ export function EntityCard(props: EntityCardProps) {
 
             {linked.other.length > 0 && (
               <Side label="Linked"><ul className="flex flex-col gap-1">{linked.other.map(i => linkButton(i, onOpenItem))}</ul></Side>
+            )}
+
+            {rejections.length > 0 && updateCanon && (
+              <Side label="Rejected">
+                <ul className="flex flex-col gap-1">
+                  {rejections.map(r => (
+                    <li key={r.fingerprint} className="flex items-baseline justify-between gap-2">
+                      <span className="min-w-0 truncate text-content-muted">{r.label}</span>
+                      <button
+                        type="button"
+                        className={btnGhost}
+                        aria-label={`Lift rejection of ${r.label}`}
+                        title={r.factId ? 'Back to review' : 'Allow it to be proposed again'}
+                        onClick={() => updateCanon(c => liftRejection(c, r.fingerprint, now()))}
+                      >
+                        <RotateCcw className="h-3 w-3" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </Side>
             )}
 
             {sources.length > 0 && (
