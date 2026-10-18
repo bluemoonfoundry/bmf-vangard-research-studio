@@ -680,3 +680,41 @@ describe('AI chat items', () => {
     expect(preview).toHaveTextContent('**Type:** AI Chat');
   });
 });
+
+describe('AI extraction surfaces', () => {
+  const MODELS: ModelInfo[] = [{ id: 'gemini-x', name: 'Gemini X', capabilities: { webSearch: true, readUrls: true, temperature: true } }];
+  const enableAi = () => {
+    fake.ai.status = makeAiStatus({
+      enabled: true, defaultProvider: 'gemini', defaultModel: 'gemini-x',
+      providers: { ...makeAiStatus().providers, gemini: { configured: true, lastTestOk: 'T0' } },
+    });
+    fake.ai.models = { gemini: MODELS };
+  };
+  const notes = item('d1', 'Pasted notes');
+
+  it('are hidden while AI is off', async () => {
+    await open([notes], { d1: 'Mara has green eyes.' });
+    fireEvent.click(treeItem('Pasted notes'));
+    expect(screen.queryByRole('button', { name: 'Extract' })).toBeNull();
+    expect(within(inspector()).queryByRole('checkbox', { name: 'This is my own writing' })).toBeNull();
+  });
+
+  it('Extract opens the dialog with the open source chosen', async () => {
+    enableAi();
+    await open([notes], { d1: 'Mara has green eyes.' });
+    fireEvent.click(treeItem('Pasted notes'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Extract' }));
+    const dialog = screen.getByRole('dialog', { name: 'Extract facts' });
+    expect(within(dialog).getByRole('checkbox', { name: 'Pasted notes' })).toBeChecked();
+    expect(await within(dialog).findByText(/1 source · ~\d[\d,]* tokens · 0 cached · Gemini X/)).toBeInTheDocument();
+  });
+
+  it('the Inspector marks a source as the writer\'s own writing', async () => {
+    enableAi();
+    await open([notes], { d1: 'Mara has green eyes.' });
+    fireEvent.click(treeItem('Pasted notes'));
+    fireEvent.click(await within(inspector()).findByRole('checkbox', { name: 'This is my own writing' }));
+    const saved = await save();
+    expect(saved.tree?.items.find(i => i.id === 'd1')).toMatchObject({ ownWriting: true });
+  });
+});

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, ArrowDownUp, BookOpen, CalendarRange, Contact, MessageSquare, Columns2, LayoutGrid, Plus, Rows2, SlidersHorizontal, Square, Table, Download, X } from 'lucide-react';
+import { AlertTriangle, ArrowDownUp, BookOpen, CalendarRange, Contact, MessageSquare, Columns2, LayoutGrid, Plus, Rows2, SlidersHorizontal, Sparkles, Square, Table, Download, X } from 'lucide-react';
 import type { EntityKind, FactSource, ItemType, MediaKind, TreeItem } from '@/project/types';
 import type { ProjectController } from '@/project/useProject';
 import { AI_CHAT_TYPE } from '@/project/projectState';
@@ -18,7 +18,10 @@ import { OutlinerView } from '@/components/workspace/OutlinerView';
 import { Inspector } from '@/components/workspace/Inspector';
 import { SplitPane, type SplitOrientation } from '@/components/workspace/SplitPane';
 import { ImportChatModal } from '@/components/bible/ImportChatModal';
-import { insertSources, orderedSources, setSourceOrder } from '@/bible/sourceOrder';
+import { insertSources, isSourceItem, orderedSources, setSourceOrder } from '@/bible/sourceOrder';
+import { estimateRun, useExtraction } from '@/extraction/useExtraction';
+import { extractionSource } from '@/extraction/sourceText';
+import { ExtractModal } from '@/components/extraction/ExtractModal';
 import { SourceOrderModal } from '@/components/bible/SourceOrderModal';
 import { findContradictions, openContradictions } from '@/bible/contradictions';
 import { ConflictQueue } from '@/components/bible/ConflictQueue';
@@ -86,6 +89,8 @@ export function Workspace({ project, ai, aiApi }: WorkspaceProps) {
     : null), [models, configuredProviders]);
   // Streams live here, so replies keep going when the chat's editor unmounts. Turning AI off cancels them.
   const streams = useChatStreams({ ai: aiEnabled ? aiApi : null, project, capsOf });
+  // Extraction runs live here too, so closing the dialog doesn't stop one. Turning AI off cancels it.
+  const extractionRun = useExtraction({ ai: aiEnabled ? aiApi : null, project });
 
   const [activeId, setActiveId] = useState<string | null>(null);
   const [folderView, setFolderView] = useState<FolderView>('corkboard');
@@ -98,6 +103,8 @@ export function Workspace({ project, ai, aiApi }: WorkspaceProps) {
   const [adding, setAdding] = useState<{ type: ItemType; parentId: string | null } | null>(null);
   const [importingChat, setImportingChat] = useState<{ parentId: string | null } | null>(null);
   const [orderingSources, setOrderingSources] = useState(false);
+  /** The extraction dialog, with the sources it opened with. */
+  const [extracting, setExtracting] = useState<{ ids: string[] } | null>(null);
   /** A fact's passage to show once its source opens; cleared by any other navigation. */
   const [highlight, setHighlight] = useState<{ itemId: string; messageId?: string; start: number; end: number } | null>(null);
   const [mode, setMode] = useState<WorkspaceMode>('research');
@@ -444,6 +451,11 @@ export function Workspace({ project, ai, aiApi }: WorkspaceProps) {
           <button type="button" className={btn} onClick={() => setOrderingSources(true)}>
             <ArrowDownUp className="h-3.5 w-3.5" /> Source order
           </button>
+          {aiEnabled && (
+            <button type="button" className={btn} onClick={() => setExtracting({ ids: active && isSourceItem(active) ? [active.id] : [] })}>
+              <Sparkles className="h-3.5 w-3.5" /> Extract
+            </button>
+          )}
           <button type="button" className={btn} onClick={() => setExporting(true)}>
             <Download className="h-3.5 w-3.5" /> Export
           </button>
@@ -555,6 +567,7 @@ export function Workspace({ project, ai, aiApi }: WorkspaceProps) {
             onToggle={() => setInspectorOpen(o => !o)}
             onUpdate={updateItem}
             onNavigate={navigate}
+            aiEnabled={aiEnabled}
           />
         ) : inspectorOpen && (
           <aside aria-label="Inspector" className="flex w-80 shrink-0 items-center justify-center border-l border-line bg-surface-raised p-6 text-center text-xs text-content-muted">
@@ -593,6 +606,26 @@ export function Workspace({ project, ai, aiApi }: WorkspaceProps) {
             navigate(ids[0]);
           }}
           onClose={() => setImportingChat(null)}
+        />
+      )}
+      {extracting && aiEnabled && (
+        <ExtractModal
+          sources={orderedSources(state.bible, items)}
+          initialIds={extracting.ids}
+          defaultProvider={ai.status?.defaultProvider ?? null}
+          defaultModel={ai.status?.defaultModel ?? null}
+          configuredProviders={configuredProviders}
+          models={models}
+          loadModels={loadModels}
+          hasTurns={(id) => {
+            const source = byId.get(id);
+            return !!source && !!extractionSource(source, docs[id]?.current, chats[id]?.current)?.hasTurns;
+          }}
+          estimate={(ids, provider, model) => estimateRun(state, ids, provider, model)}
+          run={extractionRun}
+          onSetOwnWriting={(id, value) => updateItem(id, { ownWriting: value })}
+          onReview={() => setExtracting(null)}
+          onClose={() => setExtracting(null)}
         />
       )}
       {orderingSources && (
