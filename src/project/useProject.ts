@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { buildSavePayload, isDirty, isDocDirty, isStructureDirty, projectReducer, type ProjectState } from '@/project/projectState';
+import {
+  AI_CHAT_TYPE, buildSavePayload, isChatDirty, isDirty, isDocDirty, isStructureDirty, projectReducer,
+  type ChatDefaults, type ProjectState,
+} from '@/project/projectState';
 import type { ProjectApi } from '@/project/api';
 import type { Bible, ExternalChange, MediaKind, OpenedProject, RecentProject, RecoverySnapshot, TreeItem } from '@/project/types';
+import { forPersistence, newTranscript, normalizeTranscript } from '@/chat/transcript';
+import type { ChatTranscript } from '@/chat/types';
 import { createAssetCache } from '@/workspace/assetCache';
 import { descendantIds, duplicateSubtree, nextOrder, type DropPosition } from '@/workspace/treeOps';
 
@@ -12,17 +17,32 @@ export const RECOVERY_DEBOUNCE_MS = 1000;
 export const STRUCTURE_CONFLICT = 'structure';
 
 const DOC_PATH = /^docs\/([A-Za-z0-9_-]+)\.md$/;
+const CHAT_PATH = /^chats\/([A-Za-z0-9_-]+)\.json$/;
 const ASSET_PATH = /^assets\/([^/]+)$/;
+
+const NO_CHAT_DEFAULTS: ChatDefaults = { provider: null, model: null };
 
 /** Fields a caller supplies for a new binder item; the rest are filled in. */
 export type NewItem = Partial<TreeItem> & Pick<TreeItem, 'type' | 'title'>;
+
+export interface UseProjectOptions {
+  /** Provider and model for chats that have no transcript yet (read when one is needed). */
+  chatDefaults?: () => ChatDefaults;
+}
 
 function describeError(err: unknown) {
   return err instanceof Error ? err.message : String(err);
 }
 
-export function useProject(api: ProjectApi | null, bridge: Pick<VrsApi['app'], 'onSaveBeforeClose' | 'closeConfirmed'> | null) {
+export function useProject(
+  api: ProjectApi | null,
+  bridge: Pick<VrsApi['app'], 'onSaveBeforeClose' | 'closeConfirmed'> | null,
+  options: UseProjectOptions = {},
+) {
   const [state, dispatch] = useReducer(projectReducer, null);
+  const chatDefaultsRef = useRef(options.chatDefaults);
+  chatDefaultsRef.current = options.chatDefaults;
+  const chatDefaults = useCallback(() => chatDefaultsRef.current?.() ?? NO_CHAT_DEFAULTS, []);
   const [recents, setRecents] = useState<RecentProject[]>([]);
   const [recovery, setRecovery] = useState<RecoverySnapshot | null>(null);
   const [migratedFrom, setMigratedFrom] = useState<number | null>(null);
@@ -148,8 +168,33 @@ export function useProject(api: ProjectApi | null, bridge: Pick<VrsApi['app'], '
     if (bodies) dispatch({ type: 'docsLoaded', docs: Object.fromEntries(ids.map((id, i) => [id, bodies[i]])) });
   }, [api, run]);
 
-  /** Adds a binder item (at the end of its parent) with an optional body; returns its id. */
-  const addItem = useCallback((fields: NewItem, content = ''): string => {
+  /** Reads chats/<id>.json; a missing or damaged file is an empty chat (with the problem, for a notice). */
+  const readTranscript = useCallback(async (id: string) => {
+    const { transcript, problem } = await api!.readChat(id);
+    return { transcript: transcript ? normalizeTranscript(transcript) : null, problem };
+  }, [api]);
+
+  /** Reads every AI chat transcript not loaded yet. */
+  const loadAllChats = useCallback(async () => {
+    const current = stateRef.current;
+    if (!api || !current) return;
+    const ids = current.tree.items.filter(i => i.type === AI_CHAT_TYPE && !current.chats[i.id]).map(i => i.id);
+    if (!ids.length) return;
+    const read = await run(() => Promise.all(ids.map(readTranscript)));
+    if (read) dispatch({ type: 'chatsLoaded', defaults: chatDefaults(), chats: Object.fromEntries(ids.map((id, i) => [id, read[i]])) });
+  }, [api, chatDefaults, readTranscript, run]);
+
+  // Transcripts load with the project (search needs them), and again for chats that appear in the tree.
+  const items = state?.tree.items;
+  useEffect(() => {
+    if (items?.some(i => i.type === AI_CHAT_TYPE && !stateRef.current?.chats[i.id])) void loadAllChats();
+  }, [items, loadAllChats]);
+
+  const updateChat = useCallback((id: string, update: (t: ChatTranscript) => ChatTranscript) =>
+    dispatch({ type: 'chatUpdated', id, update }), []);
+
+  /** Adds a binder item (at the end of its parent) with an optional body (and transcript, for an AI chat); returns its id. */
+  const addItem = useCallback((fields: NewItem, content = '', chat?: ChatTranscript): string => {
     const items = stateRef.current?.tree.items ?? [];
     const now = new Date().toISOString();
     const parentId = fields.parentId ?? null;
@@ -162,9 +207,10 @@ export function useProject(api: ProjectApi | null, bridge: Pick<VrsApi['app'], '
       createdAt: now,
       updatedAt: now,
     };
-    dispatch({ type: 'itemsAdded', items: [item], docs: { [item.id]: content } });
+    const chats = item.type === AI_CHAT_TYPE ? { [item.id]: chat ?? newTranscript(chatDefaults()) } : undefined;
+    dispatch({ type: 'itemsAdded', items: [item], docs: { [item.id]: content }, chats });
     return item.id;
-  }, []);
+  }, [chatDefaults]);
 
   const addDocument = useCallback((title: string) => addItem({ type: 'document', title }), [addItem]);
 
@@ -174,19 +220,28 @@ export function useProject(api: ProjectApi | null, bridge: Pick<VrsApi['app'], '
   const moveItem = useCallback((id: string, targetId: string | null, position: DropPosition) =>
     dispatch({ type: 'itemMoved', id, targetId, position }), []);
 
-  /** Copies an item and everything under it, bodies included; resolves to the copy's id. */
+  /** Copies an item and everything under it, bodies and chat transcripts included; resolves to the copy's id. */
   const duplicateItem = useCallback(async (id: string): Promise<string | null> => {
     const current = stateRef.current;
     if (!api || !current) return null;
     const subtree = [...descendantIds(current.tree.items, id)];
-    const bodies = await run(() => Promise.all(subtree.map(i => current.docs[i]?.current ?? api.readDoc(i))));
+    const chatIds = current.tree.items.filter(i => i.type === AI_CHAT_TYPE && subtree.includes(i.id)).map(i => i.id);
+    const read = await run(() => Promise.all([
+      Promise.all(subtree.map(i => current.docs[i]?.current ?? api.readDoc(i))),
+      // A reply still streaming is copied as cancelled: only the original receives the rest.
+      Promise.all(chatIds.map(async i => forPersistence(
+        current.chats[i]?.current ?? (await readTranscript(i)).transcript ?? newTranscript(chatDefaults()),
+      ))),
+    ]));
     const latest = stateRef.current;
-    if (!bodies || !latest?.tree.items.some(i => i.id === id)) return null;
+    if (!read || !latest?.tree.items.some(i => i.id === id)) return null;
+    const [bodies, transcripts] = read;
     const { added, idMap } = duplicateSubtree(latest.tree.items, id, () => crypto.randomUUID(), new Date().toISOString());
     const docs = Object.fromEntries(subtree.map((oldId, i) => [idMap.get(oldId)!, bodies[i]]));
-    dispatch({ type: 'itemsAdded', items: added, docs });
+    const chats = Object.fromEntries(chatIds.map((oldId, i) => [idMap.get(oldId)!, transcripts[i]]));
+    dispatch({ type: 'itemsAdded', items: added, docs, chats });
     return idMap.get(id) ?? null;
-  }, [api, run]);
+  }, [api, chatDefaults, readTranscript, run]);
 
   /** Marks an asset file as unwanted; it's deleted on the next save unless something still uses it. */
   const discardAsset = useCallback((asset: string) => dispatch({ type: 'assetDiscarded', asset }), []);
@@ -219,16 +274,22 @@ export function useProject(api: ProjectApi | null, bridge: Pick<VrsApi['app'], '
   const restoreRecovery = useCallback(async () => {
     if (!api || !recovery) return;
     const diskDocs: Record<string, string> = {};
+    const diskChats: Record<string, ChatTranscript> = {};
     const restored = await run(async () => {
       for (const [id, body] of Object.entries(recovery.docs ?? {})) {
         if (body !== null) diskDocs[id] = await api.readDoc(id);
       }
+      for (const [id, transcript] of Object.entries(recovery.chats ?? {})) {
+        if (transcript === null) continue;
+        const disk = (await readTranscript(id)).transcript;
+        if (disk) diskChats[id] = disk;
+      }
       return true;
     });
     if (!restored) return;
-    dispatch({ type: 'recoveryRestored', snapshot: recovery, diskDocs });
+    dispatch({ type: 'recoveryRestored', snapshot: recovery, diskDocs, diskChats });
     setRecovery(null);
-  }, [api, recovery, run]);
+  }, [api, readTranscript, recovery, run]);
 
   const discardRecovery = useCallback(async () => {
     if (!api) return;
@@ -236,32 +297,46 @@ export function useProject(api: ProjectApi | null, bridge: Pick<VrsApi['app'], '
     setRecovery(null);
   }, [api, run]);
 
+  /** The chat as disk has it now; a missing or damaged file reads as an empty chat. */
+  const readDiskChat = useCallback(async (id: string) => {
+    const { transcript, problem } = await readTranscript(id);
+    return { transcript: transcript ?? newTranscript(chatDefaults()), problem };
+  }, [chatDefaults, readTranscript]);
+
   const reloadFromDisk = useCallback(async (conflict: string) => {
     if (!api) return;
     const doc = DOC_PATH.exec(conflict);
+    const chat = CHAT_PATH.exec(conflict);
     if (doc) {
       const content = await run(() => api.readDoc(doc[1]));
       if (content !== undefined) dispatch({ type: 'docReloaded', id: doc[1], content });
+    } else if (chat) {
+      const disk = await run(() => readDiskChat(chat[1]));
+      if (disk) dispatch({ type: 'chatReloaded', id: chat[1], ...disk });
     } else {
       const structure = await run(() => api.readStructure());
       if (structure) dispatch({ type: 'structureReloaded', ...structure });
     }
     setConflicts(c => c.filter(p => p !== conflict));
-  }, [api, run]);
+  }, [api, readDiskChat, run]);
 
   const keepMine = useCallback(async (conflict: string) => {
     if (!api) return;
     const doc = DOC_PATH.exec(conflict);
+    const chat = CHAT_PATH.exec(conflict);
     if (doc) {
       // Rebase on the new disk content so "dirty" still means "differs from disk".
       const content = await run(() => api.readDoc(doc[1]));
       if (content !== undefined) dispatch({ type: 'docDiskChanged', id: doc[1], content });
+    } else if (chat) {
+      const disk = await run(() => readDiskChat(chat[1]));
+      if (disk) dispatch({ type: 'chatDiskChanged', id: chat[1], transcript: disk.transcript });
     } else {
       // Disk has changed under us: write all of my structure, not just the dirty part.
       dispatch({ type: 'structureKeptMine' });
     }
     setConflicts(c => c.filter(p => p !== conflict));
-  }, [api, run]);
+  }, [api, readDiskChat, run]);
 
   // External edits: reload what's clean, flag what would overwrite unsaved work.
   useEffect(() => {
@@ -277,6 +352,7 @@ export function useProject(api: ProjectApi | null, bridge: Pick<VrsApi['app'], '
             continue;
           }
           const doc = DOC_PATH.exec(change.path);
+          const chat = CHAT_PATH.exec(change.path);
           if (doc) {
             const id = doc[1];
             if (!current.docs[id]) continue; // not loaded: the next read gets the new content
@@ -285,6 +361,17 @@ export function useProject(api: ProjectApi | null, bridge: Pick<VrsApi['app'], '
             } else {
               const content = change.deleted ? '' : await run(() => api.readDoc(id));
               if (content !== undefined) dispatch({ type: 'docReloaded', id, content });
+            }
+          } else if (chat) {
+            const id = chat[1];
+            if (!current.chats[id]) continue; // not loaded: the pending read gets the new content
+            if (isChatDirty(current, id)) {
+              setConflicts(c => (c.includes(change.path) ? c : [...c, change.path]));
+            } else {
+              const disk = change.deleted
+                ? { transcript: newTranscript(chatDefaults()), problem: null }
+                : await run(() => readDiskChat(id));
+              if (disk) dispatch({ type: 'chatReloaded', id, ...disk });
             }
           } else if (change.path === 'tree.json' || change.path === 'vrs.json' || change.path === 'bible/bible.json') {
             if (isStructureDirty(current)) {
@@ -297,7 +384,7 @@ export function useProject(api: ProjectApi | null, bridge: Pick<VrsApi['app'], '
         }
       })();
     });
-  }, [api, assets, run]);
+  }, [api, assets, chatDefaults, readDiskChat, run]);
 
   // Let the main process know, so closing the window can prompt to save.
   const hasProject = state !== null;
@@ -329,7 +416,7 @@ export function useProject(api: ProjectApi | null, bridge: Pick<VrsApi['app'], '
   return useMemo(() => ({
     state, dirty, saving, error, recents, recovery, migratedFrom, conflicts, assets,
     createProject, openProject, openRecent, removeRecent, closeProject, save,
-    loadDoc, loadAllDocs, addDocument, addItem, updateItem, moveItem, duplicateItem, editDoc, renameItem, deleteItem,
+    loadDoc, loadAllDocs, loadAllChats, updateChat, addDocument, addItem, updateItem, moveItem, duplicateItem, editDoc, renameItem, deleteItem,
     renameProject, discardAsset, importMedia, importText, updateBible, exportDossier,
     restoreRecovery, discardRecovery, reloadFromDisk, keepMine, reportError,
     dismissError: () => setError(null),
@@ -337,7 +424,7 @@ export function useProject(api: ProjectApi | null, bridge: Pick<VrsApi['app'], '
   }), [
     state, dirty, saving, error, recents, recovery, migratedFrom, conflicts, assets,
     createProject, openProject, openRecent, removeRecent, closeProject, save,
-    loadDoc, loadAllDocs, addDocument, addItem, updateItem, moveItem, duplicateItem, editDoc, renameItem, deleteItem,
+    loadDoc, loadAllDocs, loadAllChats, updateChat, addDocument, addItem, updateItem, moveItem, duplicateItem, editDoc, renameItem, deleteItem,
     renameProject, discardAsset, importMedia, importText, updateBible, exportDossier,
     restoreRecovery, discardRecovery, reloadFromDisk, keepMine, reportError,
   ]);
