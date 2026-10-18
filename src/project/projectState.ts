@@ -1,6 +1,7 @@
 import type { Bible, OpenedProject, ProjectManifest, ProjectTree, RecoverySnapshot, SavePayload, TreeItem } from '@/project/types';
 import type { ProviderId } from '@/ai/types';
 import { pruneOrphans, removeEntities } from '@/bible/ops';
+import { appendSources, isSourceItem } from '@/bible/sourceOrder';
 import { forPersistence, newTranscript, normalizeTranscript } from '@/chat/transcript';
 import type { ChatTranscript } from '@/chat/types';
 import { descendantIds, moveItem, type DropPosition } from '@/workspace/treeOps';
@@ -105,7 +106,9 @@ function addItems(
     docs[item.id] = { saved: null, current: bodies[item.id] ?? '' };
     if (transcripts[item.id]) chats[item.id] = { saved: null, current: transcripts[item.id] };
   }
-  return { ...state, tree: { ...state.tree, items: [...state.tree.items, ...items] }, docs, chats };
+  // New chats, AI chats and documents join the source order as newest.
+  const bible = appendSources(state.bible, items.filter(isSourceItem).map(i => i.id));
+  return { ...state, tree: { ...state.tree, items: [...state.tree.items, ...items] }, docs, chats, bible };
 }
 
 function updateItems(state: ProjectState, update: (item: TreeItem) => TreeItem): ProjectState {

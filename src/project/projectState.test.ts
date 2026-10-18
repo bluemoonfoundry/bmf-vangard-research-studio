@@ -91,7 +91,7 @@ describe('projectReducer', () => {
   it('adds a document to the tree and writes it on save', () => {
     const s = projectReducer(open(), { type: 'docAdded', item: item('a') })!;
     expect(isDirty(s)).toBe(true);
-    expect(buildSavePayload(s)).toEqual({ tree: { items: [item('a')] }, docs: { a: '' } });
+    expect(buildSavePayload(s)).toEqual({ tree: { items: [item('a')] }, docs: { a: '' }, bible: { ...emptyBible(), sourceOrder: ['a'] } });
   });
 
   it('renames items and the project', () => {
@@ -180,7 +180,15 @@ describe('projectReducer', () => {
 
   it('adds several items with bodies, saving them as new files', () => {
     const s = projectReducer(open(), { type: 'itemsAdded', items: [item('f'), item('x', 0, 'f')], docs: { x: 'body' } })!;
-    expect(buildSavePayload(s)).toEqual({ tree: { items: [item('f'), item('x', 0, 'f')] }, docs: { f: '', x: 'body' } });
+    expect(buildSavePayload(s)).toEqual({
+      tree: { items: [item('f'), item('x', 0, 'f')] }, docs: { f: '', x: 'body' }, bible: { ...emptyBible(), sourceOrder: ['f', 'x'] },
+    });
+  });
+
+  it('adds new source items (chats, AI chats, documents) to the source order as newest', () => {
+    const chat: TreeItem = { ...item('c'), type: 'chat' };
+    const s = projectReducer(open(), { type: 'itemsAdded', items: [{ ...item('f'), type: 'folder' }, chat], docs: {} })!;
+    expect(s.bible.sourceOrder).toEqual(['c']);
   });
 
   it('patches an item without letting the patch change its id', () => {

@@ -33,8 +33,8 @@ contextBridge.exposeInMainWorld('vrs', {
     readAsset: (name) => ipcRenderer.invoke('project:read-asset', name),
     // Shows a native open dialog; the main process copies the pick into assets/.
     importMedia: (kind) => ipcRenderer.invoke('project:import-media', kind),
-    // Shows a native open dialog for a .txt/.md chat transcript; the main process reads it.
-    importText: () => ipcRenderer.invoke('project:import-text'),
+    // Shows a native open dialog for chat transcripts (several at once); the main process reads them.
+    importTexts: () => ipcRenderer.invoke('project:import-texts'),
     // Shows a native save dialog for a Markdown export outside the project.
     exportDossier: (markdown) => ipcRenderer.invoke('project:export-dossier', markdown),
     save: (payload) => ipcRenderer.invoke('project:save', payload),

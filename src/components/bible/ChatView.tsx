@@ -1,4 +1,5 @@
-import { useEffect, useRef } from 'react';
+import { Fragment, useEffect, useMemo, useRef, type ReactNode } from 'react';
+import { turnSpans } from '@/chat/importFormats';
 
 export interface ChatSelection { start: number; end: number; quote: string; rect: DOMRect }
 
@@ -8,6 +9,36 @@ export interface ChatViewProps {
   label?: string;
   highlight?: { start: number; end: number } | null;
   onSelectRange?(r: ChatSelection): void;
+}
+
+const HEADING_CLASS = { user: 'font-semibold text-accent', model: 'font-semibold text-content-muted' } as const;
+
+/**
+ * Renders `text` with turn headings styled and the highlight marked. The rendered text content
+ * is always exactly `text`, so selection offsets stay offsets into the stored body.
+ */
+function renderSegments(text: string, highlight: { start: number; end: number } | null, markRef: React.Ref<HTMLElement>): ReactNode {
+  const headings = turnSpans(text) ?? [];
+  const cuts = new Set([0, text.length]);
+  for (const h of headings) { cuts.add(h.headingStart); cuts.add(h.headingEnd); }
+  if (highlight) { cuts.add(highlight.start); cuts.add(highlight.end); }
+  const points = [...cuts].sort((a, b) => a - b);
+  const out: ReactNode[] = [];
+  let marked = false;
+  for (let i = 0; i + 1 < points.length; i++) {
+    const [from, to] = [points[i], points[i + 1]];
+    if (from === to) continue;
+    let node: ReactNode = text.slice(from, to);
+    const heading = headings.find(h => from >= h.headingStart && to <= h.headingEnd);
+    if (heading) node = <span data-turn-heading={heading.role} className={HEADING_CLASS[heading.role]}>{node}</span>;
+    if (highlight && from >= highlight.start && to <= highlight.end) {
+      // The first piece of the highlight carries the ref, so scrolling lands on its start.
+      node = <mark ref={marked ? undefined : markRef}>{node}</mark>;
+      marked = true;
+    }
+    out.push(<Fragment key={from}>{node}</Fragment>);
+  }
+  return out;
 }
 
 /** A read-only chat transcript. Selection offsets are into `text`, exactly as stored. */
@@ -46,6 +77,11 @@ export function ChatView({ text, label = 'Chat transcript', highlight, onSelectR
 
   const h = highlight && highlight.start >= 0 && highlight.end > highlight.start && highlight.end <= text.length ? highlight : null;
   const hStart = h?.start;
+  const hEnd = h?.end;
+  const segments = useMemo(
+    () => renderSegments(text, hStart === undefined || hEnd === undefined ? null : { start: hStart, end: hEnd }, markRef),
+    [text, hStart, hEnd],
+  );
   useEffect(() => {
     markRef.current?.scrollIntoView?.({ block: 'center' });
   }, [hStart, h?.end]);
@@ -56,13 +92,7 @@ export function ChatView({ text, label = 'Chat transcript', highlight, onSelectR
       aria-label={label}
       className="whitespace-pre-wrap break-words rounded-md border border-line bg-surface-raised p-4 font-mono text-xs leading-relaxed"
     >
-      {h ? (
-        <>
-          {text.slice(0, h.start)}
-          <mark ref={markRef}>{text.slice(h.start, h.end)}</mark>
-          {text.slice(h.end)}
-        </>
-      ) : text}
+      {segments}
     </pre>
   );
 }

@@ -325,6 +325,19 @@ describe('add item dialog', () => {
 });
 
 describe('story bible items', () => {
+  it('places an imported chat where the writer chose in the source order', async () => {
+    const doc: TreeItem = { id: 'd1', parentId: null, type: 'document', title: 'Old notes', order: 0, keywords: [] };
+    await open([doc], { d1: 'notes' });
+    fireEvent.click(screen.getByRole('button', { name: 'Import chat' }));
+    const dialog = screen.getByRole('dialog', { name: 'Import chat' });
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Chat text' }), { target: { value: 'older chat' } });
+    fireEvent.change(within(dialog).getByRole('combobox', { name: 'Place' }), { target: { value: '0' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Import' }));
+    const saved = await save();
+    const chatId = saved.tree!.items.find(i => i.type === 'chat')!.id;
+    expect(saved.bible!.sourceOrder).toEqual([chatId, 'd1']);
+  });
+
   it('imports pasted chat as a read-only chat item with LF text', async () => {
     await open();
     fireEvent.click(screen.getByRole('button', { name: 'Import chat' }));
@@ -343,11 +356,11 @@ describe('story bible items', () => {
 
   it('imports a chat file with its title', async () => {
     await open();
-    fake.nextTextImport = { title: 'Session 3', text: 'a\nb', fileName: 'Session 3.txt' };
+    fake.nextTextImports = { imports: [{ title: 'Session 3', text: 'a\nb', fileName: 'Session 3.txt' }], skipped: [] };
     fireEvent.click(screen.getByRole('button', { name: 'Import chat' }));
     const dialog = screen.getByRole('dialog', { name: 'Import chat' });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'From file…' }));
-    await waitFor(() => expect(within(dialog).getByRole('textbox', { name: 'Title' })).toHaveValue('Session 3'));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Choose files…' }));
+    await waitFor(() => expect(within(dialog).getByRole('textbox', { name: 'Title for Session 3.txt' })).toHaveValue('Session 3'));
     fireEvent.click(within(dialog).getByRole('button', { name: 'Import' }));
     expect(await screen.findByRole('treeitem', { name: 'Session 3' })).toBeInTheDocument();
     expect((await save()).tree!.items).toEqual([expect.objectContaining({ type: 'chat', importedFrom: 'Session 3.txt' })]);

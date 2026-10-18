@@ -71,6 +71,10 @@ export interface TreeItem {
   mediaMetadata?: MediaMetadata;
   entityKind?: string;
   importedFrom?: string;
+  /** How an imported chat was recognised (src/chat/importFormats.ts ImportedFormat). */
+  importedFormat?: string;
+  /** Where an imported chat came from, e.g. its AI Studio page. Opened through app:open-external. */
+  sourceUrl?: string;
   [extra: string]: unknown;
 }
 
@@ -110,7 +114,13 @@ export interface Decision {
   at: string;
 }
 
-export interface Bible { facts: Fact[]; dependencies: Dependency[]; decisions: Decision[] }
+export interface Bible {
+  facts: Fact[];
+  dependencies: Dependency[];
+  decisions: Decision[];
+  /** Ids of chat, AI chat and document items, oldest first (src/bible/sourceOrder.ts). */
+  sourceOrder?: string[];
+}
 
 export interface ProjectTree {
   items: TreeItem[];
@@ -138,6 +148,11 @@ export interface TextImport {
   text: string;
   fileName: string;
 }
+
+export interface SkippedImport { fileName: string; message: string }
+
+/** The transcripts picked in one import dialog: what could be read, and what was skipped and why. */
+export interface TextImportBatch { imports: TextImport[]; skipped: SkippedImport[] }
 
 export interface ImportedAsset {
   /** File name under assets/. */

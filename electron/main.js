@@ -166,14 +166,15 @@ function registerIpcHandlers() {
         if (canceled || !filePaths?.length) return null;
         return projectSession.importAsset(filePaths[0], kind);
     });
-    handle('project:import-text', async () => {
+    handle('project:import-texts', async () => {
         const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
-            title: 'Import Chat Transcript',
-            properties: ['openFile'],
-            filters: [{ name: 'Text', extensions: TEXT_IMPORT_EXTENSIONS }],
+            title: 'Import Chat Transcripts',
+            properties: ['openFile', 'multiSelections'],
+            // AI Studio's Drive files have no extension, so "All files" stays available.
+            filters: [{ name: 'Chat transcripts', extensions: TEXT_IMPORT_EXTENSIONS }, { name: 'All files', extensions: ['*'] }],
         });
         if (canceled || !filePaths?.length) return null;
-        return projectSession.readTextImport(filePaths[0]);
+        return projectSession.readTextImports(filePaths);
     });
     handle('project:export-dossier', async (markdown) => {
         if (typeof markdown !== 'string') throw Object.assign(new Error('Dossier must be text.'), { code: 'INVALID' });

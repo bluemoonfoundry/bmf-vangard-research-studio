@@ -257,10 +257,10 @@ export function useProject(
     return (await run(() => api.importMedia(kind))) ?? null;
   }, [api, run]);
 
-  /** Lets the user pick a text file to import; null if they cancel or it fails. */
-  const importText = useCallback(async () => {
+  /** Lets the user pick text files to import; null if they cancel or it fails. */
+  const importTexts = useCallback(async () => {
     if (!api) return null;
-    return (await run(() => api.importText())) ?? null;
+    return (await run(() => api.importTexts())) ?? null;
   }, [api, run]);
 
   const updateBible = useCallback((update: (b: Bible) => Bible) => dispatch({ type: 'bibleUpdated', update }), []);
@@ -422,7 +422,7 @@ export function useProject(
     state, dirty, saving, error, recents, recovery, migratedFrom, conflicts, assets,
     createProject, openProject, openRecent, removeRecent, closeProject, save,
     loadDoc, loadAllDocs, loadAllChats, updateChat, addDocument, addItem, updateItem, moveItem, duplicateItem, editDoc, renameItem, deleteItem,
-    renameProject, discardAsset, importMedia, importText, updateBible, exportDossier,
+    renameProject, discardAsset, importMedia, importTexts, updateBible, exportDossier,
     restoreRecovery, discardRecovery, reloadFromDisk, keepMine, reportError,
     dismissError: () => setError(null),
     dismissMigration: () => setMigratedFrom(null),
@@ -430,7 +430,7 @@ export function useProject(
     state, dirty, saving, error, recents, recovery, migratedFrom, conflicts, assets,
     createProject, openProject, openRecent, removeRecent, closeProject, save,
     loadDoc, loadAllDocs, loadAllChats, updateChat, addDocument, addItem, updateItem, moveItem, duplicateItem, editDoc, renameItem, deleteItem,
-    renameProject, discardAsset, importMedia, importText, updateBible, exportDossier,
+    renameProject, discardAsset, importMedia, importTexts, updateBible, exportDossier,
     restoreRecovery, discardRecovery, reloadFromDisk, keepMine, reportError,
   ]);
 }

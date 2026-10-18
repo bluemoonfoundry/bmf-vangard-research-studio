@@ -99,16 +99,17 @@ describe('useProject: bible external changes', () => {
     expect(payload.bible).toBeDefined();
   });
 
-  it('importText returns the picked text, or null on cancel', async () => {
+  it('importTexts returns the picked batch, or null on cancel', async () => {
     const ctx = setup();
     ctx.fake.nextDialogResult = makeOpened();
     await act(() => ctx.hook.result.current.openProject());
-    ctx.fake.nextTextImport = { title: 'T', text: 'x', fileName: 'T.txt' };
+    const batch = { imports: [{ title: 'T', text: 'x', fileName: 'T.txt' }], skipped: [{ fileName: 'b.pdf', message: 'no' }] };
+    ctx.fake.nextTextImports = batch;
     let r: unknown;
-    await act(async () => { r = await ctx.hook.result.current.importText(); });
-    expect(r).toEqual({ title: 'T', text: 'x', fileName: 'T.txt' });
-    ctx.fake.nextTextImport = null;
-    await act(async () => { r = await ctx.hook.result.current.importText(); });
+    await act(async () => { r = await ctx.hook.result.current.importTexts(); });
+    expect(r).toEqual(batch);
+    ctx.fake.nextTextImports = null;
+    await act(async () => { r = await ctx.hook.result.current.importTexts(); });
     expect(r).toBeNull();
   });
 });

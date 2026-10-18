@@ -94,6 +94,13 @@ export async function stubOpenFile(app: ElectronApplication, file: string) {
   }, file);
 }
 
+/** Makes the next native "open file" dialog return several files, as a multi-select pick. */
+export async function stubOpenFiles(app: ElectronApplication, files: string[]) {
+  await app.evaluate(({ dialog }, picked) => {
+    dialog.showOpenDialog = (async () => ({ canceled: false, filePaths: picked })) as typeof dialog.showOpenDialog;
+  }, files);
+}
+
 /** Makes the next native save dialog return `file` (e.g. an export). */
 export async function stubSaveFile(app: ElectronApplication, file: string) {
   await app.evaluate(({ dialog }, picked) => {

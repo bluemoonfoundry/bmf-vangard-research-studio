@@ -117,6 +117,11 @@ A project is a folder (`Name.vrs/`) of plain files: `vrs.json` (manifest + `sche
 - **IPC results** are `{ ok, value | error: { code, message } }` envelopes; `src/project/api.ts` unwraps them.
 - **Binder items** are `tree.json` entries (synopsis, label, status, notes, citations, references by id, `asset`);
   every item's body is `docs/<id>.md`. All bodies are loaded on open (search, word counts and export need them).
+- **Imported chats** (`type: 'chat'`) come from `project:import-texts` (multi-select; extensionless files only if UTF-8
+  text) or paste. `src/chat/importFormats.ts` recognises AI Chat Exporter Markdown (AI Studio) and stores it in the
+  canonical turn layout (`=== You ===` / `=== <Model> ===` heading lines; `turnSpans()` finds turns in a stored body),
+  with `importedFormat` and `sourceUrl` on the item. Anything else is stored as plain text. `ChatView` styles the
+  headings without changing the text, so fact offsets stay offsets into the stored body.
 - **Media** is copied into `assets/<id>.<ext>` by `project:import-media` (native dialog; name chosen in main,
   allowlist in `electron/lib/media.js`). The renderer reads bytes via `project:read-asset` and shows them through
   `blob:` URLs (`src/workspace/assetCache.ts`), never by path. Unwanted assets ride along in a save's
@@ -128,7 +133,9 @@ A project is a folder (`Name.vrs/`) of plain files: `vrs.json` (manifest + `sche
 
 ## Story Bible
 
-Structured canon lives in `bible/bible.json`: `{ facts, dependencies, decisions }`. Unknown fields are kept. The file has no
+Structured canon lives in `bible/bible.json`: `{ facts, dependencies, decisions, sourceOrder? }`. Unknown fields are kept.
+`sourceOrder` lists chat, AI chat and document ids oldest first (`src/bible/sourceOrder.ts`; new ones join as newest,
+deleted ones are pruned on save; unlisted ones count as oldest). The file has no
 version field; the project's `schemaVersion` in `vrs.json` (now 2) covers it.
 
 - **Facts** are `{ id, entityId, attribute, value, status, source?, origin, note?, createdAt, updatedAt }`. `status` is

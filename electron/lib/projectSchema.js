@@ -211,6 +211,10 @@ export function normalizeBible(raw) {
             return entry;
         });
     }
+    if (raw.sourceOrder !== undefined
+        && (!Array.isArray(raw.sourceOrder) || !raw.sourceOrder.every(id => isValidItemId(id)))) {
+        throw new ProjectFormatError('CORRUPT', 'bible.json "sourceOrder" must be a list of item ids.');
+    }
     return { ...raw, ...lists };
 }
 

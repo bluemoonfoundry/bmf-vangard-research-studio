@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, BookOpen, CalendarRange, MessageSquare, Columns2, LayoutGrid, Plus, Rows2, SlidersHorizontal, Square, Table, Download, X } from 'lucide-react';
+import { AlertTriangle, ArrowDownUp, BookOpen, CalendarRange, MessageSquare, Columns2, LayoutGrid, Plus, Rows2, SlidersHorizontal, Square, Table, Download, X } from 'lucide-react';
 import type { EntityKind, FactSource, ItemType, MediaKind, TreeItem } from '@/project/types';
 import type { ProjectController } from '@/project/useProject';
 import { AI_CHAT_TYPE } from '@/project/projectState';
@@ -18,7 +18,8 @@ import { OutlinerView } from '@/components/workspace/OutlinerView';
 import { Inspector } from '@/components/workspace/Inspector';
 import { SplitPane, type SplitOrientation } from '@/components/workspace/SplitPane';
 import { ImportChatModal } from '@/components/bible/ImportChatModal';
-import { normalizeChatText } from '@/bible/entities';
+import { insertSources, orderedSources, setSourceOrder } from '@/bible/sourceOrder';
+import { SourceOrderModal } from '@/components/bible/SourceOrderModal';
 import { findContradictions, openContradictions } from '@/bible/contradictions';
 import { ConflictQueue } from '@/components/bible/ConflictQueue';
 import { TimelineView } from '@/components/bible/TimelineView';
@@ -62,8 +63,11 @@ export function Workspace({ project, ai, aiApi }: WorkspaceProps) {
   const state = project.state!;
   const items = state.tree.items;
   const { docs, chats } = state;
+  // The imported file name tells re-exports of the same chat (same title) apart.
+  const sourceRows = orderedSources(state.bible, items)
+    .map(i => ({ id: i.id, title: i.title, ...(i.importedFrom && { detail: i.importedFrom }) }));
   const {
-    addItem, updateItem, editDoc, moveItem, deleteItem, duplicateItem, loadAllDocs, importMedia, importText, discardAsset,
+    addItem, updateItem, editDoc, moveItem, deleteItem, duplicateItem, loadAllDocs, importMedia, importTexts, discardAsset,
     renameProject, exportDossier, reportError, assets, updateBible, updateChat,
   } = project;
   const aiEnabled = ai.enabled;
@@ -89,6 +93,7 @@ export function Workspace({ project, ai, aiApi }: WorkspaceProps) {
   const [quickRefId, setQuickRefId] = useState<string | null>(null);
   const [adding, setAdding] = useState<{ type: ItemType; parentId: string | null } | null>(null);
   const [importingChat, setImportingChat] = useState<{ parentId: string | null } | null>(null);
+  const [orderingSources, setOrderingSources] = useState(false);
   /** A fact's passage to show once its source opens; cleared by any other navigation. */
   const [highlight, setHighlight] = useState<{ itemId: string; messageId?: string; start: number; end: number } | null>(null);
   const [mode, setMode] = useState<WorkspaceMode>('research');
@@ -412,6 +417,9 @@ export function Workspace({ project, ai, aiApi }: WorkspaceProps) {
           <button type="button" className={btn} onClick={() => setImportingChat({ parentId: newItemParentId })}>
             <MessageSquare className="h-3.5 w-3.5" /> Import chat
           </button>
+          <button type="button" className={btn} onClick={() => setOrderingSources(true)}>
+            <ArrowDownUp className="h-3.5 w-3.5" /> Source order
+          </button>
           <button type="button" className={btn} onClick={() => setExporting(true)}>
             <Download className="h-3.5 w-3.5" /> Export
           </button>
@@ -518,12 +526,24 @@ export function Workspace({ project, ai, aiApi }: WorkspaceProps) {
       )}
       {importingChat && (
         <ImportChatModal
-          importText={importText}
-          onCreate={(fields, text) => {
-            expand(importingChat.parentId);
-            navigate(addItem({ type: 'chat', parentId: importingChat.parentId, ...fields }, normalizeChatText(text)));
+          importTexts={importTexts}
+          sources={sourceRows}
+          onImport={(entries, position) => {
+            const { parentId } = importingChat;
+            const ids = entries.map(({ body, ...fields }) => addItem({ type: 'chat', parentId, ...fields }, body));
+            // addItem lists each new chat as newest; move the batch to where the writer placed it.
+            updateBible(b => insertSources(b, items, ids, position));
+            expand(parentId);
+            navigate(ids[0]);
           }}
           onClose={() => setImportingChat(null)}
+        />
+      )}
+      {orderingSources && (
+        <SourceOrderModal
+          sources={sourceRows}
+          onSave={(ids) => updateBible(b => setSourceOrder(b, ids))}
+          onClose={() => setOrderingSources(false)}
         />
       )}
       {exporting && (

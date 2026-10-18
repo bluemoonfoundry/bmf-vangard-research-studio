@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
 import {
-  Bold, Code, Eye, Heading1, Heading2, Italic, List, ListOrdered, Minus, Pencil, Quote, Upload,
+  Bold, Code, ExternalLink, Eye, Heading1, Heading2, Italic, List, ListOrdered, Minus, Pencil, Quote, Upload,
 } from 'lucide-react';
 import type { EntityKind, MediaKind, TreeItem } from '@/project/types';
 import type { AssetCache } from '@/workspace/assetCache';
@@ -145,6 +145,11 @@ export function DocumentEditor(props: DocumentEditorProps) {
               placeholder="Untitled"
               onChange={(e) => onUpdate(item.id, { title: e.target.value })}
             />
+            {isChat && item.sourceUrl && (
+              <button type="button" className={btn} onClick={() => onOpenLink(item.sourceUrl!)}>
+                <ExternalLink className="h-3.5 w-3.5" /> Open in AI Studio
+              </button>
+            )}
             {!isChat && <div className={segmentGroup} role="group" aria-label="Editor mode">
               <button type="button" className={segment(!preview)} aria-pressed={!preview} onClick={() => setPreview(false)}>
                 <Pencil className="h-3 w-3" /> Edit
