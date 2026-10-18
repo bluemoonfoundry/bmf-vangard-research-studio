@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { ArrowDown, ArrowUp, Upload } from 'lucide-react';
+import { useRef, useState } from 'react';
+import { ArrowDown, ArrowUp, Upload, X } from 'lucide-react';
 import type { SkippedImport, TextImportBatch } from '@/project/types';
 import { parseTranscript, type ImportedFormat, type ParsedTranscript } from '@/chat/importFormats';
 import { Modal } from '@/components/workspace/Modal';
@@ -22,7 +22,7 @@ export interface ImportChatModalProps {
   onClose(): void;
 }
 
-interface FileRow { fileName: string; title: string; parsed: ParsedTranscript }
+interface FileRow { key: number; fileName: string; text: string; title: string; parsed: ParsedTranscript }
 
 const DEFAULT_TITLE = 'Imported chat';
 
@@ -48,38 +48,53 @@ function Detected({ parsed }: { parsed: ParsedTranscript }) {
 /**
  * Imports chat transcripts by paste or from files (several at once). AI Studio exports are
  * recognised and stored turn by turn; the batch is placed in the project's source order.
- * Mount fresh for each use.
+ * Further picks add to the batch; removing every file goes back to paste. Mount fresh for each use.
  */
 export function ImportChatModal({ importTexts, sources, onImport, onClose }: ImportChatModalProps) {
   const [title, setTitle] = useState('');
   const [titleEdited, setTitleEdited] = useState(false);
   const [text, setText] = useState('');
+  const [pasted, setPasted] = useState<ParsedTranscript | null>(null);
   const [files, setFiles] = useState<FileRow[] | null>(null);
   const [skipped, setSkipped] = useState<SkippedImport[]>([]);
   const [picking, setPicking] = useState(false);
   const [position, setPosition] = useState(sources.length);
-
-  const pasted = useMemo(() => (text.trim() ? parseTranscript(text) : null), [text]);
+  const nextKey = useRef(0);
 
   const chooseFiles = async () => {
     setPicking(true);
     try {
       const batch = await importTexts();
       if (!batch) return;
-      setFiles(batch.imports.map(i => {
-        const parsed = parseTranscript(i.text);
-        return { fileName: i.fileName, title: parsed.title ?? i.title, parsed };
-      }));
       setSkipped(batch.skipped);
+      if (!batch.imports.length) return;
+      setFiles(rows => {
+        const kept = rows ?? [];
+        // The same file picked again unchanged is already listed.
+        const added = batch.imports
+          .filter(i => !kept.some(r => r.fileName === i.fileName && r.text === i.text))
+          .map(i => {
+            const parsed = parseTranscript(i.text);
+            return { key: nextKey.current++, fileName: i.fileName, text: i.text, title: parsed.title ?? i.title, parsed };
+          });
+        return [...kept, ...added];
+      });
     } finally {
       setPicking(false);
     }
   };
 
   const changeText = (value: string) => {
+    const parsed = value.trim() ? parseTranscript(value) : null;
     setText(value);
-    if (!titleEdited) setTitle(value.trim() ? parseTranscript(value).title ?? '' : '');
+    setPasted(parsed);
+    if (!titleEdited) setTitle(parsed?.title ?? '');
   };
+
+  const remove = (key: number) => setFiles(rows => {
+    const next = rows?.filter(r => r.key !== key) ?? [];
+    return next.length ? next : null;
+  });
 
   const move = (from: number, to: number) => setFiles(rows => {
     if (!rows || to < 0 || to >= rows.length) return rows;
@@ -114,27 +129,32 @@ export function ImportChatModal({ importTexts, sources, onImport, onClose }: Imp
         {files ? (
           <ol className="flex flex-col gap-3">
             {files.map((f, i) => (
-              <li key={f.fileName} className="flex items-start gap-2 rounded border border-line p-2">
+              <li key={f.key} className="flex items-start gap-2 rounded border border-line p-2">
                 <div className="flex flex-1 flex-col gap-1">
                   <input
                     aria-label={`Title for ${f.fileName}`}
                     className={input}
                     value={f.title}
-                    onChange={(e) => setFiles(rows => rows!.map((r, j) => (j === i ? { ...r, title: e.target.value } : r)))}
+                    onChange={(e) => setFiles(rows => rows!.map(r => (r.key === f.key ? { ...r, title: e.target.value } : r)))}
                   />
                   <span className="truncate text-content-muted">{f.fileName}</span>
                   <Detected parsed={f.parsed} />
                 </div>
-                {files.length > 1 && (
-                  <div className="flex flex-col">
-                    <button type="button" className={btnGhost} aria-label={`Move ${f.fileName} up`} disabled={i === 0} onClick={() => move(i, i - 1)}>
-                      <ArrowUp className="h-3.5 w-3.5" />
-                    </button>
-                    <button type="button" className={btnGhost} aria-label={`Move ${f.fileName} down`} disabled={i === files.length - 1} onClick={() => move(i, i + 1)}>
-                      <ArrowDown className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                )}
+                <div className="flex flex-col">
+                  <button type="button" className={btnGhost} aria-label={`Remove ${f.fileName}`} title="Remove" onClick={() => remove(f.key)}>
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                  {files.length > 1 && (
+                    <>
+                      <button type="button" className={btnGhost} aria-label={`Move ${f.fileName} up`} disabled={i === 0} onClick={() => move(i, i - 1)}>
+                        <ArrowUp className="h-3.5 w-3.5" />
+                      </button>
+                      <button type="button" className={btnGhost} aria-label={`Move ${f.fileName} down`} disabled={i === files.length - 1} onClick={() => move(i, i + 1)}>
+                        <ArrowDown className="h-3.5 w-3.5" />
+                      </button>
+                    </>
+                  )}
+                </div>
               </li>
             ))}
           </ol>
@@ -168,7 +188,7 @@ export function ImportChatModal({ importTexts, sources, onImport, onClose }: Imp
         <div className="flex items-center justify-between gap-3 text-content-muted">
           <span className="truncate">{files ? `${files.length} file${files.length === 1 ? '' : 's'}` : 'Or load files (AI Studio exports, .txt, .md)'}</span>
           <button type="button" className={btn} onClick={() => void chooseFiles()} disabled={picking}>
-            <Upload className="h-3.5 w-3.5" /> Choose files…
+            <Upload className="h-3.5 w-3.5" /> {files ? 'Add files…' : 'Choose files…'}
           </button>
         </div>
       </form>
