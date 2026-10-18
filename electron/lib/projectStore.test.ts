@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
@@ -312,6 +312,24 @@ describe('chat transcripts', () => {
         const odd = await readChat(root, 'odd');
         expect(odd.transcript).toBeNull();
         expect(odd.problem).toMatch(/role/);
+    });
+
+    it('readChat: any other read failure -> problem message, not a throw', async () => {
+        // A directory where the file should be fails with EISDIR (EACCES and the like take the same path).
+        await fs.mkdir(path.join(root, 'chats', 'dir.json'));
+        const dir = await readChat(root, 'dir');
+        expect(dir.transcript).toBeNull();
+        expect(dir.problem).toMatch(/chats\/dir\.json/);
+        const spy = vi.spyOn(fs, 'readFile').mockRejectedValueOnce(Object.assign(new Error('EACCES: permission denied, open C:/secret/path'), { code: 'EACCES' }));
+        try {
+            const denied = await readChat(root, 'locked');
+            expect(denied.transcript).toBeNull();
+            expect(denied.problem).toMatch(/chats\/locked\.json/);
+            expect(denied.problem).toMatch(/EACCES/);
+            expect(denied.problem).not.toMatch(/secret/);
+        } finally {
+            spy.mockRestore();
+        }
     });
 
     it('readChat rejects an invalid id', async () => {

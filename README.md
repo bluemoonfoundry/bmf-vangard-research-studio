@@ -2,7 +2,7 @@
 
 A desktop workspace for visual-novel writers to collect story research and keep their worldbuilding
 consistent: documents, images, audio, web clips, maps and chat transcripts, plus a story bible with
-route-scoped canon and conflict detection.
+canon and conflict detection.
 
 AI features (a multi-provider AI Chat with web search and URL context, saved as transcripts in the project) are optional and stay off until you enable them and provide your own API key.
 

@@ -35,6 +35,8 @@ export interface ChatEditorProps {
   modelsError?(provider: ProviderId): string | null;
   /** True while a reply streams into this chat. */
   streaming: boolean;
+  /** Why this chat's last send or resubmit was refused, or null. */
+  streamError?: string | null;
   onUpdate(update: (t: ChatTranscript) => ChatTranscript): void;
   onRename(title: string): void;
   onSend(text: string): void;
@@ -60,7 +62,7 @@ const WARN_SHARE = 0.9;
  */
 export function ChatEditor(props: ChatEditorProps) {
   const {
-    item, entry, aiEnabled, configuredProviders, models, loadModels, modelsError, streaming,
+    item, entry, aiEnabled, configuredProviders, models, loadModels, modelsError, streaming, streamError,
     onUpdate, onRename, onSend, onResubmit, onStop, items, bible, contentOf, chatOf, onOpenLink, capture, highlight,
   } = props;
   const [composer, setComposer] = useState('');
@@ -107,18 +109,22 @@ export function ChatEditor(props: ChatEditorProps) {
     return <p className="p-6 text-sm text-content-muted">Loading…</p>;
   }
 
+  // A chat whose file couldn't be read (damaged, or from a newer version) is never written from here.
+  const writable = aiEnabled && !entry.problem;
   const setSettings = (patch: Partial<ChatSettings>) => {
-    if (aiEnabled) onUpdate(t => updateSettings(t, patch));
+    if (writable) onUpdate(t => updateSettings(t, patch));
     else if (patch.filterMode) setViewFilter(patch.filterMode);
   };
-  const filterMode = (!aiEnabled && viewFilter) || settings.filterMode;
+  const filterMode = (!writable && viewFilter) || settings.filterMode;
   const messages = transcript.messages;
   // A cited message stays visible whatever the filter.
   const shown = filterMode === 'all'
     ? messages
     : messages.filter(m => m.id === highlight?.messageId || (filterMode === 'user_only' ? m.role === 'user' : m.role === 'assistant'));
   const unavailable = listLoaded && settings.model !== null && !model;
-  const canSend = aiEnabled && !streaming && model !== undefined && composer.trim() !== '';
+  // Sending and resubmitting both need a model listed for a configured provider.
+  const canRun = writable && !streaming && model !== undefined;
+  const canSend = canRun && composer.trim() !== '';
   // About four characters per token, as estimateTokens counts.
   const tokens = aiEnabled ? Math.ceil((systemLength + historyOf(messages).reduce((n, m) => n + m.text.length, 0)) / 4) : 0;
   const limit = model?.inputTokenLimit;
@@ -137,7 +143,7 @@ export function ChatEditor(props: ChatEditorProps) {
         onRename={onRename}
         settings={{ ...settings, filterMode }}
         onSettings={setSettings}
-        editable={aiEnabled}
+        editable={writable}
         configuredProviders={configuredProviders}
         models={list}
         model={model}
@@ -149,10 +155,10 @@ export function ChatEditor(props: ChatEditorProps) {
         attachmentsOpen={attachmentsOpen}
         onToggleAttachments={() => setAttachmentsOpen(o => !o)}
       />
-      {aiEnabled && personaOpen && (
+      {writable && personaOpen && (
         <PersonaDrawer personaId={settings.personaId} systemPrompt={settings.systemPrompt} onChange={setSettings} onClose={() => setPersonaOpen(false)} />
       )}
-      {aiEnabled && attachmentsOpen && (
+      {writable && attachmentsOpen && (
         <AttachmentsPanel chatId={item.id} attachments={settings.attachments} items={items} onChange={(attachments) => setSettings({ attachments })} />
       )}
 
@@ -162,10 +168,13 @@ export function ChatEditor(props: ChatEditorProps) {
       {!aiEnabled && (
         <p role="note" className="border-b border-line bg-surface-sunken px-4 py-2 text-xs text-content-muted">Turn on AI in Settings to continue this chat.</p>
       )}
-      {aiEnabled && unavailable && (
+      {writable && unavailable && (
         <p role="alert" className="border-b border-line bg-surface-sunken px-4 py-2 text-xs text-warning">
           This chat&apos;s model is no longer available. Pick another model to continue.
         </p>
+      )}
+      {writable && streamError && (
+        <p role="alert" aria-label="Chat error" className="border-b border-line bg-surface-sunken px-4 py-2 text-xs text-danger">{streamError}</p>
       )}
 
       <div className="flex-1 overflow-y-auto">
@@ -177,7 +186,7 @@ export function ChatEditor(props: ChatEditorProps) {
           )}
           {messages.length === 0 && (
             <p className="py-10 text-center text-sm text-content-muted">
-              {aiEnabled ? 'Ask a question about your story or research. The chat sees your kept canon and any attachments.' : 'This chat has no messages.'}
+              {writable ? 'Ask a question about your story or research. The chat sees your kept canon and any attachments.' : 'This chat has no messages.'}
             </p>
           )}
           {shown.map(m => {
@@ -193,7 +202,7 @@ export function ChatEditor(props: ChatEditorProps) {
                 onCapture={capture && ((sel) => setCaptured(c => (
                   c && c.messageId === m.id && c.start === sel.start && c.end === sel.end ? c : { ...sel, messageId: m.id }
                 )))}
-                actions={aiEnabled ? {
+                actions={writable ? {
                   onSaveText: (text) => onUpdate(t => editMessageText(t, m.id, text)),
                   onSaveAndResubmit: (text) => onResubmit(m.id, text),
                   onResubmit: () => onResubmit(m.id, undefined),
@@ -202,6 +211,7 @@ export function ChatEditor(props: ChatEditorProps) {
                   onDeleteAfter: () => setConfirm({ messageId: m.id, side: 'after', count: countAfter }),
                   countBefore: index,
                   countAfter,
+                  canSend: canRun,
                 } : null}
               />
             );
@@ -209,7 +219,7 @@ export function ChatEditor(props: ChatEditorProps) {
         </div>
       </div>
 
-      {aiEnabled && (
+      {writable && (
         <div className="shrink-0 border-t border-line bg-surface-raised px-4 py-2.5">
           <div className="mx-auto flex w-full max-w-4xl flex-col gap-1.5">
             <textarea

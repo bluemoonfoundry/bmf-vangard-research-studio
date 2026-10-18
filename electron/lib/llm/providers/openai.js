@@ -9,7 +9,7 @@ import { normalizeSources } from '../sources.js';
  * the Responses streaming-events reference and the community streaming-events field guide):
  *  - header:  `Authorization: Bearer <key>`
  *  - models:  GET /v1/models (no token limits are reported); chat-capable families only
- *  - stream:  POST /v1/responses { stream: true, model, instructions, input: [{role, content}], temperature?, tools? }
+ *  - stream:  POST /v1/responses { stream: true, store: false, model, instructions, input: [{role, content}], temperature?, tools? }
  *  - webSearch -> tools[{ type: 'web_search' }]; there is no URL-reading tool, so readUrls is never available
  *  - events: response.output_text.delta {delta}; response.output_text.annotation.added {annotation};
  *    response.completed|response.incomplete {response:{model,usage,output[]}}; response.failed {response.error};
@@ -57,6 +57,8 @@ function buildBody(request) {
     const body = {
         model: request.model,
         stream: true,
+        // Each request carries its full history, so nothing needs to be kept on OpenAI's side.
+        store: false,
         input: request.messages.map((/** @type {any} */ m) => ({ role: m.role, content: m.text })),
     };
     if (request.system) body.instructions = request.system;

@@ -38,7 +38,7 @@ function normalize(raw) {
 }
 
 /**
- * App-level settings in userData (`app-settings.json`). A missing or corrupt
+ * App-level settings in userData (`settings.json`). A missing or corrupt
  * file reads as defaults; unknown fields survive an update.
  * @param {string} filePath
  */

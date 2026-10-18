@@ -180,9 +180,14 @@ export function useProject(
     if (!api || !current) return;
     const ids = current.tree.items.filter(i => i.type === AI_CHAT_TYPE && !current.chats[i.id]).map(i => i.id);
     if (!ids.length) return;
-    const read = await run(() => Promise.all(ids.map(readTranscript)));
-    if (read) dispatch({ type: 'chatsLoaded', defaults: chatDefaults(), chats: Object.fromEntries(ids.map((id, i) => [id, read[i]])) });
-  }, [api, chatDefaults, readTranscript, run]);
+    // Settled one by one: a chat that fails to load carries the reason (and opens read-only) instead of blocking the rest.
+    const read = await Promise.allSettled(ids.map(readTranscript));
+    const chats = Object.fromEntries(ids.map((id, i) => {
+      const r = read[i];
+      return [id, r.status === 'fulfilled' ? r.value : { transcript: null, problem: describeError(r.reason) }];
+    }));
+    dispatch({ type: 'chatsLoaded', defaults: chatDefaults(), chats });
+  }, [api, chatDefaults, readTranscript]);
 
   // Transcripts load with the project (search needs them), and again for chats that appear in the tree.
   const items = state?.tree.items;

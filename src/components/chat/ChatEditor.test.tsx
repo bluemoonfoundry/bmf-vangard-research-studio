@@ -34,17 +34,17 @@ const reply = (id: string, text: string, extra: Partial<ChatMessage> = {}): Chat
 const transcript = (messages: ChatMessage[] = [], model = 'claude-x'): ChatTranscript =>
   ({ ...newTranscript({ provider: 'anthropic', model }), messages });
 
-type Overrides = Partial<ChatEditorProps> & { initial?: ChatTranscript };
+type Overrides = Partial<ChatEditorProps> & { initial?: ChatTranscript; problem?: string };
 
 /** Holds the transcript like project state does, so edits show up. */
-function setup({ initial = transcript(), ...overrides }: Overrides = {}) {
+function setup({ initial = transcript(), problem, ...overrides }: Overrides = {}) {
   const updates: ChatTranscript[] = [];
   const spies = {
     onSend: vi.fn(), onResubmit: vi.fn(), onStop: vi.fn(), onRename: vi.fn(), onOpenLink: vi.fn(),
     loadModels: vi.fn((_p: ProviderId) => Promise.resolve(MODELS)),
   };
   function Harness() {
-    const [entry, setEntry] = useState<ChatEntry>({ saved: initial, current: initial });
+    const [entry, setEntry] = useState<ChatEntry>(problem ? { saved: initial, current: initial, problem } : { saved: initial, current: initial });
     return (
       <ChatEditor
         item={chatItem}
@@ -107,6 +107,47 @@ describe('ChatEditor', () => {
     }
     render(<Problem />);
     expect(screen.getByText("This chat file couldn't be read: not valid JSON")).toBeInTheDocument();
+  });
+
+  it('a chat whose file could not be read is read-only, so it is never overwritten', () => {
+    const { updates, onSend, onResubmit } = setup({ initial: transcript(THREE), problem: 'made by a newer version' });
+    expect(screen.getByText("This chat file couldn't be read: made by a newer version")).toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: 'Message' })).toBeNull();
+    expect(screen.queryByRole('combobox', { name: 'Provider' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Persona/ })).toBeNull();
+    for (const name of ['Edit', 'Resubmit', 'Delete message']) expect(screen.queryByRole('button', { name })).toBeNull();
+    expect(screen.getAllByRole('button', { name: 'Copy' })).toHaveLength(4);
+    // AI is on, so the "turn on AI" note would mislead.
+    expect(screen.queryByText('Turn on AI in Settings to continue this chat.')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'AI' }));
+    expect(screen.getAllByRole('article')).toHaveLength(2);
+    expect(updates).toHaveLength(0);
+    expect(onSend).not.toHaveBeenCalled();
+    expect(onResubmit).not.toHaveBeenCalled();
+  });
+
+  it('a retired model disables Resubmit and Save & resubmit, not Save text only', () => {
+    const { onResubmit } = setup({ initial: transcript(THREE, 'claude-retired') });
+    const first = screen.getByRole('article', { name: 'You: Who ran the harbour?' });
+    expect(within(first).getByRole('button', { name: 'Resubmit' })).toBeDisabled();
+    fireEvent.click(within(first).getByRole('button', { name: 'Edit' }));
+    fireEvent.change(within(first).getByRole('textbox', { name: 'Edit message' }), { target: { value: 'Who ran the port?' } });
+    expect(within(first).getByRole('button', { name: 'Save & resubmit' })).toBeDisabled();
+    expect(within(first).getByRole('button', { name: 'Save text only' })).toBeEnabled();
+    expect(onResubmit).not.toHaveBeenCalled();
+  });
+
+  it('with the provider key removed, Send and Resubmit are disabled', () => {
+    setup({ initial: transcript(THREE), configuredProviders: [] });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), { target: { value: 'Hello' } });
+    expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
+    const first = screen.getByRole('article', { name: 'You: Who ran the harbour?' });
+    expect(within(first).getByRole('button', { name: 'Resubmit' })).toBeDisabled();
+  });
+
+  it('shows a refused send for this chat as an inline alert', () => {
+    setup({ streamError: "This chat's model isn't available." });
+    expect(screen.getByRole('alert', { name: 'Chat error' })).toHaveTextContent("This chat's model isn't available.");
   });
 
   it('toggles hidden when the model lacks the capability', () => {

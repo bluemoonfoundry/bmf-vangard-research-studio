@@ -5,7 +5,7 @@ import type { ProjectController } from '@/project/useProject';
 import { AI_CHAT_TYPE } from '@/project/projectState';
 import type { AiApi } from '@/ai/aiApi';
 import type { AiController } from '@/ai/useAi';
-import { PROVIDERS, type Capabilities, type ProviderId } from '@/ai/types';
+import { PROVIDERS, type ProviderId } from '@/ai/types';
 import { transcriptPlainText } from '@/chat/transcript';
 import { useChatStreams } from '@/chat/useChatStreams';
 import { ChatEditor } from '@/components/chat/ChatEditor';
@@ -49,7 +49,6 @@ const VIEWS: { id: FolderView; name: string; icon: typeof BookOpen; key: string 
   { id: 'editor', name: 'Document', icon: BookOpen, key: '1' },
 ];
 
-const NO_CAPS: Capabilities = { webSearch: false, readUrls: false, temperature: false };
 
 export interface WorkspaceProps {
   project: ProjectController;
@@ -73,8 +72,10 @@ export function Workspace({ project, ai, aiApi }: WorkspaceProps) {
     () => PROVIDERS.map(p => p.id).filter(id => ai.status?.providers[id]?.configured),
     [ai.status],
   );
-  const capsOf = useCallback((provider: ProviderId, model: string) =>
-    models(provider)?.find(m => m.id === model)?.capabilities ?? NO_CAPS, [models]);
+  // Null (no reply starts) unless the model is listed for a provider that still has a key.
+  const capsOf = useCallback((provider: ProviderId, model: string) => (configuredProviders.includes(provider)
+    ? models(provider)?.find(m => m.id === model)?.capabilities ?? null
+    : null), [models, configuredProviders]);
   // Streams live here, so replies keep going when the chat's editor unmounts. Turning AI off cancels them.
   const streams = useChatStreams({ ai: aiEnabled ? aiApi : null, project, capsOf });
 
@@ -254,6 +255,7 @@ export function Workspace({ project, ai, aiApi }: WorkspaceProps) {
           loadModels={loadModels}
           modelsError={ai.modelsError}
           streaming={streams.streamingIds.has(item.id)}
+          streamError={streams.errorOf(item.id)}
           onUpdate={(update) => updateChat(item.id, update)}
           onRename={(title) => updateItem(item.id, { title })}
           onSend={(text) => streams.send(item.id, text)}

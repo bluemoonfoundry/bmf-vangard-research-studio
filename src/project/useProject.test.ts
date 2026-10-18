@@ -140,6 +140,28 @@ describe('useProject: AI chats', () => {
     expect(bridge.project.readChat).toHaveBeenCalledTimes(2);
   });
 
+  it('one unreadable chat does not block the others', async () => {
+    const { bridge, fake } = createFakeBridge();
+    const api = createProjectApi(bridge);
+    const hook = renderHook(() => useProject(api, bridge.app, { chatDefaults: () => DEFAULTS }));
+    fake.disk.chats = { c1: updateSettings(newTranscript(DEFAULTS), { webSearch: true }) };
+    bridge.project.readChat.mockImplementation((id: string) => (id === 'c2'
+      ? Promise.resolve({ ok: false, error: { code: 'IO', message: 'Bridge hiccup' } })
+      : Promise.resolve({ ok: true, value: { transcript: fake.disk.chats[id] ?? null, problem: null } })));
+    fake.nextDialogResult = makeOpened({ tree });
+    await act(() => hook.result.current.openProject());
+    await waitFor(() => expect(Object.keys(hook.result.current.state!.chats).sort()).toEqual(['c1', 'c2']));
+    const { chats } = hook.result.current.state!;
+    expect(chats.c1.current.settings.webSearch).toBe(true);
+    expect(chats.c1.problem).toBeUndefined();
+    // The failed chat carries the reason (so it opens read-only) and isn't re-read on every tree change.
+    expect(chats.c2.problem).toMatch('Bridge hiccup');
+    expect(hook.result.current.dirty).toBe(false);
+    const calls = bridge.project.readChat.mock.calls.length;
+    await act(() => hook.result.current.loadAllChats());
+    expect(bridge.project.readChat.mock.calls.length).toBe(calls);
+  });
+
   it('external change reloads a clean chat', async () => {
     const { fake, hook } = await openWithChats();
     const theirs = updateSettings(newTranscript(DEFAULTS), { readUrls: true });

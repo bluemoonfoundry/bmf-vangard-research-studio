@@ -55,8 +55,7 @@ bd close <id>         # Complete work
 
 Vangard Research Studio (VRS) is a standalone Electron + React 19 + TypeScript desktop app for visual-novel
 writers. It's a workspace for collecting and creating story research (documents, images, audio, web clips,
-maps, chat transcripts), plus a story bible: structured entities and facts, route-scoped canon, and conflict
-detection.
+maps, chat transcripts), plus a story bible: structured entities and facts, global canon, and conflict detection.
 
 - **Standalone by design.** VRS shares no code with Vangard Studio (`bmf-vangard-renpy-ide`) or
   `bmf-vangard-vnstorybible`. Infrastructure *copied* from Vangard (path guards, atomic writes, logger) lives
@@ -163,7 +162,8 @@ Strictly opt-in (see Project Overview). Main-process code in `electron/lib/`, re
   store throws instead of being overwritten and surfaces as `AiStatus.keyStoreProblem`. Keys never reach the renderer.
 - **Opt-in rule** (`llmService.js`): every `llm:*` channel except `llm:save-key`, `llm:remove-key` and `llm:test` refuses with
   `AI_DISABLED` while AI is disabled. Enabling (`settings:set-ai`) needs a provider with a saved key and a passing test
-  (`lastTestOk`); `llm:save-key` stores a key only after a model-list call succeeds. Disabling calls `abortAll()`, which aborts
+  (`lastTestOk`); `llm:save-key` stores a key only after a model-list call succeeds. Removing the last configured key
+  (`llm:remove-key`) turns AI off (and aborts in-flight requests). Disabling calls `abortAll()`, which aborts
   every in-flight request and never throws (also used on project close and window close). `abortEpoch` is bumped by each
   `abortAll()` so a chat start that was awaiting settings/keys notices and ends `CANCELLED`.
 - **`electron/lib/llm/`**: `http.js` (`LlmError`, `requestJson`/`requestStream`; `scrub()` redacts keys, and every

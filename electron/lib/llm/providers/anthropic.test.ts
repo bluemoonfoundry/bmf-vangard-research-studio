@@ -65,6 +65,12 @@ describe('anthropic adapter', () => {
         expect(b2.system).toBeUndefined();
     });
 
+    it('clamps temperature to the 0–1 range Anthropic accepts', async () => {
+        expect((await run({ temperature: 1.7 })).body.temperature).toBe(1);
+        expect((await run({ temperature: 1 })).body.temperature).toBe(1);
+        expect((await run({ temperature: 0 })).body.temperature).toBe(0);
+    });
+
     it('adds web search / web fetch tools only when toggled', async () => {
         expect((await run({})).body.tools).toBeUndefined();
         expect((await run({ webSearch: true })).body.tools).toEqual([{ type: 'web_search_20250305', name: 'web_search' }]);

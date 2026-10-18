@@ -19,11 +19,13 @@ export interface ChatMessageActions {
   /** Messages before and after this one (each "delete all" is disabled at 0). */
   countBefore: number;
   countAfter: number;
+  /** False unless the chat's model is listed for a configured provider and nothing streams: gates resubmitting. */
+  canSend: boolean;
 }
 
 interface ChatMessageViewProps {
   message: ChatMessage;
-  /** Editing actions; null in a read-only chat (AI off), where only Copy is offered. */
+  /** Editing actions; null in a read-only chat (AI off, or a file that couldn't be read), where only Copy is offered. */
   actions: ChatMessageActions | null;
   /** True while this chat streams: actions are disabled. */
   busy: boolean;
@@ -140,7 +142,7 @@ export function ChatMessageView({ message, actions, busy, onOpenLink, onCapture,
                 <button type="button" className={btnGhost} aria-label="Edit" title="Edit" disabled={busy} onClick={() => setDraft(message.text)}>
                   <Pencil className="h-3.5 w-3.5" />
                 </button>
-                <button type="button" className={btnGhost} aria-label="Resubmit" title="Resubmit (drops every later message)" disabled={busy} onClick={actions.onResubmit}>
+                <button type="button" className={btnGhost} aria-label="Resubmit" title="Resubmit (drops every later message)" disabled={!actions.canSend} onClick={actions.onResubmit}>
                   <RotateCcw className="h-3.5 w-3.5" />
                 </button>
               </>
@@ -173,7 +175,7 @@ export function ChatMessageView({ message, actions, busy, onOpenLink, onCapture,
           <div className="flex justify-end gap-2">
             <button type="button" className={btn} onClick={() => setDraft(null)}>Cancel</button>
             <button type="button" className={btn} disabled={busy} onClick={() => finishEdit(actions.onSaveText)}>Save text only</button>
-            <button type="button" className={btnPrimary} disabled={busy || !draft.trim()} onClick={() => finishEdit(actions.onSaveAndResubmit)}>
+            <button type="button" className={btnPrimary} disabled={!actions.canSend || !draft.trim()} onClick={() => finishEdit(actions.onSaveAndResubmit)}>
               Save &amp; resubmit
             </button>
           </div>

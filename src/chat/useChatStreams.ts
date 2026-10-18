@@ -9,7 +9,8 @@ import type { ChatTranscript } from '@/chat/types';
 export interface UseChatStreamsOptions {
   ai: AiApi | null;
   project: ProjectController;
-  capsOf(provider: ProviderId, model: string): Capabilities;
+  /** The model's capabilities, or null when it isn't listed for a configured provider (no reply can start). */
+  capsOf(provider: ProviderId, model: string): Capabilities | null;
 }
 
 export interface ChatStreams {
@@ -19,7 +20,8 @@ export interface ChatStreams {
   stop(chatId: string): void;
   /** Chat ids with a reply in flight. */
   streamingIds: ReadonlySet<string>;
-  error: string | null;
+  /** Why this chat's last send or resubmit was refused, or null. Failures after starting show on the message. */
+  errorOf(chatId: string): string | null;
 }
 
 interface Route { chatId: string; assistantId: string }
@@ -48,7 +50,15 @@ export function useChatStreams({ ai, project, capsOf }: UseChatStreamsOptions): 
 
   const routes = useRef(new Map<string, Route>());
   const [streamingIds, setStreamingIds] = useState<ReadonlySet<string>>(() => new Set());
-  const [error, setError] = useState<string | null>(null);
+  const [errors, setErrors] = useState<Readonly<Record<string, string>>>({});
+  const setError = useCallback((chatId: string, message: string | null) => setErrors(e => {
+    if (message === null) {
+      if (!(chatId in e)) return e;
+      const { [chatId]: _cleared, ...rest } = e;
+      return rest;
+    }
+    return e[chatId] === message ? e : { ...e, [chatId]: message };
+  }), []);
 
   const syncStreaming = useCallback(() => {
     setStreamingIds(new Set([...routes.current.values()].map(r => r.chatId)));
@@ -90,13 +100,23 @@ export function useChatStreams({ ai, project, capsOf }: UseChatStreamsOptions): 
     const entry = state?.chats[chatId];
     if (!ai || !state || !entry || !chatExists(projectRef.current, chatId)) return;
     if ([...routes.current.values()].some(r => r.chatId === chatId)) return;
+    // Every refusal comes before the transcript changes, so nothing is dropped or half-started.
+    if (entry.problem) {
+      setError(chatId, "This chat file couldn't be read, so it can't be continued.");
+      return;
+    }
     const { provider, model } = entry.current.settings;
     if (!provider || !model) {
-      setError('Pick a provider and model for this chat first.');
+      setError(chatId, 'Pick a provider and model for this chat first.');
+      return;
+    }
+    const caps = capsRef.current(provider, model);
+    if (!caps) {
+      setError(chatId, "This chat's model isn't available. Pick another model to continue.");
       return;
     }
 
-    const args = { assistantId: crypto.randomUUID(), at: new Date().toISOString(), caps: capsRef.current(provider, model) };
+    const args = { assistantId: crypto.randomUUID(), at: new Date().toISOString(), caps };
     const next = begin(entry.current, args);
     const uptoIndex = next.messages.findIndex(m => m.id === args.assistantId);
     if (uptoIndex < 0) return;
@@ -112,7 +132,7 @@ export function useChatStreams({ ai, project, capsOf }: UseChatStreamsOptions): 
     });
 
     const requestId = crypto.randomUUID();
-    setError(null);
+    setError(chatId, null);
     projectRef.current.updateChat(chatId, t => begin(t, args));
     routes.current.set(requestId, { chatId, assistantId: args.assistantId });
     syncStreaming();
@@ -120,11 +140,10 @@ export function useChatStreams({ ai, project, capsOf }: UseChatStreamsOptions): 
       // Stopped (or the chat vanished) before main registered the request: that cancel found nothing to abort.
       if (!routes.current.has(requestId)) void ai.cancelChat(requestId).catch(() => {});
     }, (err: unknown) => {
-      const { code, message } = errorOf(err);
-      if (routes.current.has(requestId) && code !== 'CANCELLED') setError(message);
-      deliver(requestId, { type: 'error', code, message });
+      // The pending message takes the error (a race with a stop arrives as CANCELLED and reads as one).
+      deliver(requestId, { type: 'error', ...errorOf(err) });
     });
-  }, [ai, deliver, syncStreaming]);
+  }, [ai, deliver, setError, syncStreaming]);
 
   const send = useCallback((chatId: string, text: string) => {
     // Generated once, so the reducer's update stays pure (it may run more than once).
@@ -144,5 +163,7 @@ export function useChatStreams({ ai, project, capsOf }: UseChatStreamsOptions): 
     }
   }, [ai, deliver]);
 
-  return useMemo(() => ({ send, resubmit, stop, streamingIds, error }), [send, resubmit, stop, streamingIds, error]);
+  const errorOfChat = useCallback((chatId: string) => errors[chatId] ?? null, [errors]);
+
+  return useMemo(() => ({ send, resubmit, stop, streamingIds, errorOf: errorOfChat }), [send, resubmit, stop, streamingIds, errorOfChat]);
 }

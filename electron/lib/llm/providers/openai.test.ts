@@ -62,6 +62,10 @@ describe('openai adapter', () => {
         expect(b2.temperature).toBeUndefined();
     });
 
+    it('asks OpenAI not to store the response server-side', async () => {
+        expect((await run({})).body.store).toBe(false);
+    });
+
     it('adds web search only when toggled', async () => {
         expect((await run({})).body.tools).toBeUndefined();
         expect((await run({ webSearch: true })).body.tools).toEqual([{ type: 'web_search' }]);

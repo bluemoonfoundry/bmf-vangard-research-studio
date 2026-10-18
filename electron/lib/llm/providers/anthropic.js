@@ -9,7 +9,7 @@ import { normalizeSources } from '../sources.js';
  * api/models/list, agents-and-tools/tool-use/{web-search-tool,web-fetch-tool,tool-reference}):
  *  - headers: `x-api-key`, `anthropic-version: 2023-06-01`; web search/fetch need no `anthropic-beta` header
  *  - models:  GET /v1/models?limit=1000&after_id=<last_id> while has_more; `max_input_tokens` -> inputTokenLimit
- *  - stream:  POST /v1/messages { stream: true, system, max_tokens, messages, temperature?, tools? }
+ *  - stream:  POST /v1/messages { stream: true, system, max_tokens, messages, temperature? (0–1), tools? }
  *  - webSearch -> web_search_20250305; readUrls -> web_fetch_20250910 (the original versions: no dynamic
  *    filtering / code-execution requirement, so they work on every model that supports the tool)
  *  - sources: web_search_tool_result content[] {url,title}, web_fetch_tool_result {url, document title},
@@ -59,7 +59,8 @@ function buildBody(request) {
         messages: request.messages.map((/** @type {any} */ m) => ({ role: m.role, content: m.text })),
     };
     if (request.system) body.system = request.system;
-    if (request.temperature != null) body.temperature = request.temperature;
+    // Anthropic accepts 0–1; the shared slider goes to 2.
+    if (request.temperature != null) body.temperature = Math.min(request.temperature, 1);
     const tools = [];
     if (request.webSearch) tools.push({ ...WEB_SEARCH_TOOL });
     if (request.readUrls) tools.push({ ...WEB_FETCH_TOOL });

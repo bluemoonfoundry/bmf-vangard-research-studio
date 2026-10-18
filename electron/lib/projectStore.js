@@ -129,8 +129,8 @@ export async function readDoc(root, id) {
 }
 
 /**
- * Reads chats/<id>.json. A missing file is an unremarkable "no transcript yet"; a damaged or
- * too-new one comes back as `problem` text so the chat can say so without failing the project.
+ * Reads chats/<id>.json. A missing file is an unremarkable "no transcript yet"; an unreadable,
+ * damaged or too-new one comes back as `problem` text so the chat can say so without failing the project.
  */
 export async function readChat(root, id) {
     const full = await resolveInside(root, chatRelPath(id));
@@ -139,7 +139,9 @@ export async function readChat(root, id) {
         text = await fs.readFile(full, 'utf-8');
     } catch (err) {
         if (err.code === 'ENOENT') return { transcript: null, problem: null };
-        throw err;
+        // Only the code: the OS message carries an absolute path. One unreadable chat must not fail the rest.
+        const code = typeof err?.code === 'string' ? err.code : 'unknown error';
+        return { transcript: null, problem: `chats/${id}.json couldn't be read (${code}).` };
     }
     try {
         return { transcript: normalizeChat(JSON.parse(text)), problem: null };
