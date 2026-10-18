@@ -36,11 +36,12 @@ export function scrub(text, secrets) {
 /**
  * @param {unknown} err
  * @param {string[]} secrets
+ * @param {AbortSignal} [signal]
  */
-function mapThrown(err, secrets) {
+function mapThrown(err, secrets, signal) {
     if (err instanceof LlmError) return err;
     const e = /** @type {any} */ (err);
-    if (e && (e.name === 'AbortError' || e.name === 'TimeoutError')) return new LlmError('CANCELLED', 'Request cancelled.');
+    if ((signal && signal.aborted) || (e && (e.name === 'AbortError' || e.name === 'TimeoutError'))) return new LlmError('CANCELLED', 'Request cancelled.');
     return new LlmError('NETWORK', scrub(e && e.message ? e.message : 'Network request failed.', secrets));
 }
 
@@ -73,7 +74,7 @@ async function send(url, opts) {
             signal,
         });
     } catch (err) {
-        throw mapThrown(err, secrets);
+        throw mapThrown(err, secrets, signal);
     }
     if (!res.ok) throw await errorFrom(res, secrets);
     return res;
@@ -89,7 +90,9 @@ export async function requestJson(url, opts) {
     try {
         return await res.json();
     } catch (err) {
-        throw mapThrown(err, opts.secrets || []);
+        const e = /** @type {any} */ (err);
+        if ((opts.signal && opts.signal.aborted) || (e && e.name === 'AbortError')) throw mapThrown(err, opts.secrets || [], opts.signal);
+        throw new LlmError('PROVIDER', scrub('The provider returned invalid JSON.', opts.secrets || []));
     }
 }
 

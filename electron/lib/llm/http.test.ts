@@ -93,3 +93,17 @@ describe('requestStream', () => {
         expect((await codeOf(requestStream('http://x', base(async () => res(403, ''))))).code).toBe('AUTH');
     });
 });
+
+describe('abort and parse mapping', () => {
+    it('treats a custom abort reason as CANCELLED', async () => {
+        const ac = new AbortController();
+        ac.abort(new Error('user said stop'));
+        const f = (async () => {
+            throw ac.signal.reason;
+        }) as unknown as typeof fetch;
+        expect((await codeOf(requestJson('http://x', base(f, { signal: ac.signal })))).code).toBe('CANCELLED');
+    });
+    it('maps a 2xx with invalid JSON to PROVIDER', async () => {
+        expect((await codeOf(requestJson('http://x', base(async () => res(200, '<html>'))))).code).toBe('PROVIDER');
+    });
+});

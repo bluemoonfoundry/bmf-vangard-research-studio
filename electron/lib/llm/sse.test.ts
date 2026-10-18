@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { readSse } from './sse.js';
+import { LlmError } from './http.js';
 
 function streamOf(chunks: (string | Uint8Array)[]): ReadableStream<Uint8Array> {
     const enc = new TextEncoder();
@@ -43,5 +44,50 @@ describe('readSse', () => {
     });
     it('flushes a final event without a trailing blank line', async () => {
         expect(await collect(['data: x\n'])).toEqual([{ event: null, data: 'x' }]);
+    });
+});
+
+describe('readSse lifecycle', () => {
+    it('cancels the source when the consumer breaks early', async () => {
+        let cancelled = false;
+        const enc = new TextEncoder();
+        const src = new ReadableStream<Uint8Array>({
+            pull(c) {
+                c.enqueue(enc.encode('data: x\n\n'));
+            },
+            cancel() {
+                cancelled = true;
+            },
+        });
+        for await (const _e of readSse(src)) {
+            void _e;
+            break;
+        }
+        expect(cancelled).toBe(true);
+    });
+    it('maps a mid-stream abort to CANCELLED', async () => {
+        const ac = new AbortController();
+        const src = new ReadableStream<Uint8Array>({
+            start(c) {
+                ac.signal.addEventListener('abort', () => c.error(ac.signal.reason));
+            },
+        });
+        const p = (async () => {
+            for await (const _e of readSse(src, { signal: ac.signal })) void _e;
+        })();
+        ac.abort(new Error('custom'));
+        await expect(p).rejects.toMatchObject({ code: 'CANCELLED' });
+        await expect(p).rejects.toBeInstanceOf(LlmError);
+    });
+    it('maps other read failures to scrubbed NETWORK', async () => {
+        const src = new ReadableStream<Uint8Array>({
+            start(c) {
+                c.error(new TypeError('reset sk-SECRET'));
+            },
+        });
+        const p = (async () => {
+            for await (const _e of readSse(src, { secrets: ['sk-SECRET'] })) void _e;
+        })();
+        await expect(p).rejects.toMatchObject({ code: 'NETWORK', message: 'reset [redacted]' });
     });
 });

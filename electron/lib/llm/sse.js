@@ -1,9 +1,13 @@
+import { LlmError, scrub } from './http.js';
+
 /**
  * Minimal Server-Sent Events reader over a byte stream.
  * @param {ReadableStream<Uint8Array>} stream
+ * @param {{ signal?: AbortSignal, secrets?: string[] }} [opts]
  * @returns {AsyncGenerator<{ event: string | null, data: string }>}
  */
-export async function* readSse(stream) {
+export async function* readSse(stream, opts = {}) {
+    let finished = false;
     const reader = stream.getReader();
     const decoder = new globalThis.TextDecoder('utf-8');
     let buffer = '';
@@ -36,7 +40,15 @@ export async function* readSse(stream) {
 
     try {
         for (;;) {
-            const { done, value } = await reader.read();
+            let chunk;
+            try {
+                chunk = await reader.read();
+            } catch (err) {
+                const e = /** @type {any} */ (err);
+                if ((opts.signal && opts.signal.aborted) || (e && e.name === 'AbortError')) throw new LlmError('CANCELLED', 'Request cancelled.');
+                throw new LlmError('NETWORK', scrub(e && e.message ? e.message : 'Stream interrupted.', opts.secrets || []));
+            }
+            const { done, value } = chunk;
             if (done) break;
             buffer += decoder.decode(value, { stream: true });
             let m;
@@ -56,7 +68,9 @@ export async function* readSse(stream) {
         }
         const last = feed('');
         if (last) yield last;
+        finished = true;
     } finally {
+        if (!finished) await reader.cancel().catch(() => {});
         reader.releaseLock();
     }
 }
