@@ -35,3 +35,16 @@ describe('aiApi', () => {
     expect(seen).toHaveBeenCalledWith({ requestId: 'r1', event });
   });
 });
+
+describe('aiApi extraction', () => {
+  it('unwraps extract and cancelExtract', async () => {
+    const { bridge, fake } = createFakeBridge();
+    const ai = createAiApi(bridge);
+    fake.ai.extractResult = { proposals: [], summary: 's', dropped: 2, model: 'm' };
+    const request = { provider: 'gemini' as const, model: 'm', system: 'sys', text: 'txt' };
+    expect(await ai.extract('x1', request)).toEqual({ proposals: [], summary: 's', dropped: 2, model: 'm' });
+    expect(fake.ai.extractions).toEqual([{ requestId: 'x1', request }]);
+    await ai.cancelExtract('x1');
+    expect(fake.ai.cancelledExtractions).toEqual(['x1']);
+  });
+});

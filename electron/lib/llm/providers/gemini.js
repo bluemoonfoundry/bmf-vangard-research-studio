@@ -14,6 +14,8 @@ import { normalizeSources } from '../sources.js';
  *  - sources: candidates[].groundingMetadata.groundingChunks[].web {uri,title}, deduped, http(s) only
  *  - searchEntryPoint.renderedContent -> one `extras` event
  *  - web search / URL context: model ids `gemini-<major>` with major >= 2
+ *  - jsonSchema (extraction) -> generationConfig.responseMimeType 'application/json' + responseJsonSchema
+ *    (JSON Schema subset; verified Oct 2026 against /api/generate-content GenerationConfig)
  */
 const DEFAULT_BASE_URL = 'https://generativelanguage.googleapis.com';
 const MIN_TOOL_MAJOR = 2;
@@ -39,6 +41,9 @@ function buildBody(request) {
     };
     if (request.system) body.systemInstruction = { parts: [{ text: request.system }] };
     if (request.temperature != null) body.generationConfig = { temperature: request.temperature };
+    if (request.jsonSchema) {
+        body.generationConfig = { ...body.generationConfig, responseMimeType: 'application/json', responseJsonSchema: request.jsonSchema };
+    }
     const tools = [];
     if (request.webSearch) tools.push({ google_search: {} });
     if (request.readUrls) tools.push({ url_context: {} });

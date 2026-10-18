@@ -680,3 +680,73 @@ describe('AI chat items', () => {
     expect(preview).toHaveTextContent('**Type:** AI Chat');
   });
 });
+
+describe('AI extraction surfaces', () => {
+  const MODELS: ModelInfo[] = [{ id: 'gemini-x', name: 'Gemini X', capabilities: { webSearch: true, readUrls: true, temperature: true } }];
+  const enableAi = () => {
+    fake.ai.status = makeAiStatus({
+      enabled: true, defaultProvider: 'gemini', defaultModel: 'gemini-x',
+      providers: { ...makeAiStatus().providers, gemini: { configured: true, lastTestOk: 'T0' } },
+    });
+    fake.ai.models = { gemini: MODELS };
+  };
+  const notes = item('d1', 'Pasted notes');
+
+  it('are hidden while AI is off', async () => {
+    await open([notes], { d1: 'Mara has green eyes.' });
+    fireEvent.click(treeItem('Pasted notes'));
+    expect(screen.queryByRole('button', { name: 'Extract' })).toBeNull();
+    expect(within(inspector()).queryByRole('checkbox', { name: 'This is my own writing' })).toBeNull();
+  });
+
+  it('Extract opens the dialog with the open source chosen', async () => {
+    enableAi();
+    await open([notes], { d1: 'Mara has green eyes.' });
+    fireEvent.click(treeItem('Pasted notes'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Extract' }));
+    const dialog = screen.getByRole('dialog', { name: 'Extract facts' });
+    expect(within(dialog).getByRole('checkbox', { name: 'Pasted notes' })).toBeChecked();
+    expect(await within(dialog).findByText(/1 source · ~\d[\d,]* tokens · 0 cached · Gemini X/)).toBeInTheDocument();
+  });
+
+  it('Review is offered only with AI on, with a count, and approves a proposed card', async () => {
+    const project = makeOpened({
+      tree: { items: [notes] },
+      extraction: {
+        rejections: [], runs: [],
+        cards: [{ id: 'c1', kind: 'character', title: 'Ivo', reason: 'Recurring', createdAt: 'T' }],
+        pending: [{
+          id: 'p1', ref: { cardId: 'c1' }, attribute: 'role', value: 'pilot', strength: 'said',
+          evidence: [{ source: { itemId: 'd1', quote: 'Mara', start: 0, end: 4 }, strength: 'said' }], createdAt: 'T',
+        }],
+      },
+    });
+    enableAi();
+    fake.load(project, { d1: 'Mara has green eyes.' });
+    fake.nextDialogResult = project;
+    render(<App />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Open project…' }));
+    const review = await screen.findByRole('button', { name: /Review/ });
+    expect(within(review).getByLabelText('1 to review')).toBeInTheDocument();
+    fireEvent.click(review);
+    fireEvent.click(within(screen.getByRole('region', { name: 'New card: Ivo' })).getByRole('button', { name: 'Approve' }));
+    expect(within(tree()).getByRole('treeitem', { name: 'Ivo' })).toBeInTheDocument();
+    const saved = await save();
+    expect(saved.extraction?.cards).toEqual([]);
+    expect(saved.bible?.facts).toMatchObject([{ attribute: 'role', value: 'pilot', status: 'proposed', origin: 'ai' }]);
+  });
+
+  it('Review is hidden while AI is off', async () => {
+    await open([notes], { d1: 'x' });
+    expect(screen.queryByRole('button', { name: /Review/ })).toBeNull();
+  });
+
+  it('the Inspector marks a source as the writer\'s own writing', async () => {
+    enableAi();
+    await open([notes], { d1: 'Mara has green eyes.' });
+    fireEvent.click(treeItem('Pasted notes'));
+    fireEvent.click(await within(inspector()).findByRole('checkbox', { name: 'This is my own writing' }));
+    const saved = await save();
+    expect(saved.tree?.items.find(i => i.id === 'd1')).toMatchObject({ ownWriting: true });
+  });
+});

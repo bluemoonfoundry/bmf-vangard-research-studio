@@ -79,6 +79,8 @@ export interface TreeItem {
   cardFacts?: string[];
   /** The image item shown as an entity's portrait; defaults to its first linked image. */
   portraitId?: string;
+  /** A source with no turns that is the writer's own writing: its extracted proposals count as "said". */
+  ownWriting?: boolean;
   [extra: string]: unknown;
 }
 
@@ -91,13 +93,21 @@ export type FactStatus = 'proposed' | 'kept' | 'set_aside';
 /** Where a fact was captured. With `messageId` (an AI Chat message), offsets are into that message's stored text. */
 export interface FactSource { itemId: string; messageId?: string; quote: string; start: number; end: number }
 
+/** One passage supporting an AI-extracted fact, and how firmly it establishes it. */
+export interface Evidence { source: FactSource; strength: import('@/ai/types').Strength }
+
 export interface Fact {
   id: string;
   entityId: string;
   attribute: string;
   value: string | StoryPosition;
   status: FactStatus;
+  /** The primary source; with `evidence`, its first entry. */
   source?: FactSource;
+  /** Every passage AI extraction found for this value (repeated mentions merge here). */
+  evidence?: Evidence[];
+  /** The earlier value this replaced within the same source. */
+  replaces?: string;
   origin: string;
   note?: string;
   createdAt: string;
@@ -139,6 +149,8 @@ export interface SavePayload {
   /** AI chat transcripts by item id; null deletes the transcript file. */
   chats?: Record<string, ChatTranscript | null>;
   bible?: Bible;
+  /** bible/extraction.json: AI extraction's pending proposals, rejections and run cache. */
+  extraction?: import('@/extraction/types').ExtractionState;
   /** Asset files to remove; the main process keeps any the saved tree still references. */
   deletedAssets?: string[];
 }
@@ -175,6 +187,8 @@ export interface OpenedProject {
   manifest: ProjectManifest;
   tree: ProjectTree;
   bible: Bible;
+  /** Missing (an older main process or snapshot) reads as empty. */
+  extraction?: import('@/extraction/types').ExtractionState;
   /** Schema version the project was upgraded from on open, or null. */
   migratedFrom: number | null;
   recovery: RecoverySnapshot | null;

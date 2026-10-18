@@ -16,6 +16,8 @@ import { normalizeSources } from '../sources.js';
  *    `error` {code,message}
  *  - sources: url_citation annotations {url,title} (streamed and in the completed output), http(s) only, deduped
  *  - temperature: rejected by reasoning models (o-series, gpt-5 and later) except the `-chat` variants
+ *  - jsonSchema (extraction) -> text.format { type: 'json_schema', name, schema, strict: true }; strict schemas list
+ *    every property in required and set additionalProperties: false (guides/structured-outputs, Oct 2026)
  */
 const DEFAULT_BASE_URL = 'https://api.openai.com';
 
@@ -64,6 +66,7 @@ function buildBody(request) {
     if (request.system) body.instructions = request.system;
     if (request.temperature != null && capabilitiesFor(request.model).temperature) body.temperature = request.temperature;
     if (request.webSearch) body.tools = [{ type: 'web_search' }];
+    if (request.jsonSchema) body.text = { format: { type: 'json_schema', name: 'extraction', schema: request.jsonSchema, strict: true } };
     return body;
 }
 

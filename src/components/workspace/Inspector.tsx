@@ -3,6 +3,7 @@ import { CheckCircle2, ChevronLeft, ChevronRight, Link2, Plus, Target, Trash2, X
 import type { Citation, LabelId, StatusId, TreeItem } from '@/project/types';
 import { LABEL_LIST, NO_LABEL_COLOR, STATUS_LIST, itemType, labelOf } from '@/workspace/research';
 import { textStats } from '@/workspace/stats';
+import { isSourceItem } from '@/bible/sourceOrder';
 import { btn, btnGhost, btnPrimary, fieldLabel, input, segment, segmentGroup } from '@/components/workspace/ui';
 
 type Tab = 'card' | 'notes' | 'metadata' | 'links';
@@ -24,11 +25,13 @@ export interface InspectorProps {
   onToggle(): void;
   onUpdate(id: string, patch: Partial<TreeItem>): void;
   onNavigate(id: string): void;
+  /** Shows AI-only settings ("This is my own writing" on sources). */
+  aiEnabled?: boolean;
 }
 
 const newId = () => crypto.randomUUID();
 
-export function Inspector({ item, content, items, open, onToggle, onUpdate, onNavigate }: InspectorProps) {
+export function Inspector({ item, content, items, open, onToggle, onUpdate, onNavigate, aiEnabled = false }: InspectorProps) {
   const [tab, setTab] = useState<Tab>('card');
   const tabsId = useId();
   const stats = textStats(content ?? '');
@@ -75,6 +78,15 @@ export function Inspector({ item, content, items, open, onToggle, onUpdate, onNa
 
       <div id={`${tabsId}-panel`} role="tabpanel" aria-labelledby={`${tabsId}-${tab}`} className="flex-1 overflow-y-auto p-3 text-xs">
         {tab === 'card' && <CardTab item={item} onUpdate={update} />}
+        {tab === 'card' && aiEnabled && isSourceItem(item) && item.type !== 'ai-chat' && (
+          <label className="mt-4 flex items-start gap-2" title="AI extraction treats a source without turns as model output unless it is your own writing.">
+            <input type="checkbox" aria-label="This is my own writing" checked={item.ownWriting === true} onChange={(e) => update({ ownWriting: e.target.checked })} />
+            <span className="flex flex-col">
+              <span>This is my own writing</span>
+              <span className="text-content-muted">AI extraction proposes what it says as yours, not as suggestions.</span>
+            </span>
+          </label>
+        )}
         {tab === 'notes' && (
           <label className="flex flex-col gap-1.5">
             <span className={fieldLabel}>Document notes</span>

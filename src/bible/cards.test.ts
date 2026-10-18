@@ -124,6 +124,23 @@ describe('cardStats and cameFrom', () => {
   });
 });
 
+describe('counts from extraction evidence', () => {
+  const ev = (itemId: string) => ({ source: src(itemId), strength: 'said' as const });
+  const b = bibleOf([
+    fact({ attribute: 'Eyes', value: 'green', source: src('c1'), evidence: [ev('c1'), ev('c2'), ev('c1')] }),
+    fact({ attribute: 'Age', value: '24', status: 'proposed', source: src('c3') }),
+  ]);
+
+  it('counts every source item in a fact\'s evidence', () => {
+    expect(cardStats(b, 'e1', []).sources).toBe(3);
+    expect(canonLines(b, mara)[0].versions[0].sourceCount).toBe(2);
+  });
+
+  it('credits each evidence item once per fact in Came from', () => {
+    expect(cameFrom(b, 'e1')).toEqual([{ itemId: 'c1', facts: 1 }, { itemId: 'c2', facts: 1 }, { itemId: 'c3', facts: 1 }]);
+  });
+});
+
 describe('linkedItems and portraitOf', () => {
   const pic = item({ id: 'p1', type: 'image', asset: 'p1.png' });
   const pic2 = item({ id: 'p2', type: 'image', asset: 'p2.png' });

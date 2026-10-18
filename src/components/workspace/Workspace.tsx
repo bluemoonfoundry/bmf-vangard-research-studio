@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, ArrowDownUp, BookOpen, CalendarRange, Contact, MessageSquare, Columns2, LayoutGrid, Plus, Rows2, SlidersHorizontal, Square, Table, Download, X } from 'lucide-react';
+import { AlertTriangle, ArrowDownUp, BookOpen, CalendarRange, ClipboardCheck, Contact, MessageSquare, Columns2, LayoutGrid, Plus, Rows2, SlidersHorizontal, Sparkles, Square, Table, Download, X } from 'lucide-react';
 import type { EntityKind, FactSource, ItemType, MediaKind, TreeItem } from '@/project/types';
 import type { ProjectController } from '@/project/useProject';
 import { AI_CHAT_TYPE } from '@/project/projectState';
@@ -18,7 +18,12 @@ import { OutlinerView } from '@/components/workspace/OutlinerView';
 import { Inspector } from '@/components/workspace/Inspector';
 import { SplitPane, type SplitOrientation } from '@/components/workspace/SplitPane';
 import { ImportChatModal } from '@/components/bible/ImportChatModal';
-import { insertSources, orderedSources, setSourceOrder } from '@/bible/sourceOrder';
+import { insertSources, isSourceItem, orderedSources, setSourceOrder } from '@/bible/sourceOrder';
+import { estimateRun, useExtraction } from '@/extraction/useExtraction';
+import { extractionSource } from '@/extraction/sourceText';
+import { ExtractModal } from '@/components/extraction/ExtractModal';
+import { ReviewQueue } from '@/components/extraction/ReviewQueue';
+import { reviewCount } from '@/extraction/review';
 import { SourceOrderModal } from '@/components/bible/SourceOrderModal';
 import { findContradictions, openContradictions } from '@/bible/contradictions';
 import { ConflictQueue } from '@/components/bible/ConflictQueue';
@@ -35,8 +40,8 @@ import { ExportModal } from '@/components/workspace/ExportModal';
 import { ConfirmDialog } from '@/components/workspace/ConfirmDialog';
 import { btn, btnGhost, btnPrimary, input, segment, segmentGroup } from '@/components/workspace/ui';
 
-/** What the content area shows: the research panes, the card wall, the conflict queue, or the timeline. */
-export type WorkspaceMode = 'research' | 'cards' | 'conflicts' | 'timeline';
+/** What the content area shows: the research panes, the card wall, the conflict queue, the timeline, or (AI only) the review queue. */
+export type WorkspaceMode = 'research' | 'cards' | 'conflicts' | 'timeline' | 'review';
 
 /** How a folder (or the top level) is shown. Non-folder items always open in the editor. */
 export type FolderView = 'corkboard' | 'outliner' | 'editor';
@@ -72,7 +77,7 @@ export function Workspace({ project, ai, aiApi }: WorkspaceProps) {
     .map(i => ({ id: i.id, title: i.title, ...(i.importedFrom && { detail: i.importedFrom }) }));
   const {
     addItem, updateItem, editDoc, moveItem, deleteItem, duplicateItem, loadAllDocs, importMedia, importTexts, discardAsset,
-    renameProject, exportDossier, reportError, assets, updateBible, updateChat,
+    renameProject, exportDossier, reportError, assets, updateBible, updateChat, updateCanon,
   } = project;
   const aiEnabled = ai.enabled;
   const { models, loadModels } = ai;
@@ -86,6 +91,8 @@ export function Workspace({ project, ai, aiApi }: WorkspaceProps) {
     : null), [models, configuredProviders]);
   // Streams live here, so replies keep going when the chat's editor unmounts. Turning AI off cancels them.
   const streams = useChatStreams({ ai: aiEnabled ? aiApi : null, project, capsOf });
+  // Extraction runs live here too, so closing the dialog doesn't stop one. Turning AI off cancels it.
+  const extractionRun = useExtraction({ ai: aiEnabled ? aiApi : null, project });
 
   const [activeId, setActiveId] = useState<string | null>(null);
   const [folderView, setFolderView] = useState<FolderView>('corkboard');
@@ -98,9 +105,13 @@ export function Workspace({ project, ai, aiApi }: WorkspaceProps) {
   const [adding, setAdding] = useState<{ type: ItemType; parentId: string | null } | null>(null);
   const [importingChat, setImportingChat] = useState<{ parentId: string | null } | null>(null);
   const [orderingSources, setOrderingSources] = useState(false);
+  /** The extraction dialog, with the sources it opened with. */
+  const [extracting, setExtracting] = useState<{ ids: string[] } | null>(null);
   /** A fact's passage to show once its source opens; cleared by any other navigation. */
   const [highlight, setHighlight] = useState<{ itemId: string; messageId?: string; start: number; end: number } | null>(null);
-  const [mode, setMode] = useState<WorkspaceMode>('research');
+  const [chosenMode, setMode] = useState<WorkspaceMode>('research');
+  // The review queue is an AI surface: turning AI off leaves it.
+  const mode: WorkspaceMode = chosenMode === 'review' && !aiEnabled ? 'research' : chosenMode;
   const [conflictKey, setConflictKey] = useState<string | undefined>(undefined);
   const [cardTab, setCardTab] = useState<WallTabId>('character');
   /** The entity whose full card is open in the card wall; null shows the wall. */
@@ -140,6 +151,12 @@ export function Workspace({ project, ai, aiApi }: WorkspaceProps) {
       return next;
     });
   }, []);
+
+  const toReview = useMemo(
+    () => (aiEnabled ? reviewCount(items, state.bible, state.extraction) : 0),
+    [aiEnabled, items, state.bible, state.extraction],
+  );
+  const sourceOrderIds = useMemo(() => orderedSources(state.bible, items).map(i => i.id), [state.bible, items]);
 
   const openContradictionCount = useMemo(() => {
     const ids = new Set(items.filter(i => i.type === 'entity').map(i => i.id));
@@ -444,6 +461,11 @@ export function Workspace({ project, ai, aiApi }: WorkspaceProps) {
           <button type="button" className={btn} onClick={() => setOrderingSources(true)}>
             <ArrowDownUp className="h-3.5 w-3.5" /> Source order
           </button>
+          {aiEnabled && (
+            <button type="button" className={btn} onClick={() => setExtracting({ ids: active && isSourceItem(active) ? [active.id] : [] })}>
+              <Sparkles className="h-3.5 w-3.5" /> Extract
+            </button>
+          )}
           <button type="button" className={btn} onClick={() => setExporting(true)}>
             <Download className="h-3.5 w-3.5" /> Export
           </button>
@@ -457,6 +479,12 @@ export function Workspace({ project, ai, aiApi }: WorkspaceProps) {
           <button type="button" className={segment(mode === 'timeline')} aria-pressed={mode === 'timeline'} onClick={() => setMode(m => (m === 'timeline' ? 'research' : 'timeline'))}>
             <CalendarRange className="h-3.5 w-3.5" /> Timeline
           </button>
+          {aiEnabled && (
+            <button type="button" className={segment(mode === 'review')} aria-pressed={mode === 'review'} onClick={() => setMode(m => (m === 'review' ? 'research' : 'review'))}>
+              <ClipboardCheck className="h-3.5 w-3.5" /> Review
+              <span className="rounded-full bg-surface-sunken px-1.5 text-[11px] text-content" aria-label={`${toReview} to review`}>{toReview}</span>
+            </button>
+          )}
           <div className={segmentGroup} role="group" aria-label="Layout">
             <button type="button" className={segment(!splitOpen)} aria-pressed={!splitOpen} aria-label="Single pane" title="Single pane" onClick={() => setSplit(null)}>
               <Square className="h-3.5 w-3.5" />
@@ -519,6 +547,10 @@ export function Workspace({ project, ai, aiApi }: WorkspaceProps) {
                 onOpenItem={navigate}
                 onOpenCard={openCard}
                 onBack={() => setCardId(null)}
+                sourceOrder={sourceOrderIds}
+                aiEnabled={aiEnabled}
+                extraction={state.extraction}
+                updateCanon={updateCanon}
               />
             ) : (
               <CardWall
@@ -541,6 +573,22 @@ export function Workspace({ project, ai, aiApi }: WorkspaceProps) {
               onUpdate={updateBible}
               onOpenSource={openSource}
               onOpenEntity={navigate}
+              sourceOrder={sourceOrderIds}
+            />
+          ) : mode === 'review' ? (
+            <ReviewQueue
+              items={items}
+              bible={state.bible}
+              extraction={state.extraction}
+              bodyOf={contentOf}
+              chatOf={chatOf}
+              updateCanon={updateCanon}
+              addEntity={(kind, title, parentId) => {
+                expand(parentId);
+                return addEntity(kind, title, parentId);
+              }}
+              onOpenSource={openSource}
+              onOpenCard={openCard}
             />
           ) : mode === 'timeline' ? (
             <TimelineView bible={state.bible} items={items} onOpenEntity={navigate} onShowConflict={showConflict} />
@@ -555,6 +603,7 @@ export function Workspace({ project, ai, aiApi }: WorkspaceProps) {
             onToggle={() => setInspectorOpen(o => !o)}
             onUpdate={updateItem}
             onNavigate={navigate}
+            aiEnabled={aiEnabled}
           />
         ) : inspectorOpen && (
           <aside aria-label="Inspector" className="flex w-80 shrink-0 items-center justify-center border-l border-line bg-surface-raised p-6 text-center text-xs text-content-muted">
@@ -593,6 +642,26 @@ export function Workspace({ project, ai, aiApi }: WorkspaceProps) {
             navigate(ids[0]);
           }}
           onClose={() => setImportingChat(null)}
+        />
+      )}
+      {extracting && aiEnabled && (
+        <ExtractModal
+          sources={orderedSources(state.bible, items)}
+          initialIds={extracting.ids}
+          defaultProvider={ai.status?.defaultProvider ?? null}
+          defaultModel={ai.status?.defaultModel ?? null}
+          configuredProviders={configuredProviders}
+          models={models}
+          loadModels={loadModels}
+          hasTurns={(id) => {
+            const source = byId.get(id);
+            return !!source && !!extractionSource(source, docs[id]?.current, chats[id]?.current)?.hasTurns;
+          }}
+          estimate={(ids, provider, model) => estimateRun(state, ids, provider, model)}
+          run={extractionRun}
+          onSetOwnWriting={(id, value) => updateItem(id, { ownWriting: value })}
+          onReview={() => { setExtracting(null); setMode('review'); }}
+          onClose={() => setExtracting(null)}
         />
       )}
       {orderingSources && (

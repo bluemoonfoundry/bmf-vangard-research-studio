@@ -1,5 +1,7 @@
 import { useState } from 'react';
+import type { Strength } from '@/ai/types';
 import type { EntityKind, Fact, FactSource, StoryPosition, TreeItem } from '@/project/types';
+import { sourceItemsOf } from '@/bible/cards';
 import type { SourceState } from '@/bible/sources';
 import { formatPosition } from '@/bible/normalize';
 import { FactForm } from '@/components/bible/FactForm';
@@ -26,6 +28,23 @@ export interface FactRowProps {
 }
 
 export const valueText = (v: string | StoryPosition): string => (typeof v === 'string' ? v : formatPosition(v));
+
+export const STRENGTH_LABEL: Record<Strength, string> = { said: 'You said this', built_on: 'Built on', suggested: 'Suggested' };
+const STRENGTH_ORDER: Strength[] = ['said', 'built_on', 'suggested'];
+
+/** How firmly an extracted fact's evidence establishes it, and in how many sources. Nothing for manual facts. */
+export function EvidenceLabel({ evidence, replaces }: { evidence: Fact['evidence']; replaces?: string }) {
+  if (!evidence?.length) return null;
+  const strongest = STRENGTH_ORDER.find(s => evidence.some(e => e.strength === s)) ?? 'suggested';
+  const sources = sourceItemsOf({ evidence } as Fact).length;
+  return (
+    <span className="flex flex-wrap items-center gap-1.5 text-[11px] text-content-muted">
+      <span className="rounded-full border border-line px-1.5">{STRENGTH_LABEL[strongest]}</span>
+      {sources > 1 && <span>{sources} sources</span>}
+      {replaces && <span>Changed from: {replaces}</span>}
+    </span>
+  );
+}
 
 export function FactRow(props: FactRowProps) {
   const { fact, section, showAttribute, entity, sourceState, sourceTitle } = props;
@@ -54,6 +73,7 @@ export function FactRow(props: FactRowProps) {
           {showAttribute && <span className="mr-2 font-semibold">{fact.attribute}</span>}
           <span>{valueText(fact.value)}</span>
         </span>
+        <EvidenceLabel evidence={fact.evidence} replaces={fact.replaces} />
         {fact.source && sourceState && (
           <SourceLink source={fact.source} state={sourceState} title={sourceTitle} onOpen={() => props.onOpenSource(fact.source!)} />
         )}

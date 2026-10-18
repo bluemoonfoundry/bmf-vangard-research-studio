@@ -23,6 +23,7 @@ interface VrsApi {
       manifest: import('@/project/types').ProjectManifest;
       tree: import('@/project/types').ProjectTree;
       bible: import('@/project/types').Bible;
+      extraction?: import('@/extraction/types').ExtractionState;
     }>>;
     readAsset(name: string): Promise<VrsIpcResult<Uint8Array>>;
     importMedia(kind: import('@/project/types').MediaKind): Promise<VrsIpcResult<import('@/project/types').ImportedAsset | null>>;
@@ -47,6 +48,8 @@ interface VrsApi {
     cancelChat(requestId: string): Promise<VrsIpcResult<void>>;
     cancelAll(): Promise<VrsIpcResult<void>>;
     onChatEvent(callback: (payload: import('@/ai/types').ChatEvent) => void): () => void;
+    extract(requestId: string, request: import('@/ai/types').ExtractRequest): Promise<VrsIpcResult<import('@/ai/types').ExtractResult>>;
+    cancelExtract(requestId: string): Promise<VrsIpcResult<void>>;
   };
 }
 

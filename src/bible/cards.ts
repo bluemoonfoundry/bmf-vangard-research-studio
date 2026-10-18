@@ -54,8 +54,11 @@ export interface CanonLine {
   pinned: boolean;
 }
 
-export const sourceCount = (facts: readonly Fact[]): number =>
-  new Set(facts.flatMap(f => (f.source ? [f.source.itemId] : []))).size;
+/** The distinct items a fact came from: its extraction evidence, else its captured source. */
+export const sourceItemsOf = (f: Fact): string[] =>
+  [...new Set(f.evidence?.length ? f.evidence.map(e => e.source.itemId) : f.source ? [f.source.itemId] : [])];
+
+export const sourceCount = (facts: readonly Fact[]): number => new Set(facts.flatMap(sourceItemsOf)).size;
 
 const pinsOf = (entity: TreeItem): string[] =>
   (Array.isArray(entity.cardFacts) ? entity.cardFacts.filter((k): k is string => typeof k === 'string') : []);
@@ -123,8 +126,8 @@ export function cardStats(bible: Bible, entityId: string, open: readonly Contrad
 export function cameFrom(bible: Bible, entityId: string): { itemId: string; facts: number }[] {
   const counts = new Map<string, number>();
   for (const f of bible.facts) {
-    if (f.entityId !== entityId || !f.source) continue;
-    counts.set(f.source.itemId, (counts.get(f.source.itemId) ?? 0) + 1);
+    if (f.entityId !== entityId) continue;
+    for (const itemId of sourceItemsOf(f)) counts.set(itemId, (counts.get(itemId) ?? 0) + 1);
   }
   return [...counts].map(([itemId, facts]) => ({ itemId, facts }));
 }

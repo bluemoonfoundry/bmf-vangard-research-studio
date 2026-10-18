@@ -213,6 +213,8 @@ function registerIpcHandlers() {
     handle('llm:chat-start', (requestId, request) => llm.startChat(requestId, request));
     handle('llm:chat-cancel', (requestId) => llm.cancel(requestId));
     handle('llm:cancel-all', () => llm.cancelAll());
+    handle('llm:extract', (requestId, request) => llm.extract(requestId, request));
+    handle('llm:extract-cancel', (requestId) => llm.cancelExtract(requestId));
 }
 
 function createLlm(userData) {

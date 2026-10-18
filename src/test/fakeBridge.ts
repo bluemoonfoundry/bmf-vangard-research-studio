@@ -4,7 +4,8 @@ import type {
   Bible, ExternalChange, ImportedAsset, IpcResult, MediaKind, OpenedProject, ProjectManifest, ProjectTree, RecentProject,
   SavePayload, TextImportBatch, UnsavedChoice,
 } from '@/project/types';
-import type { AiSettingsPatch, AiStatus, ChatEvent, ChatRequest, ModelInfo, ProviderId, StreamEvent } from '@/ai/types';
+import { emptyExtraction, type ExtractionState } from '@/extraction/types';
+import type { AiSettingsPatch, AiStatus, ChatEvent, ChatRequest, ExtractRequest, ExtractResult, ModelInfo, ProviderId, StreamEvent } from '@/ai/types';
 import type { ChatTranscript } from '@/chat/types';
 
 const ok = <T,>(value: T): Promise<IpcResult<T>> => Promise.resolve({ ok: true, value });
@@ -55,6 +56,7 @@ export function createFakeBridge() {
       manifest: null as ProjectManifest | null,
       tree: { items: [] } as ProjectTree,
       bible: emptyBible() as Bible,
+      extraction: emptyExtraction() as ExtractionState,
       docs: {} as Record<string, string>,
       chats: {} as Record<string, ChatTranscript>,
       assets: {} as Record<string, Uint8Array>,
@@ -75,13 +77,18 @@ export function createFakeBridge() {
       models: {} as Partial<Record<ProviderId, ModelInfo[]>>,
       startedChats: [] as { requestId: string; request: ChatRequest }[],
       cancelledChats: [] as string[],
+      extractions: [] as { requestId: string; request: ExtractRequest }[],
+      cancelledExtractions: [] as string[],
+      /** What `extract` resolves with: a value, a function of the request, or a function that throws to fail. */
+      extractResult: { proposals: [], summary: '', dropped: 0, model: 'fake-model' } as ExtractResult
+        | ((request: ExtractRequest, requestId: string) => ExtractResult | Promise<ExtractResult>),
       emitChatEvent(requestId: string, event: StreamEvent) {
         chatListeners.forEach(l => l({ requestId, event }));
       },
     },
 
     load(project: OpenedProject, docs: Record<string, string> = {}) {
-      fake.disk = { ...fake.disk, manifest: project.manifest, tree: project.tree, bible: project.bible, docs };
+      fake.disk = { ...fake.disk, manifest: project.manifest, tree: project.tree, bible: project.bible, extraction: project.extraction ?? emptyExtraction(), docs };
     },
     emitExternalChange(changes: ExternalChange[]) {
       externalListeners.forEach(l => l(changes));
@@ -122,7 +129,7 @@ export function createFakeBridge() {
       close: vi.fn((_options?: { discardRecovery?: boolean }) => ok(undefined)),
       readDoc: vi.fn((id: string) => ok(fake.disk.docs[id] ?? '')),
       readChat: vi.fn((id: string) => ok<{ transcript: ChatTranscript | null; problem: string | null }>({ transcript: fake.disk.chats[id] ?? null, problem: null })),
-      readStructure: vi.fn(() => ok({ manifest: fake.disk.manifest!, tree: fake.disk.tree, bible: fake.disk.bible })),
+      readStructure: vi.fn(() => ok({ manifest: fake.disk.manifest!, tree: fake.disk.tree, bible: fake.disk.bible, extraction: fake.disk.extraction })),
       readAsset: vi.fn((name: string): Promise<IpcResult<Uint8Array>> => {
         const bytes = fake.disk.assets[name];
         if (!bytes) return Promise.resolve({ ok: false, error: { code: 'NOT_FOUND', message: `${name} is missing` } });
@@ -151,6 +158,7 @@ export function createFakeBridge() {
         }
         if (payload.tree) fake.disk.tree = payload.tree;
         if (payload.bible) fake.disk.bible = payload.bible;
+        if (payload.extraction) fake.disk.extraction = payload.extraction;
         for (const name of payload.deletedAssets ?? []) delete fake.disk.assets[name];
         fake.disk.manifest = { ...fake.disk.manifest!, ...payload.manifest, updatedAt: `T${fake.saves.length}` };
         return ok({ manifest: fake.disk.manifest });
@@ -196,6 +204,20 @@ export function createFakeBridge() {
       onChatEvent: vi.fn((cb: (payload: ChatEvent) => void) => {
         chatListeners.add(cb);
         return () => chatListeners.delete(cb);
+      }),
+      extract: vi.fn(async (requestId: string, request: ExtractRequest): Promise<VrsIpcResult<ExtractResult>> => {
+        fake.ai.extractions.push({ requestId, request });
+        const r = fake.ai.extractResult;
+        try {
+          return { ok: true, value: typeof r === 'function' ? await r(request, requestId) : r };
+        } catch (e) {
+          const err = e as { code?: string; message?: string };
+          return { ok: false, error: { code: err.code ?? 'PROVIDER', message: err.message ?? String(e) } };
+        }
+      }),
+      cancelExtract: vi.fn((requestId: string) => {
+        fake.ai.cancelledExtractions.push(requestId);
+        return ok(undefined);
       }),
     },
   } satisfies VrsApi;

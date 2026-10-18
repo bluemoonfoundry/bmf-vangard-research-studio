@@ -2,6 +2,7 @@ import { PROVIDER_IDS } from '../appSettings.js';
 import { isValidItemId } from '../projectSchema.js';
 import { logger } from '../logger.main.js';
 import { LlmError, scrub } from './http.js';
+import { EXTRACTION_SCHEMA, parseExtraction } from './extractionSchema.js';
 
 /** @typedef {import('../appSettings.js').ProviderId} ProviderId */
 /** @typedef {{ configured: boolean, lastTestOk: string | null }} ProviderStatus */
@@ -32,8 +33,19 @@ import { LlmError, scrub } from './http.js';
  * @property {(request: ChatRequest, key: string, signal: AbortSignal, onEvent: (e: any) => void) => Promise<void>} stream
  */
 
+/**
+ * @typedef {object} ExtractRequest
+ * @property {ProviderId} provider
+ * @property {string} model
+ * @property {string} system
+ * @property {string} text  The source text and canon, built by the renderer.
+ */
+/** @typedef {{ controller: AbortController, finished: boolean, onAbort?: () => void }} ActiveEntry */
+
 /** Total characters of text a single chat request may carry. */
 export const MAX_REQUEST_CHARS = 4_000_000;
+/** Output budget for an extraction reply (Anthropic needs it stated; every model with structured outputs allows it). */
+export const EXTRACT_MAX_OUTPUT_TOKENS = 32_000;
 /** How long a key test / model-list call may take. */
 const LIST_TIMEOUT_MS = 30_000;
 
@@ -89,6 +101,21 @@ function sanitizeRequest(raw) {
 }
 
 /**
+ * Validates a renderer-supplied extraction request.
+ * @param {unknown} raw
+ * @returns {ExtractRequest}
+ */
+function sanitizeExtractRequest(raw) {
+    if (!isObject(raw)) invalid('The extraction request is malformed.');
+    const r = /** @type {Record<string, unknown>} */ (raw);
+    const provider = checkProvider(r.provider);
+    if (typeof r.model !== 'string' || !r.model) invalid('The extraction request has no model.');
+    if (typeof r.system !== 'string' || typeof r.text !== 'string' || !r.text) invalid('The extraction request is malformed.');
+    if (r.model.length + r.system.length + r.text.length > MAX_REQUEST_CHARS) invalid('This source is too long to send in one request.');
+    return { provider, model: r.model, system: r.system, text: r.text };
+}
+
+/**
  * Owns the AI-enabled check, key lookup, model-list cache and the registry of
  * in-flight chat streams. Plain keys only live inside a single call here.
  *
@@ -107,7 +134,7 @@ function sanitizeRequest(raw) {
 export function createLlmService({ settings, keys, adapters, emit, now = () => new Date().toISOString() }) {
     /** @type {Map<ProviderId, any[]>} */
     const modelCache = new Map();
-    /** @type {Map<string, { controller: AbortController, finished: boolean }>} */
+    /** Chat streams and extractions in flight, by request id. @type {Map<string, ActiveEntry>} */
     const active = new Map();
     /** Bumped by every abortAll(), so a chat that was still starting when it ran can tell. */
     let abortEpoch = 0;
@@ -171,14 +198,15 @@ export function createLlmService({ settings, keys, adapters, emit, now = () => n
         };
     }
 
-    /** Ends one stream with a CANCELLED event, at most once. */
+    /** Ends one stream with a CANCELLED event (an extraction: a CANCELLED rejection), at most once. */
     function abortOne(/** @type {string} */ requestId) {
         const entry = active.get(requestId);
         if (!entry) return;
         active.delete(requestId);
         entry.finished = true;
         entry.controller.abort();
-        emit(requestId, CANCELLED_EVENT);
+        if (entry.onAbort) entry.onAbort();
+        else emit(requestId, CANCELLED_EVENT);
     }
 
     function abortAll() {
@@ -196,7 +224,7 @@ export function createLlmService({ settings, keys, adapters, emit, now = () => n
      * @param {string} requestId
      * @param {ChatRequest} request
      * @param {string} key
-     * @param {{ controller: AbortController, finished: boolean }} entry
+     * @param {ActiveEntry} entry
      */
     async function runStream(requestId, request, key, entry) {
         let sawDone = false;
@@ -220,6 +248,44 @@ export function createLlmService({ settings, keys, adapters, emit, now = () => n
             entry.finished = true;
             if (active.get(requestId) === entry) active.delete(requestId);
         }
+    }
+
+    /**
+     * Streams an extraction request and collects the reply text. Rejects CANCELLED as soon as the
+     * entry is aborted, whether or not the adapter notices.
+     * @param {ExtractRequest} request
+     * @param {string} key
+     * @param {ActiveEntry} entry
+     */
+    function collectReply(request, key, entry) {
+        const cancelled = new Promise((_resolve, reject) => {
+            entry.onAbort = () => reject(new LlmError('CANCELLED', 'Cancelled'));
+        });
+        const streamed = (async () => {
+            let text = '';
+            /** @type {any} */
+            let done = null;
+            /** @type {any} */
+            let failed = null;
+            await adapters[request.provider].stream({
+                provider: request.provider, model: request.model, system: request.system,
+                messages: [{ role: 'user', text: request.text }],
+                webSearch: false, readUrls: false,
+                jsonSchema: EXTRACTION_SCHEMA, maxOutputTokens: EXTRACT_MAX_OUTPUT_TOKENS,
+            }, key, entry.controller.signal, (event) => {
+                if (!event || failed) return;
+                if (event.type === 'text') text += event.delta;
+                else if (event.type === 'done') done = event;
+                else if (event.type === 'error') failed = event;
+            });
+            if (failed) throw new LlmError(failed.code, String(failed.message ?? 'The provider reported an error.'));
+            if (!done) throw new LlmError('PROVIDER', 'The reply ended unexpectedly.');
+            return { ...parseExtraction(text), model: done.model, ...(done.usage && { usage: done.usage }) };
+        })();
+        // The losing promise must not surface as an unhandled rejection.
+        streamed.catch(() => {});
+        cancelled.catch(() => {});
+        return Promise.race([streamed, cancelled]);
     }
 
     return {
@@ -341,6 +407,46 @@ export function createLlmService({ settings, keys, adapters, emit, now = () => n
         async cancelAll() {
             await requireEnabled();
             abortAll();
+        },
+
+        /**
+         * Sends one extraction request and resolves with the validated reply
+         * ({ proposals, summary, dropped, model, usage? }). Cancelled by cancelExtract or abortAll.
+         * @param {unknown} requestId
+         * @param {unknown} rawRequest
+         */
+        async extract(requestId, rawRequest) {
+            const epoch = abortEpoch;
+            await requireEnabled();
+            if (!isValidItemId(requestId)) invalid('The extraction request id is invalid.');
+            const id = /** @type {string} */ (requestId);
+            const request = sanitizeExtractRequest(rawRequest);
+            const key = await keys.get(request.provider);
+            if (!key) invalid(`${request.provider} is not set up. Add its API key in Settings → AI.`);
+            if (active.has(id)) invalid('That extraction is already running.');
+            // AI was turned off (or the project/window closed) while this was starting: never send it.
+            if (abortEpoch !== epoch) throw new LlmError('CANCELLED', 'Cancelled');
+            /** @type {ActiveEntry} */
+            const entry = { controller: new globalThis.AbortController(), finished: false };
+            active.set(id, entry);
+            try {
+                return await collectReply(request, /** @type {string} */ (key), entry);
+            } catch (err) {
+                if (entry.finished) throw new LlmError('CANCELLED', 'Cancelled');
+                const e = /** @type {any} */ (err);
+                if (err instanceof LlmError) throw new LlmError(e.code, scrub(e.message, [/** @type {string} */ (key)]));
+                logger.warn('Extraction failed unexpectedly', scrub(String(e?.message ?? e), [/** @type {string} */ (key)]));
+                throw new LlmError('PROVIDER', 'The provider reported an error.');
+            } finally {
+                entry.finished = true;
+                if (active.get(id) === entry) active.delete(id);
+            }
+        },
+
+        /** @param {unknown} requestId */
+        async cancelExtract(requestId) {
+            await requireEnabled();
+            if (typeof requestId === 'string') abortOne(requestId);
         },
     };
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatTurns, parseTranscript, turnSpans } from '@/chat/importFormats';
+import { exporterTurnSpans, formatTurns, parseTranscript, turnSpans } from '@/chat/importFormats';
 import { normalizeChatText } from '@/bible/entities';
 import raw from './fixtures/aistudio-exporter-sample.md?raw';
 
@@ -79,5 +79,26 @@ describe('canonical layout', () => {
 
   it('turnSpans is null for text without headings', () => {
     expect(turnSpans('just text')).toBeNull();
+  });
+});
+
+describe('exporterTurnSpans: raw exporter text stored before turn parsing existed', () => {
+  it('finds each turn in place, matching what the parser would store', () => {
+    const spans = exporterTurnSpans(sample)!;
+    const parsed = parseTranscript(sample).turns;
+    expect(spans.map(s => [s.role, s.label])).toEqual(parsed.map(t => [t.role, t.label]));
+    expect(spans.map(s => sample.slice(s.start, s.end))).toEqual(parsed.map(t => t.text));
+  });
+
+  it('leaves the stray Model line and the --- separators outside the turn', () => {
+    const [, model] = exporterTurnSpans(sample)!;
+    const text = sample.slice(model.start, model.end);
+    expect(text.startsWith('### Inner heading')).toBe(true);
+    expect(text.endsWith('---')).toBe(false);
+  });
+
+  it('returns null for text without exporter turns', () => {
+    expect(exporterTurnSpans('Just notes.\n### 👤 User\nno conversation heading')).toBeNull();
+    expect(exporterTurnSpans(formatTurns([{ role: 'user', label: 'You', text: 'Hi' }]))).toBeNull();
   });
 });

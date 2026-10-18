@@ -36,6 +36,7 @@ function Harness({ initial, focusKey, onOpenSource, showEntity, chatOf = () => u
         onUpdate={(u) => setBible(u)}
         onOpenSource={(onOpenSource ?? (() => undefined)) as never}
         onOpenEntity={() => undefined}
+        sourceOrder={['old', 'new']}
       />
       {showEntity && (
         <EntityPanel entity={items[0]} items={items} bible={bible} bodyOf={() => 'body'} chatOf={() => undefined} updateBible={(u) => setBible(u)} onOpenSource={() => undefined} />
@@ -144,5 +145,24 @@ describe('ConflictQueue', () => {
     };
     render(<Harness initial={bible} />);
     expect(screen.queryByText(/after Hal/)).toBeNull();
+  });
+});
+
+describe('ConflictQueue: keep the newer', () => {
+  const src = (itemId: string) => ({ itemId, quote: 'q', start: 0, end: 1 });
+
+  it('keeps the version from the source further down the order', () => {
+    const initial = { ...emptyBible(), facts: [fact('e1', 'Eyes', 'green', { source: src('new') }), fact('e1', 'Eyes', 'brown', { source: src('old') })] };
+    render(<Harness initial={initial} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Keep the newer' }));
+    expect(screen.getByText('No open contradictions')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Decided' }));
+    expect(screen.getByText('Kept one')).toBeInTheDocument();
+  });
+
+  it('is not offered when both versions come from one source', () => {
+    const initial = { ...emptyBible(), facts: [fact('e1', 'Eyes', 'green', { source: src('new') }), fact('e1', 'Eyes', 'brown', { source: src('new') })] };
+    render(<Harness initial={initial} />);
+    expect(screen.queryByRole('button', { name: 'Keep the newer' })).toBeNull();
   });
 });

@@ -35,7 +35,7 @@ const baseRequest = {
     readUrls: false,
 };
 
-async function run(over: Partial<typeof baseRequest>, responses: { body: string; status?: number; type?: string }[] = [{ body: fixture('anthropic-text.txt') }]) {
+async function run(over: Partial<typeof baseRequest> & { jsonSchema?: object; maxOutputTokens?: number }, responses: { body: string; status?: number; type?: string }[] = [{ body: fixture('anthropic-text.txt') }]) {
     const { calls, fetchFn } = fakeFetch(responses);
     const events: StreamEvent[] = [];
     await createAnthropicAdapter({ fetchFn }).stream({ ...baseRequest, ...over }, KEY, new AbortController().signal, (e: StreamEvent) => events.push(e));
@@ -172,5 +172,21 @@ describe('anthropic adapter', () => {
             )) as unknown as typeof fetch;
         const p = createAnthropicAdapter({ fetchFn }).stream(baseRequest, KEY, ac.signal, () => ac.abort());
         await expect(p).rejects.toMatchObject({ code: 'CANCELLED' });
+    });
+});
+
+describe('anthropic structured output', () => {
+    const schema = { type: 'object', properties: { a: { type: 'string' } }, required: ['a'], additionalProperties: false };
+
+    it('asks for JSON matching the schema with the requested output budget', async () => {
+        const { body } = await run({ jsonSchema: schema, maxOutputTokens: 32000 });
+        expect(body.output_config).toEqual({ format: { type: 'json_schema', schema } });
+        expect(body.max_tokens).toBe(32000);
+    });
+
+    it('leaves the body alone without a schema', async () => {
+        const { body } = await run({});
+        expect(body.output_config).toBeUndefined();
+        expect(body.max_tokens).toBe(8192);
     });
 });

@@ -12,6 +12,7 @@ export const CURRENT_SCHEMA_VERSION = 2;
 export const MANIFEST_FILE = 'vrs.json';
 export const TREE_FILE = 'tree.json';
 export const BIBLE_FILE = 'bible/bible.json';
+export const EXTRACTION_FILE = 'bible/extraction.json';
 export const CHATS_DIR = 'chats';
 export const PROJECT_DIRS = ['docs', 'chats', 'assets', 'bible', 'maps'];
 
@@ -155,6 +156,18 @@ function isValidPosition(value) {
 
 const corruptBible = (where, msg) => new ProjectFormatError('CORRUPT', `bible.json ${where} ${msg}`);
 
+/** A fact's source: `{ itemId, messageId?, quote, start, end }`. */
+function isValidSource(src) {
+    return isPlainObject(src) && isValidItemId(src.itemId) && typeof src.quote === 'string'
+        && Number.isInteger(src.start) && Number.isInteger(src.end) && src.start <= src.end
+        && (src.messageId === undefined || isValidItemId(src.messageId));
+}
+
+/** Extraction evidence: `[{ source, strength }]`. */
+function isValidEvidenceList(list) {
+    return Array.isArray(list) && list.every(e => isPlainObject(e) && isValidSource(e.source) && typeof e.strength === 'string');
+}
+
 function checkFact(fact, where) {
     if (!isPlainObject(fact)) throw corruptBible(where, 'is not an object.');
     if (!isValidItemId(fact.id)) throw corruptBible(where, 'has an invalid id.');
@@ -166,14 +179,8 @@ function checkFact(fact, where) {
     } else if (typeof fact.value !== 'string') {
         throw corruptBible(where, 'needs a string value.');
     }
-    if (fact.source !== undefined) {
-        const src = fact.source;
-        if (!isPlainObject(src) || !isValidItemId(src.itemId) || typeof src.quote !== 'string'
-            || !Number.isInteger(src.start) || !Number.isInteger(src.end) || src.start > src.end
-            || (src.messageId !== undefined && !isValidItemId(src.messageId))) {
-            throw corruptBible(where, 'has an invalid source.');
-        }
-    }
+    if (fact.source !== undefined && !isValidSource(fact.source)) throw corruptBible(where, 'has an invalid source.');
+    if (fact.evidence !== undefined && !isValidEvidenceList(fact.evidence)) throw corruptBible(where, 'has invalid evidence.');
 }
 
 function checkDependency(dep, where) {
@@ -214,6 +221,43 @@ export function normalizeBible(raw) {
     if (raw.sourceOrder !== undefined
         && (!Array.isArray(raw.sourceOrder) || !raw.sourceOrder.every(id => isValidItemId(id)))) {
         throw new ProjectFormatError('CORRUPT', 'bible.json "sourceOrder" must be a list of item ids.');
+    }
+    return { ...raw, ...lists };
+}
+
+export function createEmptyExtraction() {
+    return { rejections: [], runs: [], cards: [], pending: [] };
+}
+
+const corruptExtraction = (where, msg) => new ProjectFormatError('CORRUPT', `extraction.json ${where} ${msg}`);
+const isText = (v) => typeof v === 'string';
+
+const EXTRACTION_CHECKS = {
+    rejections: (r) => isText(r.fingerprint) && isText(r.label),
+    runs: (r) => isValidItemId(r.itemId) && isText(r.key) && Array.isArray(r.proposals),
+    cards: (c) => isValidItemId(c.id) && isText(c.kind) && isText(c.title),
+    pending: (p) => isValidItemId(p.id)
+        && isPlainObject(p.ref) && (isValidItemId(p.ref.entityId) || isValidItemId(p.ref.cardId))
+        && isText(p.attribute) && p.attribute.trim() !== ''
+        && (isText(p.value) || isValidPosition(p.value))
+        && isText(p.strength) && isValidEvidenceList(p.evidence),
+};
+
+/**
+ * Validates bible/extraction.json: AI extraction's rejections, run cache, pending new cards and
+ * pending proposals (src/extraction/types.ts). Missing reads as empty; unknown fields are preserved.
+ */
+export function normalizeExtraction(raw) {
+    if (raw === undefined) return createEmptyExtraction();
+    if (!isPlainObject(raw)) throw new ProjectFormatError('CORRUPT', 'extraction.json must be an object.');
+    const lists = {};
+    for (const [key, check] of Object.entries(EXTRACTION_CHECKS)) {
+        const list = raw[key] ?? [];
+        if (!Array.isArray(list)) throw new ProjectFormatError('CORRUPT', `extraction.json "${key}" must be an array.`);
+        list.forEach((entry, index) => {
+            if (!isPlainObject(entry) || !check(entry)) throw corruptExtraction(`${key} entry ${index}`, 'is malformed.');
+        });
+        lists[key] = list;
     }
     return { ...raw, ...lists };
 }
@@ -275,6 +319,14 @@ export function validateSavePayload(payload) {
     if (payload.bible !== undefined) {
         try {
             result.bible = normalizeBible(payload.bible);
+        } catch (err) {
+            throw new ProjectFormatError('INVALID', err.message);
+        }
+    }
+
+    if (payload.extraction !== undefined) {
+        try {
+            result.extraction = normalizeExtraction(payload.extraction);
         } catch (err) {
             throw new ProjectFormatError('INVALID', err.message);
         }

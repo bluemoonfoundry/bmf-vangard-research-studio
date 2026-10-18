@@ -309,3 +309,111 @@ describe('llmService', () => {
         expect(adapters.gemini.listModels).toHaveBeenCalledTimes(2);
     });
 });
+
+describe('llmService extract', () => {
+    const extractRequest = (overrides: Record<string, unknown> = {}) => ({
+        provider: 'gemini', model: 'gemini-model', system: 'Extract facts.', text: '[Turn 1 · You]\nMara has green eyes.', ...overrides,
+    });
+    const REPLY = JSON.stringify({
+        proposals: [{
+            entity: { id: '', name: 'Mara', kind: 'character', reason: 'Main character' },
+            attribute: 'eyes', value: 'green', strength: 'said',
+            evidence: [{ quote: 'Mara has green eyes.', turn: 1 }], replaces: '',
+        }, { entity: {} }],
+        summary: 'Mara: green eyes.',
+    });
+    const replyWith = (text: string): StreamImpl => async (_req, _key, _signal, onEvent) => {
+        onEvent({ type: 'text', delta: text.slice(0, 20) });
+        onEvent({ type: 'text', delta: text.slice(20) });
+        onEvent({ type: 'done', model: 'gemini-model-001', usage: { inputTokens: 5, outputTokens: 7 } });
+    };
+
+    it('is refused while AI is disabled', async () => {
+        const { service } = setup();
+        expect(await codeOf(service.extract('x1', extractRequest()))).toBe('AI_DISABLED');
+        expect(await codeOf(service.cancelExtract('x1'))).toBe('AI_DISABLED');
+    });
+
+    it('rejects malformed requests', async () => {
+        const { service } = await enabled();
+        expect(await codeOf(service.extract('../x', extractRequest()))).toBe('INVALID');
+        expect(await codeOf(service.extract('x1', extractRequest({ provider: 'nope' })))).toBe('INVALID');
+        expect(await codeOf(service.extract('x1', extractRequest({ text: '' })))).toBe('INVALID');
+        expect(await codeOf(service.extract('x1', extractRequest({ model: '' })))).toBe('INVALID');
+        expect(await codeOf(service.extract('x1', extractRequest({ text: 'x'.repeat(MAX_REQUEST_CHARS) })))).toBe('INVALID');
+    });
+
+    it('streams one user message with the schema and returns the validated result', async () => {
+        const { service, adapters, events } = await enabled();
+        adapters.gemini.stream.mockImplementation(replyWith(REPLY));
+        const result = await service.extract('x1', extractRequest());
+        const sent = adapters.gemini.stream.mock.calls[0][0] as Record<string, unknown>;
+        expect(sent).toMatchObject({
+            provider: 'gemini', model: 'gemini-model', system: 'Extract facts.',
+            messages: [{ role: 'user', text: '[Turn 1 · You]\nMara has green eyes.' }],
+            webSearch: false, readUrls: false, maxOutputTokens: 32000,
+        });
+        expect((sent.jsonSchema as { type: string }).type).toBe('object');
+        expect(result).toMatchObject({ summary: 'Mara: green eyes.', dropped: 1, model: 'gemini-model-001', usage: { inputTokens: 5, outputTokens: 7 } });
+        expect(result.proposals).toHaveLength(1);
+        expect(events).toEqual([]);
+    });
+
+    it('rejects with PROVIDER when the reply is not JSON', async () => {
+        const { service, adapters } = await enabled();
+        adapters.gemini.stream.mockImplementation(replyWith('Sure! Here are the facts you asked for.'));
+        expect(await codeOf(service.extract('x1', extractRequest()))).toBe('PROVIDER');
+    });
+
+    it('rejects with the code of an error event or a thrown adapter error', async () => {
+        const { service, adapters } = await enabled();
+        adapters.gemini.stream.mockImplementationOnce(async (_r, _k, _s, onEvent) => onEvent({ type: 'error', code: 'RATE_LIMIT', message: 'Slow down' }));
+        expect(await codeOf(service.extract('x1', extractRequest()))).toBe('RATE_LIMIT');
+        adapters.gemini.stream.mockImplementationOnce(async () => { throw new LlmError('AUTH', `bad key ${GOOD}`); });
+        const err = await service.extract('x2', extractRequest()).catch((e: Error) => e);
+        expect((err as LlmError).code).toBe('AUTH');
+        expect((err as Error).message).not.toContain(GOOD);
+    });
+
+    it('cancelExtract rejects the pending call with CANCELLED', async () => {
+        const { service, adapters, events } = await enabled();
+        adapters.gemini.stream.mockImplementation(waitForAbort);
+        const pending = service.extract('x1', extractRequest());
+        await vi.waitFor(() => expect(adapters.gemini.stream).toHaveBeenCalled());
+        await service.cancelExtract('x1');
+        expect(await codeOf(pending)).toBe('CANCELLED');
+        expect(events).toEqual([]);
+    });
+
+    it('abortAll (turning AI off) cancels an extraction', async () => {
+        const { service, adapters } = await enabled();
+        adapters.gemini.stream.mockImplementation(waitForAbort);
+        const pending = service.extract('x1', extractRequest());
+        await vi.waitFor(() => expect(adapters.gemini.stream).toHaveBeenCalled());
+        await service.setSettings({ enabled: false });
+        expect(await codeOf(pending)).toBe('CANCELLED');
+    });
+
+    it('an extraction still starting when abortAll runs never reaches the provider', async () => {
+        const { service, adapters, settings } = await enabled();
+        let release!: () => void;
+        const gate = new Promise<void>(r => { release = r; });
+        const read = settings.read;
+        settings.read = async () => { await gate; return read(); };
+        const pending = service.extract('x1', extractRequest());
+        service.abortAll();
+        release();
+        expect(await codeOf(pending)).toBe('CANCELLED');
+        expect(adapters.gemini.stream).not.toHaveBeenCalled();
+    });
+
+    it('refuses a second extraction with a running id', async () => {
+        const { service, adapters } = await enabled();
+        adapters.gemini.stream.mockImplementation(waitForAbort);
+        const first = service.extract('x1', extractRequest());
+        await vi.waitFor(() => expect(adapters.gemini.stream).toHaveBeenCalled());
+        expect(await codeOf(service.extract('x1', extractRequest()))).toBe('INVALID');
+        service.abortAll();
+        await first.catch(() => {});
+    });
+});

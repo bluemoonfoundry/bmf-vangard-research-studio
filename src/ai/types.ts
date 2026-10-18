@@ -72,3 +72,42 @@ export interface ChatEvent {
   requestId: string;
   event: StreamEvent;
 }
+
+/**
+ * How firmly a source establishes a proposal: stated in the writer's own turn, offered by the model
+ * and then used by the writer, or offered and never taken up.
+ */
+export type Strength = 'said' | 'built_on' | 'suggested';
+
+/** A quote as the model returned it; `turn` is 1-based, 0 when unknown. */
+export interface RawEvidence { quote: string; turn: number }
+
+/** One extraction proposal as validated by the main process (electron/lib/llm/extractionSchema.js). */
+export interface RawProposal {
+  /** `id` is an existing entity's id, or '' for a new card proposal. `reason` is '' unless new. */
+  entity: { id: string; name: string; kind: string; reason: string };
+  attribute: string;
+  value: string;
+  strength: Strength;
+  evidence: RawEvidence[];
+  /** The earlier value this replaces within the same source, or ''. */
+  replaces: string;
+}
+
+/** What llm:extract sends: the renderer builds the text; the main process adds the schema. */
+export interface ExtractRequest {
+  provider: ProviderId;
+  model: string;
+  system: string;
+  text: string;
+}
+
+export interface ExtractResult {
+  proposals: RawProposal[];
+  /** What was established so far, carried into the next chunk's request. */
+  summary: string;
+  /** Malformed proposals the main process dropped. */
+  dropped: number;
+  model: string;
+  usage?: { inputTokens?: number; outputTokens?: number };
+}

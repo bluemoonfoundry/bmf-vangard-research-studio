@@ -17,6 +17,9 @@ import { normalizeSources } from '../sources.js';
  *  - events: message_start.message.model/usage, content_block_delta/text_delta, message_delta.usage,
  *    `error` event -> PROVIDER
  *  - web tools: model ids `claude-<line>-<major>...` with major >= 4, plus claude-3-7-sonnet and claude-3-5-haiku
+ *  - jsonSchema (extraction) -> output_config.format { type: 'json_schema', schema }, no beta header; objects need
+ *    additionalProperties: false; Claude 4.5+ only (build-with-claude/structured-outputs, Oct 2026)
+ *  - maxOutputTokens overrides max_tokens (extraction asks for more)
  */
 const DEFAULT_BASE_URL = 'https://api.anthropic.com';
 const ANTHROPIC_VERSION = '2023-06-01';
@@ -55,10 +58,11 @@ function buildBody(request) {
     const body = {
         model: request.model,
         stream: true,
-        max_tokens: MAX_OUTPUT_TOKENS,
+        max_tokens: request.maxOutputTokens ?? MAX_OUTPUT_TOKENS,
         messages: request.messages.map((/** @type {any} */ m) => ({ role: m.role, content: m.text })),
     };
     if (request.system) body.system = request.system;
+    if (request.jsonSchema) body.output_config = { format: { type: 'json_schema', schema: request.jsonSchema } };
     // Anthropic accepts 0–1; the shared slider goes to 2.
     if (request.temperature != null) body.temperature = Math.min(request.temperature, 1);
     const tools = [];

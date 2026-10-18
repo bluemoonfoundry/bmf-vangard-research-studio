@@ -94,6 +94,8 @@ src/components/settings/ SettingsDialog (AI toggle, provider keys, default model
 electron/lib/llm/       provider adapters (providers/), http.js, sse.js, sources.js, llmService.js, testOverride.js
 src/bible/              pure story-bible logic: ops, contradictions, ordering, timeline, sources, export (no React, no IPC)
 src/components/bible/   entity facts panel, chat view + capture popover, conflict queue, timeline view
+src/extraction/         pure AI-extraction logic: source turns, prompt + canon, apply (matching, fingerprints), review; useExtraction
+src/components/extraction/ Extract dialog and review queue
 e2e/                    Playwright Electron tests (electron-launch.ts fixture: isolated userData, dialog stubs)
 ```
 
@@ -108,7 +110,7 @@ A project is a folder (`Name.vrs/`) of plain files: `vrs.json` (manifest + `sche
 - **Schema changes** bump `CURRENT_SCHEMA_VERSION` and add a step to `MIGRATIONS` in `projectSchema.js`.
   Opening an older project migrates it and keeps `*.v<N>.bak` copies. Newer formats are refused (`TOO_NEW`).
 - **Item ids become file names**: always validate with `isValidItemId()`.
-- **Save order** is docs, chats, `tree.json`, `bible/bible.json`, `vrs.json`, then deletions, so an interrupted save
+- **Save order** is docs, chats, `tree.json`, `bible/bible.json`, `bible/extraction.json`, `vrs.json`, then deletions, so an interrupted save
   never leaves the tree pointing at a missing file.
 - **Crash recovery** snapshots (same shape as a save payload) live in `userData/recovery/`, never in the project
   folder, and are cleared on save or an explicit discard.
@@ -149,7 +151,7 @@ version field; the project's `schemaVersion` in `vrs.json` (now 2) covers it.
   (proposed or kept; `when` compared as compatible positions). A `kept_all` decision covering exactly that live fact
   set acknowledges it; `kept_one` resolves it by setting the other versions aside; adding a new differing fact
   reopens an acknowledged one.
-- **Save order**: docs, chats, `tree.json`, `bible/bible.json`, `vrs.json`, then deletions.
+- **Save order**: docs, chats, `tree.json`, `bible/bible.json`, `bible/extraction.json`, `vrs.json`, then deletions.
 - **Pure logic in `src/bible/`**, state changes as `Bible -> Bible` functions applied through `updateBible`. No React or IPC there.
 - **No routes.** Canon is global; route-scoped canon is out of scope for this phase.
 - **Sources**: a fact's `source` is `{ itemId, messageId?, quote, start, end }`. Offsets are taken from the plain text shown (the
@@ -194,6 +196,33 @@ Strictly opt-in (see Project Overview). Main-process code in `electron/lib/`, re
 - **Test hooks**: `VRS_LLM_BASE_URL` redirects every provider call, so `testOverride.js` honours it only when the app is
   unpackaged and the value is a plain `http` loopback origin; anything else is ignored with a warning. E2E uses the fake
   provider (`e2e/fakeProvider.ts`) with the `aiTest` fixture (`e2e/electron-launch.ts`), which points the app at it.
+
+## AI Extraction
+
+On demand, AI reads chosen sources (imported chats, AI Chats, documents) and proposes facts and new cards. AI-only:
+the Extract button, the Review mode, "This is my own writing" and the card's Rejected list are hidden while AI is off.
+
+- **`llm:extract`** (`llmService.extract`, cancelled by `llm:extract-cancel` and `abortAll()`, respects `abortEpoch`)
+  streams one request with the provider's JSON-schema output on (`request.jsonSchema`: Gemini `responseJsonSchema`,
+  Anthropic `output_config.format`, OpenAI `text.format`), collects the text and validates it
+  (`electron/lib/llm/extractionSchema.js`: one schema for all three, every property required, no nulls). The renderer
+  builds the text (`src/extraction/request.ts`); the schema never leaves main.
+- **Sources** (`src/extraction/sourceText.ts`): turns from the canonical layout, else raw exporter headings found in
+  place (`exporterTurnSpans`), else one turn with no role; AI Chat messages are turns with `messageId`. Quotes are
+  located exactly, then whitespace-tolerantly, in the cited turn then the others; the stored quote is the source's own text.
+- **Applying** (`src/extraction/apply.ts`) re-matches results against the current canon every time, and is idempotent:
+  `said`/`built_on` on an existing entity become `proposed` facts (origin `"ai"`, `evidence[]`, `replaces?`) or merge
+  evidence into a live fact that agrees; `suggested` and everything for an unknown entity wait in `extraction.json`.
+  `said`/`built_on` without a writer-turn quote are downgraded; a source without turns is `suggested` unless `ownWriting`.
+- **`bible/extraction.json`**: `{ rejections, runs, cards, pending }` (`src/extraction/types.ts`, `normalizeExtraction`),
+  saved, recovered and watched like `bible.json`. Pruned on save (`pruneExtraction`).
+- **Rejections**: a fact set aside by hand (no decision lists it in `setAsideIds`) is a rejection, derived, never stored;
+  `extraction.json` stores only rejected cards and dismissed pending proposals. A value set aside by `keepOne` comes
+  back only with new evidence. Fingerprint = entity id (or `new:<kind>:<title>`), attribute key, normalized value.
+- **Run cache**: one per source, keyed by `cacheKey(source text, provider, model)` with `EXTRACTION_PROMPT_VERSION`
+  (bump it when the prompt changes). Re-running an unchanged source makes no request.
+- **Keep the newer** (`src/bible/newer.ts`, non-AI) suggests the version whose latest evidence is furthest down the
+  source order; never automatic.
 
 ## Security Rules (non-negotiable)
 
