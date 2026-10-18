@@ -28,12 +28,17 @@ async function setup() {
   const ai = createAiApi(bridge);
   const box = {} as { project: ProjectController; streams: Streams };
 
-  function Host({ showEditor }: { showEditor: boolean }): ReactNode {
+  function StreamManager({ project }: { project: ProjectController }): ReactNode {
+    box.streams = useChatStreams({ ai, project, capsOf: () => CAPS });
+    return null;
+  }
+
+  function Host({ showEditor, showStreams = true }: { showEditor: boolean; showStreams?: boolean }): ReactNode {
     const project = useProject(projectApi, bridge.app, { chatDefaults: () => DEFAULTS });
-    const streams = useChatStreams({ ai, project, capsOf: () => CAPS });
     box.project = project;
-    box.streams = streams;
-    return showEditor ? createElement(Editor, { project, chatId: 'c1' }) : null;
+    return createElement('div', null,
+      showStreams ? createElement(StreamManager, { project }) : null,
+      showEditor ? createElement(Editor, { project, chatId: 'c1' }) : null);
   }
 
   fake.disk.chats = {
@@ -155,6 +160,7 @@ describe('useChatStreams', () => {
 
     act(() => fake.ai.emitChatEvent(requestId, { type: 'text', delta: 'ghost' }));
     act(() => fake.ai.emitChatEvent('unknown-request', { type: 'text', delta: 'stray' }));
+    await waitFor(() => expect(fake.ai.cancelledChats).toEqual([requestId]));
     expect(box.project.state!.chats.c1).toBeUndefined();
     expect(box.project.state!.chats.c2.current.messages).toEqual([]);
     expect(box.streams.streamingIds.size).toBe(0);
@@ -180,11 +186,49 @@ describe('useChatStreams', () => {
     expect(box.streams.error).toBeNull();
   });
 
-  it('unmount cancels every reply, even when the cancel is refused', async () => {
-    const { bridge, view } = await setup();
+  it('stop before startChat resolves cancels again once main has registered the request', async () => {
+    const { bridge, fake, box, messages } = await setup();
+    let resolveStart!: () => void;
+    bridge.ai.startChat.mockImplementationOnce((requestId, request) => {
+      fake.ai.startedChats.push({ requestId, request });
+      return new Promise(resolve => { resolveStart = () => resolve({ ok: true, value: requestId }); });
+    });
+    act(() => box.streams.send('c1', 'hello'));
+    await waitFor(() => expect(fake.ai.startedChats).toHaveLength(1));
+    const { requestId } = fake.ai.startedChats[0];
+
+    act(() => box.streams.stop('c1'));
+    await waitFor(() => expect(fake.ai.cancelledChats).toEqual([requestId]));
+    expect(messages('c1')[1].status).toBe('cancelled');
+
+    await act(async () => resolveStart());
+    await waitFor(() => expect(fake.ai.cancelledChats).toEqual([requestId, requestId]));
+    expect(messages('c1')[1].status).toBe('cancelled');
+  });
+
+  it('a request that starts normally is not cancelled', async () => {
+    const { fake, box } = await setup();
+    act(() => box.streams.send('c1', 'hello'));
+    await waitFor(() => expect(fake.ai.startedChats).toHaveLength(1));
+    await act(async () => {});
+    expect(fake.ai.cancelledChats).toEqual([]);
+  });
+
+  it('unmount cancels every reply, keeping partial text, even when the cancel is refused', async () => {
+    const { bridge, fake, box, view, Host, messages } = await setup();
+    act(() => box.streams.send('c1', 'hello'));
+    await waitFor(() => expect(fake.ai.startedChats).toHaveLength(1));
+    const { requestId } = fake.ai.startedChats[0];
+    act(() => fake.ai.emitChatEvent(requestId, { type: 'text', delta: 'half a' }));
     bridge.ai.cancelAll.mockImplementationOnce(() =>
       Promise.resolve({ ok: false, error: { code: 'AI_DISABLED', message: 'AI is off' } }));
-    view.unmount();
+
+    view.rerender(createElement(Host, { showEditor: true, showStreams: false }));
     expect(bridge.ai.cancelAll).toHaveBeenCalledTimes(1);
+    expect(messages('c1')[1]).toMatchObject({ text: 'half a', status: 'cancelled' });
+
+    // The stream manager is gone, so a late event changes nothing.
+    act(() => fake.ai.emitChatEvent(requestId, { type: 'text', delta: ' reply' }));
+    expect(messages('c1')[1].text).toBe('half a');
   });
 });

@@ -1,6 +1,6 @@
 import type { Capabilities, ChatRequest } from '@/ai/types';
 import type { Bible, Fact, StoryPosition, TreeItem } from '@/project/types';
-import { groupVersions } from '@/bible/contradictions';
+import { contradictionKey, findContradictions, groupVersions } from '@/bible/contradictions';
 import { ENTITY_KINDS, entityKindOf } from '@/bible/entities';
 import { attributeKey } from '@/bible/normalize';
 import { AI_CHAT_TYPE } from '@/project/projectState';
@@ -48,6 +48,7 @@ function kindName(entity: TreeItem): string {
 export function buildCanonText(items: TreeItem[], bible: Bible): string {
   const entities = items.filter(i => i.type === 'entity').sort(byTitle);
   const byId = new Map(items.map(i => [i.id, i]));
+  const contradictions = new Map(findContradictions(bible, new Set(entities.map(e => e.id))).map(c => [c.key, c]));
   const blocks: string[] = [];
 
   for (const entity of entities) {
@@ -62,7 +63,19 @@ export function buildCanonText(items: TreeItem[], bible: Bible): string {
       const facts = groups.get(key) as Fact[];
       const label = oneLine(facts[0].attribute);
       const values = groupVersions(facts).map(v => valueText(v.value));
-      lines.push(values.length > 1 ? `- ${label}: unresolved: ${values.join(' or ')}` : `- ${label}: ${values[0]}`);
+      if (values.length === 1) {
+        lines.push(`- ${label}: ${values[0]}`);
+        continue;
+      }
+      // Kept versions that disagree: open unless the writer chose to keep them all (as the dossier shows them).
+      const acknowledged = contradictions.get(contradictionKey(entity.id, facts[0].attribute))?.acknowledgedBy;
+      if (!acknowledged) {
+        lines.push(`- ${label}: unresolved: ${values.join(' or ')}`);
+        continue;
+      }
+      for (const v of values) lines.push(`- ${label}: ${v}`);
+      const note = oneLine(acknowledged.note ?? '');
+      lines.push(note ? `  (multiple versions kept: ${note})` : '  (multiple versions kept)');
     }
     const after = bible.dependencies
       .filter(d => d.eventId === entity.id && byId.has(d.afterEventId))
@@ -86,9 +99,12 @@ function bodyOf(item: TreeItem, contentOf: ContentOf, chatOf: ChatOf): string {
   return contentOf(item.id) ?? '';
 }
 
-/** The attached items as delimited blocks; folders mean every non-folder item under them, in binder order. */
+/**
+ * The attached items as delimited blocks; folders mean every non-folder item under them, in binder order.
+ * `selfId` (the chat being sent) is skipped, so a chat never quotes its own transcript.
+ */
 export function buildAttachmentsText(
-  ids: string[], items: TreeItem[], contentOf: ContentOf, chatOf: ChatOf = () => undefined,
+  ids: string[], items: TreeItem[], contentOf: ContentOf, chatOf: ChatOf = () => undefined, selfId?: string,
 ): { text: string; missing: string[] } {
   const byId = new Map(items.map(i => [i.id, i]));
   const missing: string[] = [];
@@ -97,7 +113,7 @@ export function buildAttachmentsText(
 
   const visit = (item: TreeItem, path: Set<string>) => {
     if (item.type !== 'folder') {
-      if (!seen.has(item.id)) {
+      if (item.id !== selfId && !seen.has(item.id)) {
         seen.add(item.id);
         picked.push(item);
       }
@@ -128,18 +144,20 @@ export interface BuildChatRequestArgs {
   contentOf: ContentOf;
   /** Transcripts of attached AI chats. */
   chatOf?: ChatOf;
+  /** The chat's own item id, left out of its attachments. */
+  chatId?: string;
   caps: Capabilities;
 }
 
 /** The request for one send, built fresh from current in-memory state (spec §6). */
 export function buildChatRequest({
-  transcript, uptoIndex, items, bible, contentOf, chatOf, caps,
+  transcript, uptoIndex, items, bible, contentOf, chatOf, chatId, caps,
 }: BuildChatRequestArgs): ChatRequest {
   const s = transcript.settings;
   if (!s.provider || !s.model) throw new Error('Pick a provider and model for this chat first.');
 
   const canon = buildCanonText(items, bible);
-  const attachments = buildAttachmentsText(s.attachments, items, contentOf, chatOf).text;
+  const attachments = buildAttachmentsText(s.attachments, items, contentOf, chatOf, chatId).text;
   const system = [
     s.systemPrompt.trim(),
     VRS_PREAMBLE,

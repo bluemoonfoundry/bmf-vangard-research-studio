@@ -107,6 +107,7 @@ export function useChatStreams({ ai, project, capsOf }: UseChatStreamsOptions): 
       bible: state.bible,
       contentOf: id => state.docs[id]?.current,
       chatOf: id => state.chats[id]?.current,
+      chatId,
       caps: args.caps,
     });
 
@@ -115,7 +116,10 @@ export function useChatStreams({ ai, project, capsOf }: UseChatStreamsOptions): 
     projectRef.current.updateChat(chatId, t => begin(t, args));
     routes.current.set(requestId, { chatId, assistantId: args.assistantId });
     syncStreaming();
-    ai.startChat(requestId, request).catch((err: unknown) => {
+    ai.startChat(requestId, request).then(() => {
+      // Stopped (or the chat vanished) before main registered the request: that cancel found nothing to abort.
+      if (!routes.current.has(requestId)) void ai.cancelChat(requestId).catch(() => {});
+    }, (err: unknown) => {
       const { code, message } = errorOf(err);
       if (routes.current.has(requestId) && code !== 'CANCELLED') setError(message);
       deliver(requestId, { type: 'error', code, message });

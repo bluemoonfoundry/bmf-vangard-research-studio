@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Capabilities } from '@/ai/types';
-import type { Bible, Dependency, Fact, TreeItem } from '@/project/types';
+import type { Bible, Decision, Dependency, Fact, TreeItem } from '@/project/types';
 import { emptyBible } from '@/bible/normalize';
 import { newTranscript, updateSettings } from '@/chat/transcript';
 import type { ChatMessage, ChatTranscript } from '@/chat/types';
@@ -84,6 +84,27 @@ describe('buildCanonText', () => {
     ]);
     expect(buildCanonText(entities, bible)).toBe('### Mara (Character)\n- Eyes: unresolved: green or brown');
   });
+
+  it('canon lists acknowledged kept conflicts as kept versions', () => {
+    const green = fact({ attribute: 'Eyes', value: 'green' });
+    const brown = fact({ attribute: 'Eyes', value: 'brown' });
+    const decision: Decision = {
+      id: 'k1', entityId: 'mara', attribute: 'eyes', kind: 'kept_all', factIds: [brown.id, green.id], setAsideIds: [],
+      note: 'Heterochromia,\n one of each', at: 'T1',
+    };
+    const bible = { ...bibleOf([green, brown]), decisions: [decision] };
+    expect(buildCanonText(entities, bible)).toBe([
+      '### Mara (Character)',
+      '- Eyes: green',
+      '- Eyes: brown',
+      '  (multiple versions kept: Heterochromia, one of each)',
+    ].join('\n'));
+    const noNote = { ...bible, decisions: [{ ...decision, note: undefined }] };
+    expect(buildCanonText(entities, noNote)).toContain('- Eyes: brown\n  (multiple versions kept)');
+    // A new proposed version reopens the conflict, so the kept versions are unresolved again.
+    const reopened = { ...bible, facts: [...bible.facts, fact({ attribute: 'Eyes', value: 'grey', status: 'proposed' })] };
+    expect(buildCanonText(entities, reopened)).toBe('### Mara (Character)\n- Eyes: unresolved: green or brown');
+  });
 });
 
 describe('buildAttachmentsText', () => {
@@ -112,6 +133,20 @@ describe('buildAttachmentsText', () => {
     const t = chat([msg('u', 'user', 'Hi'), msg('r', 'assistant', 'Hello', { model: 'm1' })]);
     const r = buildAttachmentsText(['talk'], items, contentOf, id => (id === 'talk' ? t : undefined));
     expect(r.text).toBe('### Ask (AI Chat)\nYou: Hi\n\nAI (m1): Hello');
+  });
+
+  it('a chat never attaches its own transcript', () => {
+    const inFolder = items.map(i => (i.id === 'talk' ? { ...i, parentId: 'notes', order: 9 } : i));
+    const t = chat([msg('u', 'user', 'Hi')]);
+    const r = buildAttachmentsText(['notes', 'talk'], inFolder, contentOf, () => t, 'talk');
+    expect(r.text).not.toContain('### Ask');
+    expect(r.missing).toEqual([]);
+    const req = buildChatRequest({
+      transcript: chat([], { attachments: ['notes'] }), uptoIndex: 0, items: inFolder, bible: emptyBible(),
+      contentOf, chatOf: () => t, chatId: 'talk', caps: ALL,
+    });
+    expect(req.system).toContain('### First (Document)');
+    expect(req.system).not.toContain('### Ask');
   });
 
   it('deleted attachment is reported missing', () => {
