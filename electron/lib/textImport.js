@@ -1,5 +1,6 @@
 import fs from 'fs/promises';
 import path from 'path';
+import { TextDecoder } from 'util';
 import { ProjectFormatError } from './projectSchema.js';
 
 export const TEXT_IMPORT_EXTENSIONS = ['txt', 'md', 'markdown'];
