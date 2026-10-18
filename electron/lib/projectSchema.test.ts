@@ -230,6 +230,15 @@ describe('normalizeBible', () => {
         expect(() => normalizeBible({ facts: [fact({ source: { ...ok, start: 1.5 } })] })).toThrow(corrupt);
     });
 
+    it('schema rejects an invalid messageId', () => {
+        const ok = { itemId: 'c1', messageId: 'm1', quote: 'q', start: 1, end: 3 };
+        expect(() => normalizeBible({ facts: [fact({ source: ok })] })).not.toThrow();
+        expect(normalizeBible({ facts: [fact({ source: ok })] }).facts[0].source.messageId).toBe('m1');
+        expect(() => normalizeBible({ facts: [fact({ source: { ...ok, messageId: '../x' } })] })).toThrow(corrupt);
+        expect(() => normalizeBible({ facts: [fact({ source: { ...ok, messageId: 7 } })] })).toThrow(corrupt);
+        expect(() => normalizeBible({ facts: [fact({ source: { ...ok, messageId: '' } })] })).toThrow(corrupt);
+    });
+
     it('validates dependencies', () => {
         const dep = { id: 'd1', eventId: 'e1', afterEventId: 'e2' };
         expect(() => normalizeBible({ dependencies: [dep] })).not.toThrow();

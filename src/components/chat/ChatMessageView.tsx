@@ -1,7 +1,10 @@
-import { useState } from 'react';
-import { ArrowDownToLine, ArrowUpToLine, Bot, Check, Copy, Loader2, Pencil, RotateCcw, Trash2, User } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { ArrowDownToLine, ArrowUpToLine, Bot, Check, Code, Copy, Loader2, Pencil, RotateCcw, Trash2, User } from 'lucide-react';
 import { PROVIDERS } from '@/ai/types';
+import { locateQuote } from '@/chat/transcript';
 import type { ChatMessage } from '@/chat/types';
+import { ChatView } from '@/components/bible/ChatView';
+import type { CaptureSelection } from '@/components/bible/CapturePopover';
 import { MarkdownView } from '@/components/workspace/MarkdownView';
 import { btn, btnGhost, btnPrimary, input } from '@/components/workspace/ui';
 
@@ -24,16 +27,61 @@ interface ChatMessageViewProps {
   /** True while this chat streams: actions are disabled. */
   busy: boolean;
   onOpenLink(url: string): void;
+  /** Receives a selection to capture as a fact, with offsets into the stored `text`. Capture is off without it. */
+  onCapture?(selection: CaptureSelection): void;
+  /** A cited range of the stored text: shown marked in the raw view. */
+  highlight?: { start: number; end: number } | null;
 }
 
 const providerName = (id: string | null | undefined) => PROVIDERS.find(p => p.id === id)?.name ?? id ?? 'Unknown provider';
 
 /** One transcript message: Markdown body, stamp, sources, status and actions. */
-export function ChatMessageView({ message, actions, busy, onOpenLink }: ChatMessageViewProps) {
+export function ChatMessageView({ message, actions, busy, onOpenLink, onCapture, highlight }: ChatMessageViewProps) {
   const [draft, setDraft] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  /** The stored text in a plain <pre>, where selection offsets are exact. */
+  const [raw, setRaw] = useState(highlight != null);
+  const [unmatched, setUnmatched] = useState(false);
   const isUser = message.role === 'user';
   const streaming = message.status === 'streaming';
+
+  const rendered = useRef<HTMLDivElement>(null);
+  const capture = useRef(onCapture);
+  capture.current = onCapture;
+  const text = useRef(message.text);
+  text.current = message.text;
+  const canCapture = onCapture !== undefined && !streaming && draft === null;
+  const listening = canCapture && !raw;
+
+  // Going to a cited range shows it raw, where the offsets apply.
+  const hStart = highlight?.start;
+  const hEnd = highlight?.end;
+  useEffect(() => {
+    if (hStart !== undefined) setRaw(true);
+  }, [hStart, hEnd]);
+
+  // In the rendered Markdown, the selected text is looked up in the stored text (first exact occurrence).
+  useEffect(() => {
+    if (!listening) return;
+    const report = () => {
+      const el = rendered.current;
+      const sel = window.getSelection();
+      if (!el || !sel || sel.rangeCount === 0 || sel.isCollapsed) return;
+      const range = sel.getRangeAt(0);
+      if (!el.contains(range.startContainer) || !el.contains(range.endContainer)) return;
+      const quote = sel.toString();
+      if (!quote) return;
+      const at = locateQuote(text.current, quote);
+      setUnmatched(at === null);
+      if (at) capture.current?.({ ...at, quote, anchor: range.getBoundingClientRect?.() ?? el.getBoundingClientRect() });
+    };
+    document.addEventListener('mouseup', report);
+    document.addEventListener('keyup', report);
+    return () => {
+      document.removeEventListener('mouseup', report);
+      document.removeEventListener('keyup', report);
+    };
+  }, [listening]);
 
   const copy = () => {
     void navigator.clipboard?.writeText(message.text).then(() => {
@@ -73,6 +121,13 @@ export function ChatMessageView({ message, actions, busy, onOpenLink }: ChatMess
           <div className="flex items-center gap-0.5">
             <button type="button" className={btnGhost} aria-label="Copy" title="Copy" onClick={copy}>
               {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+            </button>
+            <button
+              type="button" className={btnGhost} aria-label="Show raw" aria-pressed={raw}
+              title={raw ? 'Show formatted' : 'Show raw text'}
+              onClick={() => { setRaw(r => !r); setUnmatched(false); }}
+            >
+              <Code className="h-3.5 w-3.5" />
             </button>
             {actions && isUser && (
               <>
@@ -117,8 +172,20 @@ export function ChatMessageView({ message, actions, busy, onOpenLink }: ChatMess
             </button>
           </div>
         </div>
-      ) : streaming && !message.text ? null : (
-        <MarkdownView text={message.text} onOpenLink={onOpenLink} className="text-sm" empty={isUser ? '(empty message)' : 'No answer text.'} />
+      ) : streaming && !message.text ? null : raw ? (
+        <ChatView
+          text={message.text}
+          highlight={highlight}
+          onSelectRange={canCapture ? (r) => onCapture({ start: r.start, end: r.end, quote: r.quote, anchor: r.rect }) : undefined}
+        />
+      ) : (
+        <div ref={rendered}>
+          <MarkdownView text={message.text} onOpenLink={onOpenLink} className="text-sm" empty={isUser ? '(empty message)' : 'No answer text.'} />
+        </div>
+      )}
+
+      {unmatched && !raw && (
+        <p role="note" className="text-xs text-warning">Couldn&apos;t match this selection to the message text. Use Show raw to capture.</p>
       )}
 
       {message.status === 'error' && message.error && (

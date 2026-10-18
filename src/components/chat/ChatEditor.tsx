@@ -12,11 +12,12 @@ import { ChatHeader } from '@/components/chat/ChatHeader';
 import { ChatMessageView } from '@/components/chat/ChatMessageView';
 import { PersonaDrawer } from '@/components/chat/PersonaDrawer';
 import { AttachmentsPanel } from '@/components/chat/AttachmentsPanel';
+import { CaptureHost, type CaptureSelection } from '@/components/bible/CapturePopover';
 import type { EntityPanelProps } from '@/components/bible/EntityPanel';
 import { ConfirmDialog } from '@/components/workspace/ConfirmDialog';
 import { btn, btnPrimary, input } from '@/components/workspace/ui';
 
-/** Story Bible wiring for capturing facts from messages (used from Task 13 on). */
+/** Story Bible wiring for capturing facts from messages. Capture works in a read-only chat too. */
 export interface CaptureWiring {
   bible: Omit<EntityPanelProps, 'entity'>;
   addEntity(kind: EntityKind, title: string, parentId: string | null): string;
@@ -46,6 +47,7 @@ export interface ChatEditorProps {
   chatOf?: ChatOf;
   onOpenLink(url: string): void;
   capture?: CaptureWiring;
+  /** A cited range in one message (from a fact's source): that message opens raw with the range marked. */
   highlight?: { messageId: string; start: number; end: number } | null;
 }
 
@@ -59,7 +61,7 @@ const WARN_SHARE = 0.9;
 export function ChatEditor(props: ChatEditorProps) {
   const {
     item, entry, aiEnabled, configuredProviders, models, loadModels, modelsError, streaming,
-    onUpdate, onRename, onSend, onResubmit, onStop, items, bible, contentOf, chatOf, onOpenLink,
+    onUpdate, onRename, onSend, onResubmit, onStop, items, bible, contentOf, chatOf, onOpenLink, capture, highlight,
   } = props;
   const [composer, setComposer] = useState('');
   const [personaOpen, setPersonaOpen] = useState(false);
@@ -68,6 +70,7 @@ export function ChatEditor(props: ChatEditorProps) {
   const [viewFilter, setViewFilter] = useState<ChatFilterMode | null>(null);
   const [loadingModels, setLoadingModels] = useState(false);
   const [confirm, setConfirm] = useState<{ messageId: string; side: 'before' | 'after'; count: number } | null>(null);
+  const [captured, setCaptured] = useState<(CaptureSelection & { messageId: string }) | null>(null);
 
   const transcript = entry?.current;
   const settings = transcript?.settings;
@@ -110,9 +113,10 @@ export function ChatEditor(props: ChatEditorProps) {
   };
   const filterMode = (!aiEnabled && viewFilter) || settings.filterMode;
   const messages = transcript.messages;
+  // A cited message stays visible whatever the filter.
   const shown = filterMode === 'all'
     ? messages
-    : messages.filter(m => (filterMode === 'user_only' ? m.role === 'user' : m.role === 'assistant'));
+    : messages.filter(m => m.id === highlight?.messageId || (filterMode === 'user_only' ? m.role === 'user' : m.role === 'assistant'));
   const unavailable = listLoaded && settings.model !== null && !model;
   const canSend = aiEnabled && !streaming && model !== undefined && composer.trim() !== '';
   // About four characters per token, as estimateTokens counts.
@@ -185,6 +189,10 @@ export function ChatEditor(props: ChatEditorProps) {
                 message={m}
                 busy={streaming}
                 onOpenLink={onOpenLink}
+                highlight={highlight?.messageId === m.id ? highlight : null}
+                onCapture={capture && ((sel) => setCaptured(c => (
+                  c && c.messageId === m.id && c.start === sel.start && c.end === sel.end ? c : { ...sel, messageId: m.id }
+                )))}
                 actions={aiEnabled ? {
                   onSaveText: (text) => onUpdate(t => editMessageText(t, m.id, text)),
                   onSaveAndResubmit: (text) => onResubmit(m.id, text),
@@ -239,6 +247,20 @@ export function ChatEditor(props: ChatEditorProps) {
             </div>
           </div>
         </div>
+      )}
+
+      {capture && (
+        <CaptureHost
+          itemId={item.id}
+          messageId={captured?.messageId}
+          parentId={item.parentId}
+          items={capture.bible.items}
+          bible={capture.bible.bible}
+          updateBible={capture.bible.updateBible}
+          addEntity={capture.addEntity}
+          selection={captured}
+          onClose={() => setCaptured(null)}
+        />
       )}
 
       {confirm && (

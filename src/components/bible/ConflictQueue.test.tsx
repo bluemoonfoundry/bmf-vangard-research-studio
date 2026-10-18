@@ -30,13 +30,14 @@ function Harness({ initial, focusKey, onOpenSource, showEntity }: {
         bible={bible}
         items={items}
         contentOf={() => 'body'}
+        chatOf={() => undefined}
         focusKey={focusKey}
         onUpdate={(u) => setBible(u)}
         onOpenSource={(onOpenSource ?? (() => undefined)) as never}
         onOpenEntity={() => undefined}
       />
       {showEntity && (
-        <EntityPanel entity={items[0]} items={items} bible={bible} bodyOf={() => 'body'} updateBible={(u) => setBible(u)} onOpenSource={() => undefined} />
+        <EntityPanel entity={items[0]} items={items} bible={bible} bodyOf={() => 'body'} chatOf={() => undefined} updateBible={(u) => setBible(u)} onOpenSource={() => undefined} />
       )}
     </>
   );

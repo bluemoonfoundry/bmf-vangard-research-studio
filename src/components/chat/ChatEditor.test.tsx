@@ -363,3 +363,98 @@ function StaticEditor(props: Partial<ChatEditorProps>) {
     />
   );
 }
+
+describe('fact capture from messages', () => {
+  const mara: TreeItem = { id: 'mara', parentId: null, type: 'entity', entityKind: 'character', title: 'Mara', order: 1, keywords: [] } as TreeItem;
+  const STORED = 'The **harbourmaster** said a penny a barrel.';
+  const TALK = [user('u1', 'Who set the tolls?'), reply('a1', STORED)];
+
+  /** Selects `needle` inside `root`'s text, across element boundaries if need be. */
+  function selectIn(root: HTMLElement, needle: string) {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    const nodes: Text[] = [];
+    while (walker.nextNode()) nodes.push(walker.currentNode as Text);
+    const full = nodes.map(n => n.data).join('');
+    const at = full.indexOf(needle);
+    if (at < 0) throw new Error(`"${needle}" not in "${full}"`);
+    const point = (offset: number): [Text, number] => {
+      let seen = 0;
+      for (const n of nodes) {
+        if (offset <= seen + n.data.length) return [n, offset - seen];
+        seen += n.data.length;
+      }
+      throw new Error('offset out of range');
+    };
+    const range = document.createRange();
+    range.setStart(...point(at));
+    range.setEnd(...point(at + needle.length));
+    const sel = window.getSelection()!;
+    sel.removeAllRanges();
+    sel.addRange(range);
+    fireEvent.mouseUp(root);
+  }
+
+  function captureSetup(overrides: Partial<ChatEditorProps> = {}) {
+    let bible = emptyBible();
+    function Harness() {
+      const [b, setB] = useState(emptyBible());
+      bible = b;
+      const entry: ChatEntry = { saved: transcript(TALK), current: transcript(TALK) };
+      return (
+        <ChatEditor
+          item={chatItem} entry={entry} aiEnabled={false} configuredProviders={['anthropic']}
+          models={() => MODELS} loadModels={() => Promise.resolve(MODELS)} streaming={false}
+          onUpdate={noop} onRename={noop} onSend={noop} onResubmit={noop} onStop={noop}
+          items={[chatItem, mara]} bible={b} contentOf={noContent} onOpenLink={noop}
+          capture={{
+            bible: { items: [chatItem, mara], bible: b, bodyOf: noContent, chatOf: () => undefined, updateBible: (u) => setB(u), onOpenSource: noop },
+            addEntity: () => 'new',
+          }}
+          {...overrides}
+        />
+      );
+    }
+    render(<Harness />);
+    return { bible: () => bible };
+  }
+
+  const aiMessage = () => screen.getAllByRole('article')[1];
+
+  it('capturing from a rendered message stores messageId and exact offsets', () => {
+    const { bible } = captureSetup();
+    selectIn(within(aiMessage()).getByText(/said a penny/), 'said a penny');
+    fireEvent.change(screen.getByLabelText('Entity'), { target: { value: 'mara' } });
+    fireEvent.change(screen.getByLabelText('Attribute'), { target: { value: 'toll' } });
+    fireEvent.change(screen.getByLabelText('Value'), { target: { value: 'a penny' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save fact' }));
+
+    const source = bible().facts[0].source!;
+    expect(source).toEqual({ itemId: 'c1', messageId: 'a1', quote: 'said a penny', start: 22, end: 34 });
+    expect(STORED.slice(source.start, source.end)).toBe('said a penny');
+  });
+
+  it('selection across Markdown syntax suggests Show raw', () => {
+    const { bible } = captureSetup();
+    selectIn(within(aiMessage()).getByText(/said a penny/).closest('p')!, 'The harbourmaster said');
+    expect(screen.queryByRole('button', { name: 'Save fact' })).toBeNull();
+    expect(within(aiMessage()).getByText("Couldn't match this selection to the message text. Use Show raw to capture.")).toBeInTheDocument();
+
+    fireEvent.click(within(aiMessage()).getByRole('button', { name: 'Show raw' }));
+    const raw = within(aiMessage()).getByLabelText('Chat transcript');
+    expect(raw).toHaveTextContent(STORED);
+    selectIn(raw, '**harbourmaster** said');
+    fireEvent.change(screen.getByLabelText('Entity'), { target: { value: 'mara' } });
+    fireEvent.change(screen.getByLabelText('Attribute'), { target: { value: 'role' } });
+    fireEvent.change(screen.getByLabelText('Value'), { target: { value: 'harbourmaster' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save fact' }));
+    expect(bible().facts[0].source).toEqual({ itemId: 'c1', messageId: 'a1', quote: '**harbourmaster** said', start: 4, end: 26 });
+  });
+
+  it('marks a highlighted message range in raw view', () => {
+    captureSetup({ highlight: { messageId: 'a1', start: 22, end: 34 } });
+    const raw = within(aiMessage()).getByLabelText('Chat transcript');
+    expect(raw.querySelector('mark')).toHaveTextContent('said a penny');
+    // Other messages stay rendered.
+    expect(within(screen.getAllByRole('article')[0]).queryByLabelText('Chat transcript')).toBeNull();
+  });
+});

@@ -80,7 +80,8 @@ export interface StoryPosition { season: number; episode?: number; order?: numbe
 
 export type FactStatus = 'proposed' | 'kept' | 'set_aside';
 
-export interface FactSource { itemId: string; quote: string; start: number; end: number }
+/** Where a fact was captured. With `messageId` (an AI Chat message), offsets are into that message's stored text. */
+export interface FactSource { itemId: string; messageId?: string; quote: string; start: number; end: number }
 
 export interface Fact {
   id: string;

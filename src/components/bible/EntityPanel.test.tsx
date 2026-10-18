@@ -26,6 +26,7 @@ function Harness({ entity = items[0], list = items, initial = emptyBible(), onSh
       items={list}
       bible={bible}
       bodyOf={() => 'her green eyes'}
+      chatOf={() => undefined}
       updateBible={(u) => setBible(u)}
       onShowConflict={onShowConflict}
       onOpenEntity={onOpenEntity}

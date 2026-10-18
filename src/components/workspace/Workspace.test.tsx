@@ -598,6 +598,24 @@ describe('AI chat items', () => {
     expect(within(results).getByText('Lighthouse')).toBeInTheDocument();
   });
 
+  it('opening a message source highlights it in raw view', async () => {
+    fake.disk.chats = { c: chat(TALK) };
+    const mara = item('m', 'Mara', { type: 'entity', entityKind: 'character', order: 1 } as Partial<TreeItem>);
+    // Stored offsets are stale (the message was edited): the quote is relocated within the message.
+    const source = { itemId: 'c', messageId: 'a1', quote: 'Tamsin', start: 0, end: 6 };
+    await open([item('c', 'Lighthouse', { type: 'ai-chat' }), mara], {}, {
+      facts: [{ id: 'f', entityId: 'm', attribute: 'job', value: 'keeper', status: 'kept', origin: 'manual', source, createdAt: 'T0', updatedAt: 'T0' }],
+      dependencies: [], decisions: [],
+    });
+    await waitFor(() => expect(bridge.project.readChat).toHaveBeenCalled());
+    fireEvent.click(treeItem('Mara'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Lighthouse' }));
+    const raw = await screen.findByLabelText('Chat transcript');
+    expect(raw).toHaveTextContent('Old Tamsin kept it.');
+    expect(raw.querySelector('mark')).toHaveTextContent(/^Tamsin$/);
+    expect(raw.closest('article')).toHaveAccessibleName(/^AI:/);
+  });
+
   it('dossier export includes the transcript', async () => {
     fake.disk.chats = { c: chat(TALK) };
     await open([item('c', 'Lighthouse', { type: 'ai-chat' })]);

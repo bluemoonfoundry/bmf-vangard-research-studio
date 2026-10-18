@@ -50,6 +50,8 @@ export interface CaptureSelection { start: number; end: number; quote: string; a
 
 export interface CaptureHostProps {
   itemId: string;
+  /** Set when capturing from an AI Chat message: the selection's offsets are into its stored text. */
+  messageId?: string;
   /** A new entity is created under this parent, beside the captured item. */
   parentId: string | null;
   items: TreeItem[];
@@ -61,12 +63,12 @@ export interface CaptureHostProps {
 }
 
 /** Shows the capture popover for a selection and turns its submission into a kept, manual fact. */
-export function CaptureHost({ itemId, parentId, items, bible, updateBible, addEntity, selection, onClose }: CaptureHostProps) {
+export function CaptureHost({ itemId, messageId, parentId, items, bible, updateBible, addEntity, selection, onClose }: CaptureHostProps) {
   if (!selection) return null;
   // Drop the page selection too, or the keyup/mouseup that follows would reopen the popover.
   const close = () => { window.getSelection()?.removeAllRanges(); onClose(); };
   const { start, end, quote, anchor } = selection;
-  const source: FactSource = { itemId, quote, start, end };
+  const source: FactSource = { itemId, ...(messageId !== undefined && { messageId }), quote, start, end };
 
   const submit = (v: FactFormValue) => {
     const entityId = v.newEntity ? addEntity(v.newEntity.kind, v.newEntity.title, parentId) : v.entityId;

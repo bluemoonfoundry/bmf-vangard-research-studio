@@ -169,7 +169,8 @@ function checkFact(fact, where) {
     if (fact.source !== undefined) {
         const src = fact.source;
         if (!isPlainObject(src) || !isValidItemId(src.itemId) || typeof src.quote !== 'string'
-            || !Number.isInteger(src.start) || !Number.isInteger(src.end) || src.start > src.end) {
+            || !Number.isInteger(src.start) || !Number.isInteger(src.end) || src.start > src.end
+            || (src.messageId !== undefined && !isValidItemId(src.messageId))) {
             throw corruptBible(where, 'has an invalid source.');
         }
     }

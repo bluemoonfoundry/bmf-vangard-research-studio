@@ -10,7 +10,8 @@ import { checkPosition, eventsInCycles, keptPositions, strictlyAfter } from '@/b
 import { storyBibleMarkdown } from '@/bible/exportMarkdown';
 import { generateDossier } from '@/workspace/dossier';
 import { buildTimeline } from '@/bible/timeline';
-import { resolveSource } from '@/bible/sources';
+import { resolveSource, sourceText } from '@/bible/sources';
+import type { ChatTranscript } from '@/chat/types';
 import { eventsLinkingTo, factsCitingItems } from '@/bible/links';
 import { normalizeChatText, entityKindOf, isEvent, ENTITY_KINDS, attributeSuggestions } from '@/bible/entities';
 import { contradictionKey, findContradictions, groupVersions, openContradictions } from '@/bible/contradictions';
@@ -323,6 +324,36 @@ describe('sources', () => {
   it('relocates to the first occurrence of a repeated quote', () => {
     expect(resolveSource({ ...src, start: 20, end: 27 }, 'the cat ... the cat', true))
       .toEqual({ status: 'relocated', start: 0, end: 7 });
+  });
+  it('resolveSource: null body is missing', () => {
+    expect(resolveSource(src, null, true)).toEqual({ status: 'missing' });
+    expect(resolveSource(src, null, false)).toEqual({ status: 'deleted' });
+  });
+
+  const chat = {
+    version: 1,
+    settings: {},
+    messages: [
+      { id: 'm1', role: 'user', text: 'Who is Mira?' },
+      { id: 'm2', role: 'assistant', text: 'See the cat sat' },
+    ],
+  } as unknown as ChatTranscript;
+  const bodyOf = (id: string) => (id === 'd' ? 'doc body' : undefined);
+  const chatOf = (id: string) => (id === 'c' ? chat : undefined);
+
+  it('sourceText reads the cited message', () => {
+    expect(sourceText({ ...src, itemId: 'c', messageId: 'm2' }, bodyOf, chatOf)).toBe('See the cat sat');
+    expect(resolveSource({ ...src, itemId: 'c', messageId: 'm2' }, sourceText({ ...src, itemId: 'c', messageId: 'm2' }, bodyOf, chatOf), true))
+      .toEqual({ status: 'exact', start: 4, end: 11 });
+    // Without a messageId the item's body is read, as before.
+    expect(sourceText({ ...src, itemId: 'd' }, bodyOf, chatOf)).toBe('doc body');
+    // A chat that hasn't loaded yet.
+    expect(sourceText({ ...src, itemId: 'other', messageId: 'm2' }, bodyOf, chatOf)).toBeUndefined();
+  });
+  it('sourceText: deleted message → null', () => {
+    const source = { ...src, itemId: 'c', messageId: 'gone' };
+    expect(sourceText(source, bodyOf, chatOf)).toBeNull();
+    expect(resolveSource(source, sourceText(source, bodyOf, chatOf), true)).toEqual({ status: 'missing' });
   });
 });
 

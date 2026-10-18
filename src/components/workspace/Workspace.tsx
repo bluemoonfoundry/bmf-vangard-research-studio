@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, BookOpen, CalendarRange, MessageSquare, Columns2, LayoutGrid, Plus, Rows2, SlidersHorizontal, Square, Table, Download, X } from 'lucide-react';
-import type { FactSource, ItemType, MediaKind, TreeItem } from '@/project/types';
+import type { EntityKind, FactSource, ItemType, MediaKind, TreeItem } from '@/project/types';
 import type { ProjectController } from '@/project/useProject';
 import { AI_CHAT_TYPE } from '@/project/projectState';
 import type { AiApi } from '@/ai/aiApi';
@@ -22,7 +22,7 @@ import { normalizeChatText } from '@/bible/entities';
 import { findContradictions, openContradictions } from '@/bible/contradictions';
 import { ConflictQueue } from '@/components/bible/ConflictQueue';
 import { TimelineView } from '@/components/bible/TimelineView';
-import { resolveSource } from '@/bible/sources';
+import { resolveSource, sourceText } from '@/bible/sources';
 import { factsCitingItems } from '@/bible/links';
 import { AddItemModal } from '@/components/workspace/AddItemModal';
 import { QuickRefPanel } from '@/components/workspace/QuickRefPanel';
@@ -89,7 +89,7 @@ export function Workspace({ project, ai, aiApi }: WorkspaceProps) {
   const [adding, setAdding] = useState<{ type: ItemType; parentId: string | null } | null>(null);
   const [importingChat, setImportingChat] = useState<{ parentId: string | null } | null>(null);
   /** A fact's passage to show once its source opens; cleared by any other navigation. */
-  const [highlight, setHighlight] = useState<{ itemId: string; start: number; end: number } | null>(null);
+  const [highlight, setHighlight] = useState<{ itemId: string; messageId?: string; start: number; end: number } | null>(null);
   const [mode, setMode] = useState<WorkspaceMode>('research');
   const [conflictKey, setConflictKey] = useState<string | undefined>(undefined);
   const [exporting, setExporting] = useState(false);
@@ -147,12 +147,13 @@ export function Workspace({ project, ai, aiApi }: WorkspaceProps) {
   }, [items, expand]);
 
   const openSource = useCallback((source: FactSource) => {
-    const resolved = resolveSource(source, docs[source.itemId]?.current, items.some(i => i.id === source.itemId));
-    navigate(source.itemId);
+    const { itemId, messageId } = source;
+    const resolved = resolveSource(source, sourceText(source, contentOf, chatOf), items.some(i => i.id === itemId));
+    navigate(itemId);
     if (resolved.status === 'exact' || resolved.status === 'relocated') {
-      setHighlight({ itemId: source.itemId, start: resolved.start, end: resolved.end });
+      setHighlight({ itemId, ...(messageId !== undefined && { messageId }), start: resolved.start, end: resolved.end });
     }
-  }, [docs, items, navigate]);
+  }, [contentOf, chatOf, items, navigate]);
 
   const toggleFolder = useCallback((id: string, open?: boolean) => {
     setCollapsed(c => {
@@ -226,9 +227,22 @@ export function Workspace({ project, ai, aiApi }: WorkspaceProps) {
     { id: item.id, title: item.title },
   ];
 
+  const bibleWiring = {
+    items,
+    bible: state.bible,
+    bodyOf: contentOf,
+    chatOf,
+    updateBible,
+    onShowConflict: showConflict,
+    onOpenSource: openSource,
+    onOpenEntity: navigate,
+  };
+  const addEntity = (entityKind: EntityKind, title: string, parentId: string | null) => addItem({ type: 'entity', entityKind, title, parentId });
+
   /** One content pane: an editor for items, or a corkboard/outliner/editor for folders and the top level. */
   const renderPane = (item: TreeItem | null, view: FolderView, open: (id: string | null) => void) => {
     if (item?.type === AI_CHAT_TYPE) {
+      const h = highlight?.itemId === item.id ? highlight : null;
       return (
         <ChatEditor
           key={item.id}
@@ -250,6 +264,8 @@ export function Workspace({ project, ai, aiApi }: WorkspaceProps) {
           contentOf={contentOf}
           chatOf={chatOf}
           onOpenLink={openLink}
+          capture={{ bible: bibleWiring, addEntity }}
+          highlight={h?.messageId !== undefined ? { messageId: h.messageId, start: h.start, end: h.end } : null}
         />
       );
     }
@@ -266,17 +282,9 @@ export function Workspace({ project, ai, aiApi }: WorkspaceProps) {
           onUpdate={updateItem}
           onAttachMedia={(i, kind) => void attachMedia(i, kind)}
           onOpenLink={openLink}
-          addEntity={(entityKind, title, parentId) => addItem({ type: 'entity', entityKind, title, parentId })}
+          addEntity={addEntity}
           highlight={highlight?.itemId === item.id ? highlight : null}
-          bible={{
-            items,
-            bible: state.bible,
-            bodyOf: contentOf,
-            updateBible,
-            onShowConflict: showConflict,
-            onOpenSource: openSource,
-            onOpenEntity: navigate,
-          }}
+          bible={bibleWiring}
         />
       );
     }
@@ -462,6 +470,7 @@ export function Workspace({ project, ai, aiApi }: WorkspaceProps) {
               bible={state.bible}
               items={items}
               contentOf={contentOf}
+              chatOf={chatOf}
               focusKey={conflictKey}
               onUpdate={updateBible}
               onOpenSource={openSource}

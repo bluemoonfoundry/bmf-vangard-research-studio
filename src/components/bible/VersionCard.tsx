@@ -1,8 +1,9 @@
 import type { Bible, FactSource, StoryPosition, TreeItem } from '@/project/types';
 import type { Version } from '@/bible/contradictions';
+import type { ChatOf } from '@/chat/buildChatRequest';
 import { checkPosition } from '@/bible/ordering';
 import { formatPosition } from '@/bible/normalize';
-import { resolveSource } from '@/bible/sources';
+import { resolveSource, sourceText } from '@/bible/sources';
 import { SourceLink } from '@/components/bible/SourceLink';
 import { btnPrimary } from '@/components/workspace/ui';
 
@@ -13,13 +14,14 @@ export interface VersionCardProps {
   bible: Bible;
   byId: ReadonlyMap<string, TreeItem>;
   contentOf(id: string): string | undefined;
+  chatOf: ChatOf;
   onKeep(): void;
   onOpenSource(source: FactSource): void;
 }
 
 const MARK = { ok: '✓', violated: '✗ must come', unknown: '?' } as const;
 
-export function VersionCard({ version, checkEventId, bible, byId, contentOf, onKeep, onOpenSource }: VersionCardProps) {
+export function VersionCard({ version, checkEventId, bible, byId, contentOf, chatOf, onKeep, onOpenSource }: VersionCardProps) {
   const { value } = version;
   const text = typeof value === 'string' ? value : formatPosition(value);
   const checks = checkEventId && typeof value === 'object'
@@ -34,9 +36,9 @@ export function VersionCard({ version, checkEventId, bible, byId, contentOf, onK
         const item = byId.get(s.itemId);
         return (
           <SourceLink
-            key={`${s.itemId}:${s.start}:${i}`}
+            key={`${s.itemId}:${s.messageId ?? ''}:${s.start}:${i}`}
             source={s}
-            state={resolveSource(s, contentOf(s.itemId), item !== undefined)}
+            state={resolveSource(s, sourceText(s, contentOf, chatOf), item !== undefined)}
             title={item?.title}
             onOpen={() => onOpenSource(s)}
           />
