@@ -4,12 +4,14 @@ export interface ChatSelection { start: number; end: number; quote: string; rect
 
 export interface ChatViewProps {
   text: string;
+  /** Accessible name of the transcript box. */
+  label?: string;
   highlight?: { start: number; end: number } | null;
   onSelectRange?(r: ChatSelection): void;
 }
 
 /** A read-only chat transcript. Selection offsets are into `text`, exactly as stored. */
-export function ChatView({ text, highlight, onSelectRange }: ChatViewProps) {
+export function ChatView({ text, label = 'Chat transcript', highlight, onSelectRange }: ChatViewProps) {
   const pre = useRef<HTMLPreElement>(null);
   const markRef = useRef<HTMLElement>(null);
   const report = useRef(onSelectRange);
@@ -51,7 +53,7 @@ export function ChatView({ text, highlight, onSelectRange }: ChatViewProps) {
   return (
     <pre
       ref={pre}
-      aria-label="Chat transcript"
+      aria-label={label}
       className="whitespace-pre-wrap break-words rounded-md border border-line bg-surface-raised p-4 font-mono text-xs leading-relaxed"
     >
       {h ? (

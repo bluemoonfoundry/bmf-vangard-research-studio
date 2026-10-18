@@ -91,6 +91,7 @@ describe('projectSession', () => {
     it('refuses project operations when nothing is open', async () => {
         const session = makeSession();
         await expect(session.readDoc('a')).rejects.toMatchObject({ code: 'NO_PROJECT' });
+        await expect(session.readChat('a')).rejects.toMatchObject({ code: 'NO_PROJECT' });
         await expect(session.save({})).rejects.toMatchObject({ code: 'NO_PROJECT' });
         await expect(session.writeRecovery({})).rejects.toMatchObject({ code: 'NO_PROJECT' });
     });

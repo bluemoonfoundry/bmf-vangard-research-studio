@@ -1,11 +1,34 @@
 import type { Bible, OpenedProject, ProjectManifest, ProjectTree, RecoverySnapshot, SavePayload, TreeItem } from '@/project/types';
+import type { ProviderId } from '@/ai/types';
 import { pruneOrphans, removeEntities } from '@/bible/ops';
+import { forPersistence, newTranscript, normalizeTranscript } from '@/chat/transcript';
+import type { ChatTranscript } from '@/chat/types';
 import { descendantIds, moveItem, type DropPosition } from '@/workspace/treeOps';
 
 /** A document body the renderer has loaded. `saved` is null for a document that has never been written. */
 export interface DocEntry {
   saved: string | null;
   current: string;
+}
+
+/**
+ * A loaded AI chat transcript (chats/<id>.json). `saved` is null for a chat never written. Dirtiness
+ * is identity: `saved` is the very object last loaded or written, so a reply that kept streaming
+ * after a save began leaves the chat dirty. `problem` explains a damaged file opened as an empty chat.
+ */
+export interface ChatEntry {
+  saved: ChatTranscript | null;
+  current: ChatTranscript;
+  problem?: string;
+}
+
+/** Item type of an AI chat (compared as a string: TreeItem.type is open-ended). */
+export const AI_CHAT_TYPE = 'ai-chat';
+
+/** Provider and model a chat starts with when it has no transcript yet. */
+export interface ChatDefaults {
+  provider: ProviderId | null;
+  model: string | null;
 }
 
 /**
@@ -25,6 +48,10 @@ export interface ProjectState {
   docs: Record<string, DocEntry>;
   /** Ids removed from the tree since the last save whose files may exist on disk. */
   deletedDocs: string[];
+  /** Loaded AI chat transcripts by item id. */
+  chats: Record<string, ChatEntry>;
+  /** AI chat ids removed from the tree since the last save whose transcript files may exist on disk. */
+  deletedChats: string[];
   /**
    * Asset files no longer wanted (deleted items, replaced or abandoned imports).
    * They ride along with the next save, which keeps any still referenced; they
@@ -40,7 +67,11 @@ export type ProjectAction =
   | { type: 'docEdited'; id: string; content: string }
   | { type: 'docsLoaded'; docs: Record<string, string> }
   | { type: 'docAdded'; item: TreeItem }
-  | { type: 'itemsAdded'; items: TreeItem[]; docs: Record<string, string> }
+  | { type: 'itemsAdded'; items: TreeItem[]; docs: Record<string, string>; chats?: Record<string, ChatTranscript> }
+  | { type: 'chatsLoaded'; defaults: ChatDefaults; chats: Record<string, { transcript: ChatTranscript | null; problem: string | null }> }
+  | { type: 'chatUpdated'; id: string; update: (t: ChatTranscript) => ChatTranscript }
+  | { type: 'chatReloaded'; id: string; transcript: ChatTranscript; problem?: string | null }
+  | { type: 'chatDiskChanged'; id: string; transcript: ChatTranscript }
   | { type: 'itemRenamed'; id: string; title: string }
   | { type: 'itemUpdated'; id: string; patch: Partial<TreeItem> }
   | { type: 'itemMoved'; id: string; targetId: string | null; position: DropPosition }
@@ -49,7 +80,7 @@ export type ProjectAction =
   | { type: 'assetDiscarded'; asset: string }
   | { type: 'projectRenamed'; name: string }
   | { type: 'saved'; payload: SavePayload; manifest: ProjectManifest }
-  | { type: 'recoveryRestored'; snapshot: RecoverySnapshot; diskDocs: Record<string, string> }
+  | { type: 'recoveryRestored'; snapshot: RecoverySnapshot; diskDocs: Record<string, string>; diskChats: Record<string, ChatTranscript> }
   | { type: 'docReloaded'; id: string; content: string }
   | { type: 'docDiskChanged'; id: string; content: string }
   | { type: 'structureKeptMine' }
@@ -58,10 +89,23 @@ export type ProjectAction =
 const withAsset = (list: string[], asset: string | undefined) =>
   asset && !list.includes(asset) ? [...list, asset] : list;
 
-function addItems(state: ProjectState, items: TreeItem[], bodies: Record<string, string>): ProjectState {
+/** A chat entry matching what's on disk; a problem rides along so the chat can show a notice. */
+const cleanChat = (t: ChatTranscript, problem?: string | null): ChatEntry =>
+  (problem ? { saved: t, current: t, problem } : { saved: t, current: t });
+
+const withChat = (state: ProjectState, id: string, entry: ChatEntry): ProjectState =>
+  ({ ...state, chats: { ...state.chats, [id]: entry } });
+
+function addItems(
+  state: ProjectState, items: TreeItem[], bodies: Record<string, string>, transcripts: Record<string, ChatTranscript> = {},
+): ProjectState {
   const docs = { ...state.docs };
-  for (const item of items) docs[item.id] = { saved: null, current: bodies[item.id] ?? '' };
-  return { ...state, tree: { ...state.tree, items: [...state.tree.items, ...items] }, docs };
+  const chats = { ...state.chats };
+  for (const item of items) {
+    docs[item.id] = { saved: null, current: bodies[item.id] ?? '' };
+    if (transcripts[item.id]) chats[item.id] = { saved: null, current: transcripts[item.id] };
+  }
+  return { ...state, tree: { ...state.tree, items: [...state.tree.items, ...items] }, docs, chats };
 }
 
 function updateItems(state: ProjectState, update: (item: TreeItem) => TreeItem): ProjectState {
@@ -77,7 +121,10 @@ function updateItems(state: ProjectState, update: (item: TreeItem) => TreeItem):
 export function projectReducer(state: ProjectState | null, action: ProjectAction): ProjectState | null {
   if (action.type === 'opened') {
     const { root, manifest, tree, bible } = action.project;
-    return { root, manifest, savedName: manifest.name, tree, savedTree: tree, bible, savedBible: bible, docs: {}, deletedDocs: [], deletedAssets: [] };
+    return {
+      root, manifest, savedName: manifest.name, tree, savedTree: tree, bible, savedBible: bible,
+      docs: {}, deletedDocs: [], chats: {}, deletedChats: [], deletedAssets: [],
+    };
   }
   if (!state) return state;
 
@@ -108,7 +155,32 @@ export function projectReducer(state: ProjectState | null, action: ProjectAction
       return addItems(state, [action.item], {});
 
     case 'itemsAdded':
-      return addItems(state, action.items, action.docs);
+      return addItems(state, action.items, action.docs, action.chats);
+
+    case 'chatsLoaded': {
+      const ids = new Set(state.tree.items.map(i => i.id));
+      const chats = { ...state.chats };
+      for (const [id, { transcript, problem }] of Object.entries(action.chats)) {
+        // A missing or damaged file opens as a clean empty chat, so nothing overwrites it until the user changes it.
+        if (ids.has(id) && !chats[id]) chats[id] = cleanChat(transcript ?? newTranscript(action.defaults), problem);
+      }
+      return { ...state, chats };
+    }
+
+    case 'chatUpdated': {
+      const chat = state.chats[action.id];
+      if (!chat) return state;
+      const current = action.update(chat.current);
+      return current === chat.current ? state : withChat(state, action.id, { ...chat, current });
+    }
+
+    case 'chatReloaded':
+      return withChat(state, action.id, cleanChat(action.transcript, action.problem));
+
+    case 'chatDiskChanged': {
+      const chat = state.chats[action.id];
+      return chat ? withChat(state, action.id, { ...chat, saved: action.transcript }) : state;
+    }
 
     case 'itemRenamed':
       return updateItems(state, i => (i.id === action.id ? { ...i, title: action.title } : i));
@@ -125,6 +197,8 @@ export function projectReducer(state: ProjectState | null, action: ProjectAction
       const removed = descendantIds(state.tree.items, action.id);
       const docs = { ...state.docs };
       const deletedDocs = [...state.deletedDocs];
+      const chats = { ...state.chats };
+      const deletedChats = [...state.deletedChats];
       let deletedAssets = state.deletedAssets;
       const removedEntities = new Set<string>();
       for (const item of state.tree.items) {
@@ -133,6 +207,11 @@ export function projectReducer(state: ProjectState | null, action: ProjectAction
         // A document that was never loaded may still exist on disk.
         if (docs[item.id]?.saved !== null && !deletedDocs.includes(item.id)) deletedDocs.push(item.id);
         delete docs[item.id];
+        if (item.type === AI_CHAT_TYPE) {
+          // Likewise a transcript; one created since the last save has no file.
+          if (chats[item.id]?.saved !== null && !deletedChats.includes(item.id)) deletedChats.push(item.id);
+          delete chats[item.id];
+        }
         deletedAssets = withAsset(deletedAssets, item.asset);
       }
       const items = state.tree.items
@@ -141,7 +220,7 @@ export function projectReducer(state: ProjectState | null, action: ProjectAction
           ? { ...i, references: i.references.filter(r => !removed.has(r.targetId)) }
           : i));
       const bible = removedEntities.size ? removeEntities(state.bible, removedEntities) : state.bible;
-      return { ...state, tree: { ...state.tree, items }, bible, docs, deletedDocs, deletedAssets };
+      return { ...state, tree: { ...state.tree, items }, bible, docs, deletedDocs, chats, deletedChats, deletedAssets };
     }
 
     case 'bibleUpdated': {
@@ -161,6 +240,12 @@ export function projectReducer(state: ProjectState | null, action: ProjectAction
       for (const [id, body] of Object.entries(payload.docs ?? {})) {
         if (body !== null && docs[id]) docs[id] = { ...docs[id], saved: body };
       }
+      // The written object becomes `saved` (the file no longer has a problem); a reply
+      // that went on streaming after the payload was built still differs, so stays dirty.
+      const chats = { ...state.chats };
+      for (const [id, transcript] of Object.entries(payload.chats ?? {})) {
+        if (transcript !== null && chats[id]) chats[id] = { saved: transcript, current: chats[id].current };
+      }
       // The saved bible had its orphans pruned; adopt it when that's what is still in memory.
       let { bible } = state;
       if (payload.bible) {
@@ -176,12 +261,14 @@ export function projectReducer(state: ProjectState | null, action: ProjectAction
         savedBible: payload.bible ?? state.savedBible,
         docs,
         deletedDocs: state.deletedDocs.filter(id => payload.docs?.[id] !== null),
+        chats,
+        deletedChats: state.deletedChats.filter(id => payload.chats?.[id] !== null),
         deletedAssets: state.deletedAssets.filter(name => !payload.deletedAssets?.includes(name)),
       };
     }
 
     case 'recoveryRestored': {
-      const { snapshot, diskDocs } = action;
+      const { snapshot, diskDocs, diskChats } = action;
       const docs = { ...state.docs };
       const deletedDocs = [...state.deletedDocs];
       for (const [id, body] of Object.entries(snapshot.docs ?? {})) {
@@ -192,6 +279,16 @@ export function projectReducer(state: ProjectState | null, action: ProjectAction
           docs[id] = { saved: id in diskDocs ? diskDocs[id] : null, current: body };
         }
       }
+      const chats = { ...state.chats };
+      const deletedChats = [...state.deletedChats];
+      for (const [id, transcript] of Object.entries(snapshot.chats ?? {})) {
+        if (transcript === null) {
+          delete chats[id];
+          if (!deletedChats.includes(id)) deletedChats.push(id);
+        } else {
+          chats[id] = { saved: diskChats[id] ?? null, current: normalizeTranscript(transcript) };
+        }
+      }
       return {
         ...state,
         manifest: snapshot.manifest ? { ...state.manifest, name: snapshot.manifest.name } : state.manifest,
@@ -199,6 +296,8 @@ export function projectReducer(state: ProjectState | null, action: ProjectAction
         bible: snapshot.bible ?? state.bible,
         docs,
         deletedDocs,
+        chats,
+        deletedChats,
         deletedAssets: (snapshot.deletedAssets ?? []).reduce(withAsset, state.deletedAssets),
       };
     }
@@ -216,11 +315,12 @@ export function projectReducer(state: ProjectState | null, action: ProjectAction
       // The disk copy changed under unsaved work. Mark every structure part
       // unsaved (fresh sentinels never equal the current values) so the next
       // save writes the user's whole structure, not just the part that was dirty.
-      return { ...state, savedName: ' ', savedTree: { items: [] }, savedBible: { facts: [], dependencies: [], decisions: [] } };
+      return { ...state, savedName: ' ', savedTree: { items: [] }, savedBible: { facts: [], dependencies: [], decisions: [] } };
 
     case 'structureReloaded': {
       const ids = new Set(action.tree.items.map(i => i.id));
       const docs = Object.fromEntries(Object.entries(state.docs).filter(([id]) => ids.has(id)));
+      const chats = Object.fromEntries(Object.entries(state.chats).filter(([id]) => ids.has(id)));
       return {
         ...state,
         manifest: action.manifest,
@@ -231,6 +331,8 @@ export function projectReducer(state: ProjectState | null, action: ProjectAction
         savedBible: action.bible,
         docs,
         deletedDocs: [],
+        chats,
+        deletedChats: [],
         deletedAssets: [],
       };
     }
@@ -242,11 +344,21 @@ export const isDocDirty = (state: ProjectState, id: string) => {
   return !!doc && doc.current !== doc.saved;
 };
 
+export const isChatDirty = (state: ProjectState, id: string) => {
+  const chat = state.chats[id];
+  return !!chat && chat.current !== chat.saved;
+};
+
 export const isStructureDirty = (state: ProjectState) =>
   state.manifest.name !== state.savedName || state.tree !== state.savedTree || state.bible !== state.savedBible || state.deletedDocs.length > 0;
 
 export const isDirty = (state: ProjectState | null) =>
-  !!state && (isStructureDirty(state) || Object.keys(state.docs).some(id => isDocDirty(state, id)));
+  !!state && (
+    isStructureDirty(state)
+    || Object.keys(state.docs).some(id => isDocDirty(state, id))
+    || state.deletedChats.length > 0
+    || Object.keys(state.chats).some(id => isChatDirty(state, id))
+  );
 
 /** Everything unsaved, in the shape project:save (and recovery snapshots) accept. */
 export function buildSavePayload(state: ProjectState): SavePayload {
@@ -263,6 +375,15 @@ export function buildSavePayload(state: ProjectState): SavePayload {
   }
   for (const id of state.deletedDocs) docs[id] = null;
   if (Object.keys(docs).length) payload.docs = docs;
+
+  // A reply still streaming is written as cancelled; its completion makes the chat dirty again.
+  const chats: Record<string, ChatTranscript | null> = {};
+  for (const [id, chat] of Object.entries(state.chats)) {
+    if (chat.current !== chat.saved) chats[id] = forPersistence(chat.current);
+  }
+  for (const id of state.deletedChats) chats[id] = null;
+  if (Object.keys(chats).length) payload.chats = chats;
+
   if (state.deletedAssets.length) payload.deletedAssets = state.deletedAssets;
   return payload;
 }

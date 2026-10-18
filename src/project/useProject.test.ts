@@ -3,6 +3,8 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { useProject, STRUCTURE_CONFLICT } from '@/project/useProject';
 import { createProjectApi } from '@/project/api';
 import { createFakeBridge, makeOpened } from '@/test/fakeBridge';
+import { newTranscript, updateSettings } from '@/chat/transcript';
+import type { TreeItem } from '@/project/types';
 
 function setup() {
   const { bridge, fake } = createFakeBridge();
@@ -108,5 +110,119 @@ describe('useProject: bible external changes', () => {
     ctx.fake.nextTextImport = null;
     await act(async () => { r = await ctx.hook.result.current.importText(); });
     expect(r).toBeNull();
+  });
+});
+
+describe('useProject: AI chats', () => {
+  const DEFAULTS = { provider: 'openai' as const, model: 'gpt-x' };
+  const node = (id: string, type: string, order = 0): TreeItem => ({ id, parentId: null, type, title: id, order, keywords: [] });
+  const tree = { items: [node('d', 'document'), node('c1', 'ai-chat', 1), node('c2', 'ai-chat', 2), node('old', 'chat', 3)] };
+
+  async function openWithChats() {
+    const { bridge, fake } = createFakeBridge();
+    const api = createProjectApi(bridge);
+    const hook = renderHook(() => useProject(api, bridge.app, { chatDefaults: () => DEFAULTS }));
+    fake.disk.chats = { c1: updateSettings(newTranscript(DEFAULTS), { webSearch: true }) };
+    fake.nextDialogResult = makeOpened({ tree });
+    await act(() => hook.result.current.openProject());
+    await waitFor(() => expect(Object.keys(hook.result.current.state!.chats).sort()).toEqual(['c1', 'c2']));
+    return { bridge, fake, hook };
+  }
+
+  it('loadAllChats reads only ai-chat items', async () => {
+    const { bridge, hook } = await openWithChats();
+    expect(bridge.project.readChat.mock.calls.map(c => c[0]).sort()).toEqual(['c1', 'c2']);
+    const { chats } = hook.result.current.state!;
+    expect(chats.c1.current.settings.webSearch).toBe(true);
+    expect(chats.c2.current.settings).toMatchObject({ provider: 'openai', model: 'gpt-x' });
+    expect(hook.result.current.dirty).toBe(false);
+    await act(() => hook.result.current.loadAllChats());
+    expect(bridge.project.readChat).toHaveBeenCalledTimes(2);
+  });
+
+  it('one unreadable chat does not block the others', async () => {
+    const { bridge, fake } = createFakeBridge();
+    const api = createProjectApi(bridge);
+    const hook = renderHook(() => useProject(api, bridge.app, { chatDefaults: () => DEFAULTS }));
+    fake.disk.chats = { c1: updateSettings(newTranscript(DEFAULTS), { webSearch: true }) };
+    bridge.project.readChat.mockImplementation((id: string) => (id === 'c2'
+      ? Promise.resolve({ ok: false, error: { code: 'IO', message: 'Bridge hiccup' } })
+      : Promise.resolve({ ok: true, value: { transcript: fake.disk.chats[id] ?? null, problem: null } })));
+    fake.nextDialogResult = makeOpened({ tree });
+    await act(() => hook.result.current.openProject());
+    await waitFor(() => expect(Object.keys(hook.result.current.state!.chats).sort()).toEqual(['c1', 'c2']));
+    const { chats } = hook.result.current.state!;
+    expect(chats.c1.current.settings.webSearch).toBe(true);
+    expect(chats.c1.problem).toBeUndefined();
+    // The failed chat carries the reason (so it opens read-only) and isn't re-read on every tree change.
+    expect(chats.c2.problem).toMatch('Bridge hiccup');
+    expect(hook.result.current.dirty).toBe(false);
+    const calls = bridge.project.readChat.mock.calls.length;
+    await act(() => hook.result.current.loadAllChats());
+    expect(bridge.project.readChat.mock.calls.length).toBe(calls);
+  });
+
+  it('external change reloads a clean chat', async () => {
+    const { fake, hook } = await openWithChats();
+    const theirs = updateSettings(newTranscript(DEFAULTS), { readUrls: true });
+    fake.disk.chats.c1 = theirs;
+    act(() => fake.emitExternalChange([{ path: 'chats/c1.json', deleted: false }]));
+    await waitFor(() => expect(hook.result.current.state?.chats.c1.current).toEqual(theirs));
+    expect(hook.result.current.dirty).toBe(false);
+    expect(hook.result.current.conflicts).toEqual([]);
+  });
+
+  it('external change on a dirty chat raises a conflict', async () => {
+    const { fake, hook } = await openWithChats();
+    act(() => hook.result.current.updateChat('c1', t => updateSettings(t, { filterMode: 'user_only' })));
+    expect(hook.result.current.dirty).toBe(true);
+    const theirs = updateSettings(newTranscript(DEFAULTS), { readUrls: true });
+    fake.disk.chats.c1 = theirs;
+    act(() => fake.emitExternalChange([{ path: 'chats/c1.json', deleted: false }]));
+    await waitFor(() => expect(hook.result.current.conflicts).toEqual(['chats/c1.json']));
+    expect(hook.result.current.state?.chats.c1.current.settings.filterMode).toBe('user_only');
+
+    await act(() => hook.result.current.keepMine('chats/c1.json'));
+    expect(hook.result.current.conflicts).toEqual([]);
+    expect(hook.result.current.state?.chats.c1.saved).toEqual(theirs);
+    expect(hook.result.current.dirty).toBe(true);
+
+    act(() => fake.emitExternalChange([{ path: 'chats/c1.json', deleted: false }]));
+    await waitFor(() => expect(hook.result.current.conflicts).toEqual(['chats/c1.json']));
+    await act(() => hook.result.current.reloadFromDisk('chats/c1.json'));
+    expect(hook.result.current.state?.chats.c1.current).toEqual(theirs);
+    expect(hook.result.current.dirty).toBe(false);
+  });
+
+  it('addItem starts an ai-chat with the default transcript, and save writes it', async () => {
+    const { fake, hook } = await openWithChats();
+    let id = '';
+    act(() => { id = hook.result.current.addItem({ type: 'ai-chat', title: 'Ask' }); });
+    expect(hook.result.current.state?.chats[id]).toMatchObject({ saved: null, current: { settings: { provider: 'openai', model: 'gpt-x' } } });
+    await act(async () => { await hook.result.current.save(); });
+    expect(fake.disk.chats[id]).toBeDefined();
+    expect(hook.result.current.dirty).toBe(false);
+  });
+
+  it('duplicateItem copies the transcript', async () => {
+    const { hook } = await openWithChats();
+    let copy: string | null = null;
+    await act(async () => { copy = await hook.result.current.duplicateItem('c1'); });
+    const { chats } = hook.result.current.state!;
+    expect(chats[copy!]).toMatchObject({ saved: null, current: chats.c1.current });
+  });
+
+  it('restoring recovery reads the chats on disk underneath', async () => {
+    const { bridge, fake } = createFakeBridge();
+    const api = createProjectApi(bridge);
+    const hook = renderHook(() => useProject(api, bridge.app, { chatDefaults: () => DEFAULTS }));
+    const disk = newTranscript(DEFAULTS);
+    const unsaved = updateSettings(newTranscript(DEFAULTS), { webSearch: true });
+    fake.disk.chats = { c1: disk };
+    fake.nextDialogResult = makeOpened({ tree, recovery: { savedAt: 'T', chats: { c1: unsaved } } });
+    await act(() => hook.result.current.openProject());
+    await act(() => hook.result.current.restoreRecovery());
+    expect(hook.result.current.state?.chats.c1).toEqual({ saved: disk, current: unsaved });
+    expect(hook.result.current.dirty).toBe(true);
   });
 });

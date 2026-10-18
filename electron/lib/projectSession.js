@@ -1,7 +1,7 @@
 import path from 'path';
 import crypto from 'crypto';
 import { ProjectFormatError } from './projectSchema.js';
-import { createProject, importAsset, openProject, readAsset, readDoc, readStructure, saveProject } from './projectStore.js';
+import { createProject, importAsset, openProject, readAsset, readChat, readDoc, readStructure, saveProject } from './projectStore.js';
 import { readTextImport } from './textImport.js';
 import { createProjectWatcher } from './projectWatcher.js';
 
@@ -84,6 +84,10 @@ export function createProjectSession({
 
         async readDoc(id) {
             return readDoc(requireRoot(), id);
+        },
+
+        async readChat(id) {
+            return readChat(requireRoot(), id);
         },
 
         async readAsset(name) {

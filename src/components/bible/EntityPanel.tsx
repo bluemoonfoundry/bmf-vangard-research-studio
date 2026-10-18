@@ -1,11 +1,12 @@
 import { useMemo, useState } from 'react';
 import { AlertTriangle, ChevronDown, ChevronRight, Plus } from 'lucide-react';
 import type { Bible, EntityKind, Fact, FactSource, TreeItem } from '@/project/types';
+import type { ChatOf } from '@/chat/types';
 import { attributeSuggestions, isEvent } from '@/bible/entities';
 import { attributeKey } from '@/bible/normalize';
 import { findContradictions, openContradictions, contradictionKey } from '@/bible/contradictions';
 import { addFact, setFactStatus, updateFact } from '@/bible/ops';
-import { resolveSource } from '@/bible/sources';
+import { resolveSource, sourceText } from '@/bible/sources';
 import { EntityEvents, EventDetails } from '@/components/bible/EventLinks';
 import { FactForm } from '@/components/bible/FactForm';
 import { FactRow, type FactRowSection } from '@/components/bible/FactRow';
@@ -18,6 +19,8 @@ export interface EntityPanelProps {
   bible: Bible;
   /** The body of an item, or undefined while it loads. */
   bodyOf(id: string): string | undefined;
+  /** An AI chat's transcript, or undefined while it loads (for sources citing a message). */
+  chatOf: ChatOf;
   updateBible(update: (b: Bible) => Bible): void;
   onShowConflict?(key: string): void;
   onOpenSource(source: FactSource): void;
@@ -27,7 +30,7 @@ export interface EntityPanelProps {
 
 const now = () => new Date().toISOString();
 
-export function EntityPanel({ entity, items, bible, bodyOf, updateBible, onShowConflict, onOpenSource, onOpenEntity }: EntityPanelProps) {
+export function EntityPanel({ entity, items, bible, bodyOf, chatOf, updateBible, onShowConflict, onOpenSource, onOpenEntity }: EntityPanelProps) {
   const [adding, setAdding] = useState(false);
   const [showAside, setShowAside] = useState(false);
 
@@ -64,7 +67,7 @@ export function EntityPanel({ entity, items, bible, bodyOf, updateBible, onShowC
         showAttribute={showAttribute}
         entity={entity}
         attributeSuggestions={suggestions}
-        sourceState={src ? resolveSource(src, bodyOf(src.itemId), byId.has(src.itemId)) : null}
+        sourceState={src ? resolveSource(src, sourceText(src, bodyOf, chatOf), byId.has(src.itemId)) : null}
         sourceTitle={src ? byId.get(src.itemId)?.title : undefined}
         onKeep={() => updateBible(b => setFactStatus(b, f.id, 'kept', now()))}
         onSetAside={() => updateBible(b => setFactStatus(b, f.id, 'set_aside', now()))}

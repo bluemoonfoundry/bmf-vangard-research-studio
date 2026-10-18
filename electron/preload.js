@@ -28,6 +28,7 @@ contextBridge.exposeInMainWorld('vrs', {
     removeRecent: (root) => ipcRenderer.invoke('project:remove-recent', root),
     close: (options) => ipcRenderer.invoke('project:close', options),
     readDoc: (id) => ipcRenderer.invoke('project:read-doc', id),
+    readChat: (id) => ipcRenderer.invoke('project:read-chat', id),
     readStructure: () => ipcRenderer.invoke('project:read-structure'),
     readAsset: (name) => ipcRenderer.invoke('project:read-asset', name),
     // Shows a native open dialog; the main process copies the pick into assets/.
@@ -42,5 +43,19 @@ contextBridge.exposeInMainWorld('vrs', {
     setDirty: (dirty) => ipcRenderer.invoke('project:set-dirty', dirty),
     confirmUnsaved: () => ipcRenderer.invoke('project:confirm-unsaved'),
     onExternalChange: (callback) => subscribe('project:external-change', callback),
+  },
+  // Opt-in AI. Provider HTTP and API keys stay in the main process; keys are
+  // sent in once (saveKey) and never come back.
+  ai: {
+    getSettings: () => ipcRenderer.invoke('settings:get-ai'),
+    setSettings: (patch) => ipcRenderer.invoke('settings:set-ai', patch),
+    saveKey: (provider, key) => ipcRenderer.invoke('llm:save-key', provider, key),
+    removeKey: (provider) => ipcRenderer.invoke('llm:remove-key', provider),
+    testKey: (provider) => ipcRenderer.invoke('llm:test', provider),
+    listModels: (provider, options) => ipcRenderer.invoke('llm:list-models', provider, options),
+    startChat: (requestId, request) => ipcRenderer.invoke('llm:chat-start', requestId, request),
+    cancelChat: (requestId) => ipcRenderer.invoke('llm:chat-cancel', requestId),
+    cancelAll: () => ipcRenderer.invoke('llm:cancel-all'),
+    onChatEvent: (callback) => subscribe('llm:chat-event', callback),
   },
 });

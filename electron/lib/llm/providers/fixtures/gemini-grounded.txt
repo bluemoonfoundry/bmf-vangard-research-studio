@@ -1,0 +1,4 @@
+data: {"candidates":[{"content":{"role":"model","parts":[{"text":"Euro 2024 was won by "}]},"index":0}],"modelVersion":"gemini-2.5-flash"}
+
+data: {"candidates":[{"content":{"role":"model","parts":[{"text":"Spain."}]},"finishReason":"STOP","index":0,"groundingMetadata":{"webSearchQueries":["UEFA Euro 2024 winner"],"searchEntryPoint":{"renderedContent":"<div class=\"container\">Search suggestions</div>"},"groundingChunks":[{"web":{"uri":"https://example.com/euro","title":"example.com"}},{"web":{"uri":"https://example.com/euro","title":"example.com duplicate"}},{"web":{"uri":"ftp://example.com/file","title":"ftp"}},{"web":{"uri":"https://news.example.org/final","title":"news.example.org"}},{"web":{"title":"no uri"}}],"groundingSupports":[{"segment":{"endIndex":30},"groundingChunkIndices":[0,3]}]}}],"usageMetadata":{"promptTokenCount":12,"candidatesTokenCount":9,"totalTokenCount":21},"modelVersion":"gemini-2.5-flash"}
+

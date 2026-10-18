@@ -4,6 +4,10 @@ import { useProject } from '@/project/useProject';
 import { WelcomeScreen } from '@/components/WelcomeScreen';
 import { Workspace } from '@/components/workspace/Workspace';
 import { ProjectNotices } from '@/components/ProjectNotices';
+import { SettingsDialog } from '@/components/settings/SettingsDialog';
+import { createAiApi } from '@/ai/aiApi';
+import { useAi } from '@/ai/useAi';
+import { Settings } from 'lucide-react';
 
 const APP_NAME = 'Vangard Research Studio';
 const headerButton = 'rounded border border-line px-2 py-1 text-xs hover:border-accent disabled:opacity-50';
@@ -12,7 +16,13 @@ export default function App() {
   const [version, setVersion] = useState<string | null>(null);
   const bridge = window.vrs;
   const api = useMemo(() => (bridge ? createProjectApi(bridge) : null), [bridge]);
-  const project = useProject(api, bridge?.app ?? null);
+  const aiApi = useMemo(() => (bridge?.ai ? createAiApi(bridge) : null), [bridge]);
+  const ai = useAi(aiApi);
+  // New AI chats start from Settings' default provider and model (read when a chat needs them).
+  const project = useProject(api, bridge?.app ?? null, {
+    chatDefaults: () => ({ provider: ai.status?.defaultProvider ?? null, model: ai.status?.defaultModel ?? null }),
+  });
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const { state, dirty, saving, save } = project;
   const projectName = state?.manifest.name;
 
@@ -63,11 +73,14 @@ export default function App() {
           </>
         )}
         {version && <span className={`text-xs text-content-muted ${state ? '' : 'ml-auto'}`}>v{version}</span>}
+        <button type="button" className={`${headerButton} inline-flex items-center`} aria-label="Settings" title="Settings" onClick={() => setSettingsOpen(true)}>
+          <Settings className="h-4 w-4" />
+        </button>
       </header>
       <ProjectNotices project={project} />
       <main className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
         {state ? (
-          <Workspace key={state.root} project={project} />
+          <Workspace key={state.root} project={project} ai={ai} aiApi={aiApi} />
         ) : (
           <WelcomeScreen
             recents={project.recents}
@@ -79,6 +92,7 @@ export default function App() {
           />
         )}
       </main>
+      {settingsOpen && <SettingsDialog ai={ai} onClose={() => setSettingsOpen(false)} />}
     </div>
   );
 }

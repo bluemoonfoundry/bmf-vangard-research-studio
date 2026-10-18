@@ -12,13 +12,19 @@ import { ALL_SCOPES, findMatches, searchItems, type SearchMode, type SearchScope
 import { ancestorsOf, childrenOf, descendantIds, isFolder, type DropPosition } from '@/workspace/treeOps';
 import { wordCount } from '@/workspace/stats';
 
-const DRAG_TYPE = 'application/x-vrs-item';
+/** Drag data type of a binder item; other panels (chat attachments) accept it as a drop. */
+export const BINDER_DRAG_TYPE = 'application/x-vrs-item';
 
 export interface BinderProps {
   projectName: string;
   onRenameProject(name: string): void;
   items: TreeItem[];
+  /** Bodies for word counts. */
   docs: Record<string, DocEntry>;
+  /** Searchable text of an item (an AI chat's transcript, else its body), or undefined while it loads. */
+  textOf(id: string): string | undefined;
+  /** AI chats with a reply in flight. */
+  streamingIds: ReadonlySet<string>;
   activeId: string | null;
   collapsed: ReadonlySet<string>;
   onToggleFolder(id: string, open?: boolean): void;
@@ -68,7 +74,7 @@ const SEARCH_EXAMPLES: { mode: SearchMode; query: string; hint: string }[] = [
 
 export const Binder = memo(function Binder(props: BinderProps) {
   const {
-    projectName, onRenameProject, items, docs, activeId, collapsed, onToggleFolder, onSelect, newItemParentId,
+    projectName, onRenameProject, items, docs, textOf, streamingIds, activeId, collapsed, onToggleFolder, onSelect, newItemParentId,
     onNewDocument, onNewFolder, onAddItem, onDelete, onDuplicate, onQuickRef, onMove,
   } = props;
 
@@ -80,10 +86,10 @@ export const Binder = memo(function Binder(props: BinderProps) {
   const [labelFilter, setLabelFilter] = useState<LabelId | 'all'>('all');
 
   // Typing in an editor shouldn't re-run a search on every keystroke.
-  const deferredDocs = useDeferredValue(docs);
+  const deferredTextOf = useDeferredValue(textOf);
   const result = useMemo(
-    () => searchItems(items, id => deferredDocs[id]?.current, { query, mode, caseSensitive, scopes, label: labelFilter }),
-    [items, deferredDocs, query, mode, caseSensitive, scopes, labelFilter],
+    () => searchItems(items, deferredTextOf, { query, mode, caseSensitive, scopes, label: labelFilter }),
+    [items, deferredTextOf, query, mode, caseSensitive, scopes, labelFilter],
   );
   const searching = query.trim() !== '';
   const scopeCount = Object.values(scopes).filter(Boolean).length;
@@ -307,6 +313,7 @@ export const Binder = memo(function Binder(props: BinderProps) {
         ) : (
           <BinderTree
             items={items}
+            streamingIds={streamingIds}
             activeId={activeId}
             collapsed={collapsed}
             onToggleFolder={onToggleFolder}
@@ -330,6 +337,7 @@ export const Binder = memo(function Binder(props: BinderProps) {
 
 interface TreeProps {
   items: TreeItem[];
+  streamingIds: ReadonlySet<string>;
   activeId: string | null;
   collapsed: ReadonlySet<string>;
   onToggleFolder(id: string, open?: boolean): void;
@@ -349,7 +357,7 @@ interface VisibleRow {
   setSize: number;
 }
 
-function BinderTree({ items, activeId, collapsed, onToggleFolder, onSelect, onNewDocument, onDelete, onDuplicate, onQuickRef, onMove }: TreeProps) {
+function BinderTree({ items, streamingIds, activeId, collapsed, onToggleFolder, onSelect, onNewDocument, onDelete, onDuplicate, onQuickRef, onMove }: TreeProps) {
   const [dragged, setDragged] = useState<string | null>(null);
   const [drop, setDrop] = useState<{ id: string | null; position: DropPosition } | null>(null);
   const [focusedId, setFocusedId] = useState<string | null>(null);
@@ -482,7 +490,7 @@ function BinderTree({ items, activeId, collapsed, onToggleFolder, onSelect, onNe
           if (e.target === e.currentTarget) onRowKeyDown(e, row, index);
         }}
         onDragStart={(e) => {
-          e.dataTransfer.setData(DRAG_TYPE, item.id);
+          e.dataTransfer.setData(BINDER_DRAG_TYPE, item.id);
           e.dataTransfer.effectAllowed = 'move';
           setDragged(item.id);
         }}
@@ -498,7 +506,7 @@ function BinderTree({ items, activeId, collapsed, onToggleFolder, onSelect, onNe
         }}
         onDrop={(e) => {
           e.preventDefault();
-          const id = e.dataTransfer.getData(DRAG_TYPE) || dragged;
+          const id = e.dataTransfer.getData(BINDER_DRAG_TYPE) || dragged;
           if (id && drop?.id === item.id) onMove(id, item.id, drop.position);
           endDrag();
         }}
@@ -529,6 +537,7 @@ function BinderTree({ items, activeId, collapsed, onToggleFolder, onSelect, onNe
         <ItemIcon item={item} open={open} className="h-4 w-4 text-content-muted" />
         {label && <span className="h-3 w-1 shrink-0 rounded-sm" style={{ backgroundColor: label.color }} title={label.name} />}
         <span className="min-w-0 flex-1 truncate">{title}</span>
+        {streamingIds.has(item.id) && <span className="shrink-0 text-[10px] italic text-accent">replying…</span>}
         {folder && childCount > 0 && <span className="shrink-0 font-mono text-[10px] text-content-muted">{childCount}</span>}
         <span className="flex shrink-0 items-center opacity-0 group-focus-within:opacity-100 group-hover:opacity-100">
           <RowAction label={`Quick reference for ${title}`} onClick={() => onQuickRef(item.id)}><ExternalLink className="h-3 w-3" /></RowAction>
@@ -559,7 +568,7 @@ function BinderTree({ items, activeId, collapsed, onToggleFolder, onSelect, onNe
           onDragLeave={() => setDrop(null)}
           onDrop={(e) => {
             e.preventDefault();
-            const id = e.dataTransfer.getData(DRAG_TYPE) || dragged;
+            const id = e.dataTransfer.getData(BINDER_DRAG_TYPE) || dragged;
             if (id) onMove(id, null, 'inside');
             endDrag();
           }}

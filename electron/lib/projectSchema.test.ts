@@ -9,6 +9,7 @@ import {
     migrateProject,
     normalizeTree,
     normalizeBible,
+    normalizeChat,
     createEmptyBible,
     normalizeText,
     BIBLE_FILE,
@@ -229,6 +230,15 @@ describe('normalizeBible', () => {
         expect(() => normalizeBible({ facts: [fact({ source: { ...ok, start: 1.5 } })] })).toThrow(corrupt);
     });
 
+    it('schema rejects an invalid messageId', () => {
+        const ok = { itemId: 'c1', messageId: 'm1', quote: 'q', start: 1, end: 3 };
+        expect(() => normalizeBible({ facts: [fact({ source: ok })] })).not.toThrow();
+        expect(normalizeBible({ facts: [fact({ source: ok })] }).facts[0].source.messageId).toBe('m1');
+        expect(() => normalizeBible({ facts: [fact({ source: { ...ok, messageId: '../x' } })] })).toThrow(corrupt);
+        expect(() => normalizeBible({ facts: [fact({ source: { ...ok, messageId: 7 } })] })).toThrow(corrupt);
+        expect(() => normalizeBible({ facts: [fact({ source: { ...ok, messageId: '' } })] })).toThrow(corrupt);
+    });
+
     it('validates dependencies', () => {
         const dep = { id: 'd1', eventId: 'e1', afterEventId: 'e2' };
         expect(() => normalizeBible({ dependencies: [dep] })).not.toThrow();
@@ -261,5 +271,28 @@ describe('validateSavePayload bible', () => {
 
     it('passes a valid bible through', () => {
         expect(validateSavePayload({ bible: { facts: [fact()] } }).bible.facts).toHaveLength(1);
+    });
+});
+
+describe('normalizeChat', () => {
+    const chat = { version: 1, settings: { model: 'm' }, messages: [{ id: 'm1', role: 'user', text: 'hi', extra: 1 }], extra: true };
+
+    it('accepts a minimal transcript and keeps unknown fields', () => {
+        expect(normalizeChat(chat)).toEqual(chat);
+    });
+
+    it('rejects a message with a bad role', () => {
+        const bad = { ...chat, messages: [{ id: 'm1', role: 'system', text: 'x' }] };
+        expect(() => normalizeChat(bad)).toThrow(expect.objectContaining({ code: 'CORRUPT' }));
+    });
+
+    it('rejects version 2 as TOO_NEW', () => {
+        expect(() => normalizeChat({ ...chat, version: 2 })).toThrow(expect.objectContaining({ code: 'TOO_NEW' }));
+    });
+
+    it('validateSavePayload rejects an invalid chat id', () => {
+        expect(() => validateSavePayload({ chats: { '../x': chat } })).toThrow(expect.objectContaining({ code: 'INVALID' }));
+        expect(() => validateSavePayload({ chats: { ok: { version: 1 } } })).toThrow(expect.objectContaining({ code: 'INVALID' }));
+        expect(validateSavePayload({ chats: { ok: chat, gone: null } }).chats).toEqual({ ok: chat, gone: null });
     });
 });

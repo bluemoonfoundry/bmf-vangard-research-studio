@@ -12,6 +12,7 @@ export const CURRENT_SCHEMA_VERSION = 2;
 export const MANIFEST_FILE = 'vrs.json';
 export const TREE_FILE = 'tree.json';
 export const BIBLE_FILE = 'bible/bible.json';
+export const CHATS_DIR = 'chats';
 export const PROJECT_DIRS = ['docs', 'chats', 'assets', 'bible', 'maps'];
 
 /**
@@ -168,7 +169,8 @@ function checkFact(fact, where) {
     if (fact.source !== undefined) {
         const src = fact.source;
         if (!isPlainObject(src) || !isValidItemId(src.itemId) || typeof src.quote !== 'string'
-            || !Number.isInteger(src.start) || !Number.isInteger(src.end) || src.start > src.end) {
+            || !Number.isInteger(src.start) || !Number.isInteger(src.end) || src.start > src.end
+            || (src.messageId !== undefined && !isValidItemId(src.messageId))) {
             throw corruptBible(where, 'has an invalid source.');
         }
     }
@@ -212,9 +214,33 @@ export function normalizeBible(raw) {
     return { ...raw, ...lists };
 }
 
+export const CHAT_VERSION = 1;
+const CHAT_ROLES = ['user', 'assistant'];
+
+/** Validates chats/<id>.json (spec §4). Unknown fields are preserved, like normalizeTree. */
+export function normalizeChat(raw) {
+    const corrupt = (msg) => new ProjectFormatError('CORRUPT', `Chat transcript ${msg}`);
+    if (!isPlainObject(raw)) throw corrupt('must be an object.');
+    if (!isPositiveInt(raw.version)) throw corrupt('has an invalid version.');
+    if (raw.version > CHAT_VERSION) {
+        throw new ProjectFormatError('TOO_NEW',
+            `This chat was saved by a newer version of VRS (format ${raw.version}; this version reads up to ${CHAT_VERSION}).`);
+    }
+    if (!isPlainObject(raw.settings)) throw corrupt('needs a settings object.');
+    if (!Array.isArray(raw.messages)) throw corrupt('needs a messages array.');
+    raw.messages.forEach((message, index) => {
+        const where = `message ${index}`;
+        if (!isPlainObject(message)) throw corrupt(`${where} is not an object.`);
+        if (!isValidItemId(message.id)) throw corrupt(`${where} has an invalid id.`);
+        if (!CHAT_ROLES.includes(message.role)) throw corrupt(`${where} has an unknown role: ${JSON.stringify(message.role)}.`);
+        if (typeof message.text !== 'string') throw corrupt(`${where} needs a string text.`);
+    });
+    return raw;
+}
+
 /**
  * Validates a save (or recovery snapshot) request from the renderer. The
- * renderer may change the project name, settings, tree, bible and document bodies,
+ * renderer may change the project name, settings, tree, bible, document bodies and chat transcripts,
  * and ask for assets to be deleted;
  * identity fields (id, schemaVersion, timestamps) are owned by the main process.
  */
@@ -259,6 +285,20 @@ export function validateSavePayload(payload) {
             }
         }
         result.docs = payload.docs;
+    }
+
+    if (payload.chats !== undefined) {
+        if (!isPlainObject(payload.chats)) throw new ProjectFormatError('INVALID', 'chats must be an object.');
+        for (const [id, transcript] of Object.entries(payload.chats)) {
+            if (!isValidItemId(id)) throw new ProjectFormatError('INVALID', `Invalid chat id: ${id}`);
+            if (transcript === null) continue;
+            try {
+                normalizeChat(transcript);
+            } catch (err) {
+                throw new ProjectFormatError('INVALID', err.message);
+            }
+        }
+        result.chats = payload.chats;
     }
 
     if (payload.deletedAssets !== undefined) {

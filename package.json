@@ -7,7 +7,7 @@
     "name": "Blue Moon Foundry Software",
     "email": "support@bluemoonfoundry.com"
   },
-  "license": "UNLICENSED",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "main": "electron/main.js",

@@ -1,4 +1,4 @@
-import { FileText, Folder, FolderOpen, Globe, Headphones, Image as ImageIcon, MessageSquare, Shapes } from 'lucide-react';
+import { Bot, FileText, Folder, FolderOpen, Globe, Headphones, Image as ImageIcon, MessageSquare, Shapes } from 'lucide-react';
 import type { TreeItem } from '@/project/types';
 import { entityKindOf, ENTITY_KINDS } from '@/bible/entities';
 import { itemType } from '@/workspace/research';
@@ -17,6 +17,8 @@ export function ItemIcon({ item, open = false, className = 'h-4 w-4' }: { item: 
       return <Headphones {...props} />;
     case 'chat':
       return <MessageSquare {...props} />;
+    case 'ai-chat':
+      return <Bot {...props} />;
     case 'entity': {
       const kind = entityKindOf(item);
       const Icon = ENTITY_KINDS.find(k => k.id === kind)?.icon ?? Shapes;

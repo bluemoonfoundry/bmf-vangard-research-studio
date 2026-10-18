@@ -1,0 +1,113 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
+import type { AiApi } from '@/ai/aiApi';
+import type { AiSettingsPatch, AiStatus, ModelInfo, ProviderId } from '@/ai/types';
+
+export interface AiController {
+  /** False when there is no desktop bridge, so AI settings cannot be read or changed. */
+  available: boolean;
+  status: AiStatus | null;
+  /** True only once the status has loaded and AI is switched on. */
+  enabled: boolean;
+  refresh(): Promise<void>;
+  setSettings(patch: AiSettingsPatch): Promise<void>;
+  saveKey(provider: ProviderId, key: string): Promise<boolean>;
+  removeKey(provider: ProviderId): Promise<void>;
+  testKey(provider: ProviderId): Promise<boolean>;
+  /** Cached models for a provider, once loaded. */
+  models(provider: ProviderId): ModelInfo[] | undefined;
+  loadModels(provider: ProviderId, refresh?: boolean): Promise<ModelInfo[]>;
+  /** Why the provider's last model-list load failed, or null. */
+  modelsError(provider: ProviderId): string | null;
+  error: string | null;
+}
+
+const messageOf = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+/** Renderer state for the opt-in AI layer: status, per-provider model cache, and the last error. */
+export function useAi(api: AiApi | null): AiController {
+  const [status, setStatus] = useState<AiStatus | null>(null);
+  const [modelCache, setModelCache] = useState<Partial<Record<ProviderId, ModelInfo[]>>>({});
+  const [modelErrors, setModelErrors] = useState<Partial<Record<ProviderId, string>>>({});
+  const [error, setError] = useState<string | null>(null);
+  const alive = useRef(true);
+
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
+
+  /** Runs a call that resolves to the full status; adopts it, or records the error. Returns success. */
+  const adopt = useCallback(async (call: () => Promise<AiStatus>): Promise<boolean> => {
+    try {
+      const next = await call();
+      if (!alive.current) return false;
+      setStatus({ ...next });
+      setError(null);
+      return true;
+    } catch (e) {
+      if (alive.current) setError(messageOf(e));
+      return false;
+    }
+  }, []);
+
+  const refresh = useCallback(async () => {
+    if (api) await adopt(() => api.getSettings());
+  }, [api, adopt]);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  const loadModels = useCallback(async (provider: ProviderId, refreshList = false) => {
+    if (!api) return [];
+    try {
+      const list = await api.listModels(provider, refreshList ? { refresh: true } : undefined);
+      if (alive.current) {
+        setModelCache(c => ({ ...c, [provider]: list }));
+        setModelErrors(({ [provider]: _cleared, ...rest }) => rest);
+        setError(null);
+      }
+      return list;
+    } catch (e) {
+      if (alive.current) {
+        setModelErrors(m => ({ ...m, [provider]: messageOf(e) }));
+        setError(messageOf(e));
+      }
+      return [];
+    }
+  }, [api]);
+
+  // Stable between cache changes, so callers can memoize on them.
+  const models = useCallback((provider: ProviderId) => modelCache[provider], [modelCache]);
+  const modelsError = useCallback((provider: ProviderId) => modelErrors[provider] ?? null, [modelErrors]);
+
+  return {
+    available: api !== null,
+    status,
+    enabled: status?.enabled === true,
+    refresh,
+    setSettings: async (patch) => {
+      if (api) await adopt(() => api.setSettings(patch));
+    },
+    saveKey: async (provider, key) => {
+      if (!api) return false;
+      const saved = await adopt(() => api.saveKey(provider, key));
+      // A new key may have different model access.
+      if (saved) setModelCache(({ [provider]: _stale, ...rest }) => rest);
+      return saved;
+    },
+    removeKey: async (provider) => {
+      if (!api) return;
+      if (await adopt(() => api.removeKey(provider))) {
+        setModelCache(({ [provider]: _gone, ...rest }) => rest);
+      }
+    },
+    testKey: (provider) => (api ? adopt(() => api.testKey(provider)) : Promise.resolve(false)),
+    models,
+    modelsError,
+    loadModels,
+    error,
+  };
+}

@@ -1,3 +1,5 @@
+import type { ChatTranscript } from '@/chat/types';
+
 /** Renderer-side shapes of the project format defined in electron/lib/projectSchema.js. */
 
 export interface ProjectManifest {
@@ -9,7 +11,7 @@ export interface ProjectManifest {
   settings: Record<string, unknown>;
 }
 
-export type ItemType = 'folder' | 'document' | 'image' | 'webpage' | 'audio' | 'entity' | 'chat';
+export type ItemType = 'folder' | 'document' | 'image' | 'webpage' | 'audio' | 'entity' | 'chat' | 'ai-chat';
 
 export type LabelId =
   | 'concept' | 'character' | 'setting' | 'plot' | 'verified_fact' | 'unverified' | 'primary_source' | 'lore';
@@ -78,7 +80,8 @@ export interface StoryPosition { season: number; episode?: number; order?: numbe
 
 export type FactStatus = 'proposed' | 'kept' | 'set_aside';
 
-export interface FactSource { itemId: string; quote: string; start: number; end: number }
+/** Where a fact was captured. With `messageId` (an AI Chat message), offsets are into that message's stored text. */
+export interface FactSource { itemId: string; messageId?: string; quote: string; start: number; end: number }
 
 export interface Fact {
   id: string;
@@ -119,6 +122,8 @@ export interface SavePayload {
   tree?: ProjectTree;
   /** Document bodies by item id; null deletes the document file. */
   docs?: Record<string, string | null>;
+  /** AI chat transcripts by item id; null deletes the transcript file. */
+  chats?: Record<string, ChatTranscript | null>;
   bible?: Bible;
   /** Asset files to remove; the main process keeps any the saved tree still references. */
   deletedAssets?: string[];

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { Bible, FactSource, TreeItem } from '@/project/types';
+import type { ChatOf } from '@/chat/types';
 import { isEvent } from '@/bible/entities';
 import { isWhenAttribute } from '@/bible/normalize';
 import { findContradictions, groupVersions, openContradictions } from '@/bible/contradictions';
@@ -11,6 +12,8 @@ export interface ConflictQueueProps {
   bible: Bible;
   items: TreeItem[];
   contentOf(id: string): string | undefined;
+  /** AI chat transcripts, for sources citing a message. */
+  chatOf: ChatOf;
   /** Contradiction to show first (from "Show in conflict queue"). */
   focusKey?: string;
   onUpdate(update: (b: Bible) => Bible): void;
@@ -20,7 +23,7 @@ export interface ConflictQueueProps {
 
 type Filter = 'open' | 'decided';
 
-export function ConflictQueue({ bible, items, contentOf, focusKey, onUpdate, onOpenSource, onOpenEntity }: ConflictQueueProps) {
+export function ConflictQueue({ bible, items, contentOf, chatOf, focusKey, onUpdate, onOpenSource, onOpenEntity }: ConflictQueueProps) {
   const [filter, setFilter] = useState<Filter>('open');
   const [selectedKey, setSelectedKey] = useState<string | null>(focusKey ?? null);
   const [note, setNote] = useState('');
@@ -128,6 +131,7 @@ export function ConflictQueue({ bible, items, contentOf, focusKey, onUpdate, onO
                   bible={bible}
                   byId={byId}
                   contentOf={contentOf}
+                  chatOf={chatOf}
                   onKeep={() => decide((b, id, now, n) => keepOne(b, current, i, { id, now, note: n }))}
                   onOpenSource={onOpenSource}
                 />

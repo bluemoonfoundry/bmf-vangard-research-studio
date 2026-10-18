@@ -5,6 +5,7 @@ import type { Bible, Fact, StoryPosition, TreeItem } from '@/project/types';
 import { emptyBible } from '@/bible/normalize';
 import { ConflictQueue } from '@/components/bible/ConflictQueue';
 import { EntityPanel } from '@/components/bible/EntityPanel';
+import type { ChatOf, ChatTranscript } from '@/chat/types';
 
 const ent = (id: string, title: string, entityKind: string): TreeItem =>
   ({ id, parentId: null, type: 'entity', entityKind, title, order: 0, keywords: [] }) as TreeItem;
@@ -20,8 +21,8 @@ const fact = (entityId: string, attribute: string, value: string | StoryPosition
   id: `f${++n}`, entityId, attribute, value, status: 'kept', origin: 'manual', createdAt: 'T0', updatedAt: 'T0', ...over,
 });
 
-function Harness({ initial, focusKey, onOpenSource, showEntity }: {
-  initial: Bible; focusKey?: string; onOpenSource?(s: unknown): void; showEntity?: boolean;
+function Harness({ initial, focusKey, onOpenSource, showEntity, chatOf = () => undefined }: {
+  initial: Bible; focusKey?: string; onOpenSource?(s: unknown): void; showEntity?: boolean; chatOf?: ChatOf;
 }) {
   const [bible, setBible] = useState(initial);
   return (
@@ -30,13 +31,14 @@ function Harness({ initial, focusKey, onOpenSource, showEntity }: {
         bible={bible}
         items={items}
         contentOf={() => 'body'}
+        chatOf={chatOf}
         focusKey={focusKey}
         onUpdate={(u) => setBible(u)}
         onOpenSource={(onOpenSource ?? (() => undefined)) as never}
         onOpenEntity={() => undefined}
       />
       {showEntity && (
-        <EntityPanel entity={items[0]} items={items} bible={bible} bodyOf={() => 'body'} updateBible={(u) => setBible(u)} onOpenSource={() => undefined} />
+        <EntityPanel entity={items[0]} items={items} bible={bible} bodyOf={() => 'body'} chatOf={() => undefined} updateBible={(u) => setBible(u)} onOpenSource={() => undefined} />
       )}
     </>
   );
@@ -96,6 +98,14 @@ describe('ConflictQueue', () => {
     const bible: Bible = { ...death(), facts: [...death().facts, fact('e2', 'eyes', 'green'), fact('e2', 'eyes', 'blue')] };
     render(<Harness initial={bible} focusKey={'e2\u0000eyes'} />);
     expect(screen.getByRole('heading', { name: 'Ren · eyes' })).toBeInTheDocument();
+  });
+
+  it('says the message was deleted for a version citing a removed AI chat message', () => {
+    const chat = { version: 1, settings: {}, messages: [] } as unknown as ChatTranscript;
+    const source = { itemId: 'chat', messageId: 'gone', quote: 'she died', start: 0, end: 8 };
+    const bible: Bible = { ...emptyBible(), facts: [fact('e1', 'death', 'A', { source }), fact('e1', 'death', 'B')] };
+    render(<Harness initial={bible} chatOf={() => chat} />);
+    expect(within(cards()[0]).getByText('message was deleted')).toBeInTheDocument();
   });
 
   it('opens a version source', () => {

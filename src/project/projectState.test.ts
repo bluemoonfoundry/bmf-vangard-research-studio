@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { projectReducer, isDirty, isDocDirty, isStructureDirty, buildSavePayload, type ProjectState } from '@/project/projectState';
+import { projectReducer, isChatDirty, isDirty, isDocDirty, isStructureDirty, buildSavePayload, type ProjectState } from '@/project/projectState';
+import { applyStreamEvent, beginSend, newTranscript, updateSettings } from '@/chat/transcript';
+import type { ChatTranscript } from '@/chat/types';
 import { emptyBible } from '@/bible/normalize';
 import type { OpenedProject, TreeItem } from '@/project/types';
 
@@ -138,6 +140,7 @@ describe('projectReducer', () => {
       type: 'recoveryRestored',
       snapshot: { savedAt: 'T', manifest: { name: 'Recovered' }, tree: { items: [item('a'), item('new', 1)] }, docs: { a: 'unsaved', new: 'fresh', gone: null } },
       diskDocs: { a: 'on disk' },
+      diskChats: {},
     })!;
     expect(s.manifest.name).toBe('Recovered');
     expect(s.docs.a).toEqual({ saved: 'on disk', current: 'unsaved' });
@@ -266,8 +269,139 @@ describe('projectReducer: story bible', () => {
   it('recoveryRestored takes the snapshot bible as a dirty edit', () => {
     const s = open();
     const bible = { ...emptyBible(), facts: [fact('f', 'e')] };
-    const r = projectReducer(s, { type: 'recoveryRestored', snapshot: { savedAt: 'T', bible }, diskDocs: {} })!;
+    const r = projectReducer(s, { type: 'recoveryRestored', snapshot: { savedAt: 'T', bible }, diskDocs: {}, diskChats: {} })!;
     expect(r.bible).toBe(bible);
     expect(isDirty(r)).toBe(true);
+  });
+});
+
+describe('projectReducer: AI chats', () => {
+  const CAPS = { webSearch: false, readUrls: false, temperature: true };
+  const DEFAULTS = { provider: 'anthropic' as const, model: 'm1' };
+  const aiChat = (id: string, order = 0, parentId: string | null = null): TreeItem => ({ ...item(id, order, parentId), type: 'ai-chat' });
+  const fresh = () => newTranscript(DEFAULTS);
+  const saveAll = (s: ProjectState) => projectReducer(s, { type: 'saved', payload: buildSavePayload(s), manifest: s.manifest })!;
+  const loaded = (items: TreeItem[], chats: Record<string, ChatTranscript | null>) =>
+    projectReducer(open(items), {
+      type: 'chatsLoaded',
+      defaults: DEFAULTS,
+      chats: Object.fromEntries(Object.entries(chats).map(([id, transcript]) => [id, { transcript, problem: null }])),
+    })!;
+
+  it('a new chat is dirty until saved', () => {
+    const t = fresh();
+    let s = projectReducer(open(), { type: 'itemsAdded', items: [aiChat('c')], docs: {}, chats: { c: t } })!;
+    expect(s.chats.c).toEqual({ saved: null, current: t });
+    expect(isChatDirty(s, 'c')).toBe(true);
+    expect(buildSavePayload(s).chats).toEqual({ c: t });
+    s = saveAll(s);
+    expect(isChatDirty(s, 'c')).toBe(false);
+    expect(isDirty(s)).toBe(false);
+  });
+
+  it('save mid-stream persists cancelled then re-dirties', () => {
+    let s = loaded([aiChat('c')], { c: fresh() });
+    s = projectReducer(s, {
+      type: 'chatUpdated', id: 'c',
+      update: t => applyStreamEvent(beginSend(t, { text: 'q', userId: 'u', assistantId: 'a', at: 'T', caps: CAPS }), 'a', { type: 'text', delta: 'part' }),
+    })!;
+    const payload = buildSavePayload(s);
+    expect(payload.chats?.c?.messages.at(-1)).toMatchObject({ text: 'part', status: 'cancelled' });
+    expect(s.chats.c.current.messages.at(-1)?.status).toBe('streaming');
+    s = projectReducer(s, { type: 'saved', payload, manifest: s.manifest })!;
+    expect(s.chats.c.saved).toBe(payload.chats?.c);
+    expect(isChatDirty(s, 'c')).toBe(true); // still streaming: the stored copy says cancelled
+    s = projectReducer(s, { type: 'chatUpdated', id: 'c', update: t => applyStreamEvent(t, 'a', { type: 'done', model: 'm1' }) })!;
+    expect(isChatDirty(s, 'c')).toBe(true);
+    expect(buildSavePayload(s).chats?.c?.messages.at(-1)).toMatchObject({ text: 'part', status: 'complete' });
+  });
+
+  it('an idle save leaves the chat clean', () => {
+    let s = loaded([aiChat('c')], { c: fresh() });
+    s = projectReducer(s, { type: 'chatUpdated', id: 'c', update: t => updateSettings(t, { webSearch: true }) })!;
+    const payload = buildSavePayload(s);
+    expect(payload.chats?.c).toBe(s.chats.c.current);
+    s = projectReducer(s, { type: 'saved', payload, manifest: s.manifest })!;
+    expect(isDirty(s)).toBe(false);
+    expect(buildSavePayload(s)).toEqual({});
+  });
+
+  it('an update that returns the same transcript leaves state unchanged', () => {
+    const s = loaded([aiChat('c')], { c: fresh() });
+    expect(projectReducer(s, { type: 'chatUpdated', id: 'c', update: t => t })).toBe(s);
+    expect(projectReducer(s, { type: 'chatUpdated', id: 'nope', update: () => fresh() })).toBe(s);
+  });
+
+  it('deleting an ai-chat item queues its file for deletion', () => {
+    const f = { ...item('f'), type: 'folder' };
+    let s = loaded([f, aiChat('c', 0, 'f'), aiChat('unloaded', 1, 'f')], { c: fresh() });
+    s = projectReducer(s, { type: 'itemsAdded', items: [aiChat('new', 2, 'f')], docs: {}, chats: { new: fresh() } })!;
+    s = projectReducer(s, { type: 'itemDeleted', id: 'f' })!;
+    expect(s.chats).toEqual({});
+    expect([...s.deletedChats].sort()).toEqual(['c', 'unloaded']);
+    expect(buildSavePayload(s).chats).toEqual({ c: null, unloaded: null });
+    s = saveAll(s);
+    expect(s.deletedChats).toEqual([]);
+    expect(isDirty(s)).toBe(false);
+  });
+
+  it('a missing file loads clean', () => {
+    const s = projectReducer(open([aiChat('c'), aiChat('bad', 1)]), {
+      type: 'chatsLoaded', defaults: DEFAULTS,
+      chats: { c: { transcript: null, problem: null }, bad: { transcript: null, problem: 'chats/bad.json is not valid JSON.' } },
+    })!;
+    expect(s.chats.c.current).toEqual(fresh());
+    expect(s.chats.c.problem).toBeUndefined();
+    expect(s.chats.bad.problem).toBe('chats/bad.json is not valid JSON.');
+    expect(isDirty(s)).toBe(false);
+    expect(buildSavePayload(s)).toEqual({}); // a damaged file is left alone until the chat changes
+  });
+
+  it('chatsLoaded ignores chats already loaded or not in the tree', () => {
+    let s = loaded([aiChat('c')], { c: fresh() });
+    s = projectReducer(s, { type: 'chatUpdated', id: 'c', update: t => updateSettings(t, { readUrls: true }) })!;
+    const mine = s.chats.c;
+    s = projectReducer(s, {
+      type: 'chatsLoaded', defaults: DEFAULTS,
+      chats: { c: { transcript: fresh(), problem: null }, zombie: { transcript: fresh(), problem: null } },
+    })!;
+    expect(s.chats.c).toBe(mine);
+    expect(s.chats.zombie).toBeUndefined();
+  });
+
+  it('recovery restores chats', () => {
+    const disk = fresh();
+    const unsaved = updateSettings(fresh(), { webSearch: true });
+    const added = updateSettings(fresh(), { readUrls: true });
+    let s = loaded([aiChat('c'), aiChat('gone', 1)], { c: disk, gone: fresh() });
+    s = projectReducer(s, {
+      type: 'recoveryRestored',
+      snapshot: { savedAt: 'T', tree: { items: [aiChat('c'), aiChat('new', 1)] }, chats: { c: unsaved, new: added, gone: null } },
+      diskDocs: {},
+      diskChats: { c: disk },
+    })!;
+    expect(s.chats.c).toEqual({ saved: disk, current: unsaved });
+    expect(s.chats.new.saved).toBeNull();
+    expect(s.chats.new.current.settings.readUrls).toBe(true);
+    expect(s.chats.gone).toBeUndefined();
+    expect(buildSavePayload(s).chats).toEqual({ c: unsaved, new: added, gone: null });
+  });
+
+  it('reloads a chat from disk, or rebases unsaved changes on it', () => {
+    let s = loaded([aiChat('c')], { c: fresh() });
+    s = projectReducer(s, { type: 'chatUpdated', id: 'c', update: t => updateSettings(t, { webSearch: true }) })!;
+    const theirs = updateSettings(fresh(), { readUrls: true });
+    const kept = projectReducer(s, { type: 'chatDiskChanged', id: 'c', transcript: theirs })!;
+    expect(kept.chats.c.saved).toBe(theirs);
+    expect(isChatDirty(kept, 'c')).toBe(true);
+    s = projectReducer(s, { type: 'chatReloaded', id: 'c', transcript: theirs })!;
+    expect(s.chats.c).toEqual({ saved: theirs, current: theirs });
+    expect(isDirty(s)).toBe(false);
+  });
+
+  it('reloading the structure drops chats whose item vanished', () => {
+    let s = loaded([aiChat('a'), aiChat('b', 1)], { a: fresh(), b: fresh() });
+    s = projectReducer(s, { type: 'structureReloaded', manifest: s.manifest, tree: { items: [aiChat('a')] }, bible: emptyBible() })!;
+    expect(Object.keys(s.chats)).toEqual(['a']);
   });
 });
