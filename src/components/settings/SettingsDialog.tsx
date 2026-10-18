@@ -27,10 +27,8 @@ function ProviderRow({ id, name, ai }: { id: ProviderId; name: string; ai: AiCon
     if (!el || !key) return;
     setBusy(true);
     try {
-      if (await ai.saveKey(id, key)) {
-        el.value = '';
-        await ai.testKey(id);
-      }
+      // The main process tests the key before storing it, so one call is enough; on failure the key stays typed.
+      if (await ai.saveKey(id, key)) el.value = '';
     } finally {
       setBusy(false);
     }
@@ -55,8 +53,9 @@ function ProviderRow({ id, name, ai }: { id: ProviderId; name: string; ai: AiCon
             : 'Not set'}
         </span>
       </div>
-      {!locked && (
-        <div className="mt-2 flex items-center gap-2">
+      <div className="mt-2 flex items-center gap-2">
+        {!locked && (
+          <>
           <input
             ref={keyInput}
             type="password"
@@ -70,14 +69,15 @@ function ProviderRow({ id, name, ai }: { id: ProviderId; name: string; ai: AiCon
           <button type="button" className={btnPrimary} onClick={() => void saveAndTest()} disabled={busy}>
             Save &amp; test
           </button>
-          {provider.configured && (
-            <>
-              <button type="button" className={btn} onClick={() => void testAgain()} disabled={busy}>Test again</button>
-              <button type="button" className={btn} onClick={() => setConfirmRemove(true)} disabled={busy}>Remove key</button>
-            </>
-          )}
-        </div>
-      )}
+          </>
+        )}
+        {provider.configured && (
+          <>
+            <button type="button" className={btn} onClick={() => void testAgain()} disabled={busy}>Test again</button>
+            <button type="button" className={btn} onClick={() => setConfirmRemove(true)} disabled={busy}>Remove key</button>
+          </>
+        )}
+      </div>
       {confirmRemove && (
         <ConfirmDialog
           title="Remove API key"
@@ -116,16 +116,25 @@ export function SettingsDialog({ ai, onClose }: SettingsDialogProps) {
       width="max-w-2xl"
       footer={<button type="button" className={btn} onClick={onClose}>Close</button>}
     >
-      {!status ? (
-        <p className="text-sm text-content-muted">Loading…</p>
+      {!ai.available ? (
+        <p className="text-sm text-content-muted">AI settings are only available in the desktop app.</p>
+      ) : !status ? (
+        ai.error ? (
+          <div role="alert" className="flex items-center gap-3 rounded border border-danger bg-surface-sunken p-3 text-sm text-danger">
+            <span className="flex-1">{ai.error}</span>
+            <button type="button" className={btn} onClick={() => void ai.refresh()}>Retry</button>
+          </div>
+        ) : (
+          <p className="text-sm text-content-muted">Loading…</p>
+        )
       ) : (
         <div className="space-y-4">
           {status.keyStoreProblem && (
-            <p role="alert" className="rounded border border-red-500 bg-surface-sunken p-3 text-sm font-medium">
+            <p role="alert" className="rounded border border-danger bg-surface-sunken p-3 text-sm font-medium text-danger">
               {status.keyStoreProblem}
             </p>
           )}
-          {ai.error && <p role="alert" className="rounded border border-red-500 p-3 text-sm">{ai.error}</p>}
+          {ai.error && <p role="alert" className="rounded border border-danger bg-surface-sunken p-3 text-sm text-danger">{ai.error}</p>}
 
           <div>
             <label className="flex items-center gap-2 text-sm font-medium">

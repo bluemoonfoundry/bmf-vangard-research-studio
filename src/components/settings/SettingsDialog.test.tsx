@@ -43,17 +43,64 @@ describe('SettingsDialog', () => {
     fireEvent.change(box, { target: { value: 'sk-secret' } });
     fireEvent.click(saveButton('OpenAI'));
     await waitFor(() => expect(bridge.ai.saveKey).toHaveBeenCalledWith('openai', 'sk-secret'));
-    await waitFor(() => expect(bridge.ai.testKey).toHaveBeenCalledWith('openai'));
+    expect(bridge.ai.testKey).not.toHaveBeenCalled();
     await waitFor(() => expect(keyBox('OpenAI').value).toBe(''));
     expect(screen.queryByDisplayValue('sk-secret')).toBeNull();
   });
 
   it('shows the provider error when the test fails', async () => {
     const { bridge } = await setup();
-    bridge.ai.testKey = vi.fn(() => Promise.resolve({ ok: false as const, error: { code: 'AUTH', message: 'Invalid API key' } }));
+    bridge.ai.saveKey = vi.fn(() => Promise.resolve({ ok: false as const, error: { code: 'AUTH', message: 'Invalid API key' } }));
     fireEvent.change(keyBox('Anthropic Claude'), { target: { value: 'bad' } });
     fireEvent.click(saveButton('Anthropic Claude'));
     expect(await screen.findByText('Invalid API key')).toBeInTheDocument();
+  });
+
+  it('failed save leaves the typed key in place', async () => {
+    const { bridge } = await setup();
+    bridge.ai.saveKey = vi.fn(() => Promise.resolve({ ok: false as const, error: { code: 'AUTH', message: 'Key rejected' } }));
+    fireEvent.change(keyBox('OpenAI'), { target: { value: 'sk-bad' } });
+    fireEvent.click(saveButton('OpenAI'));
+    expect(await screen.findByText('Key rejected')).toBeInTheDocument();
+    expect(keyBox('OpenAI').value).toBe('sk-bad');
+  });
+
+  it('keeps Test again and Remove key for a stored key without secure storage', async () => {
+    await setup(f => {
+      f.ai.status.encryptionAvailable = false;
+      f.ai.status.providers.gemini = { configured: true, lastTestOk: 'T0' };
+    });
+    expect(screen.getByRole('button', { name: 'Test again' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Remove key' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Save & test' })).toBeNull();
+  });
+
+  it('shows the load error with a working Retry', async () => {
+    const made = createFakeBridge();
+    const original = made.bridge.ai.getSettings;
+    made.bridge.ai.getSettings = vi.fn(() => Promise.resolve({ ok: false as const, error: { code: 'X', message: 'Cannot read settings' } }));
+    render(<Harness bridge={made.bridge} />);
+    expect(await screen.findByText('Cannot read settings')).toBeInTheDocument();
+    made.bridge.ai.getSettings = original;
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await screen.findByRole('checkbox', { name: 'Enable AI features' });
+  });
+
+  it('says AI is desktop-only when there is no bridge api', () => {
+    function NoApi() {
+      return <SettingsDialog ai={useAi(null)} onClose={() => {}} />;
+    }
+    render(<NoApi />);
+    expect(screen.getByText('AI settings are only available in the desktop app.')).toBeInTheDocument();
+  });
+
+  it('Escape in the remove confirmation closes only the confirmation', async () => {
+    await setup(f => { f.ai.status.providers.gemini = { configured: true, lastTestOk: 'T0' }; });
+    fireEvent.click(screen.getByRole('button', { name: 'Remove key' }));
+    const confirm = await screen.findByRole('dialog', { name: 'Remove API key' });
+    fireEvent.keyDown(within(confirm).getByRole('button', { name: 'Cancel' }), { key: 'Escape' });
+    expect(screen.queryByRole('dialog', { name: 'Remove API key' })).toBeNull();
+    expect(screen.getByRole('dialog', { name: 'Settings' })).toBeInTheDocument();
   });
 
   it('remove key asks for confirmation', async () => {

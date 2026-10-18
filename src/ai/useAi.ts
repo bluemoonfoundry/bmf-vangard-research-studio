@@ -3,6 +3,8 @@ import type { AiApi } from '@/ai/aiApi';
 import type { AiSettingsPatch, AiStatus, ModelInfo, ProviderId } from '@/ai/types';
 
 export interface AiController {
+  /** False when there is no desktop bridge, so AI settings cannot be read or changed. */
+  available: boolean;
   status: AiStatus | null;
   /** True only once the status has loaded and AI is switched on. */
   enabled: boolean;
@@ -71,13 +73,20 @@ export function useAi(api: AiApi | null): AiController {
   }, [api]);
 
   return {
+    available: api !== null,
     status,
     enabled: status?.enabled === true,
     refresh,
     setSettings: async (patch) => {
       if (api) await adopt(() => api.setSettings(patch));
     },
-    saveKey: (provider, key) => (api ? adopt(() => api.saveKey(provider, key)) : Promise.resolve(false)),
+    saveKey: async (provider, key) => {
+      if (!api) return false;
+      const saved = await adopt(() => api.saveKey(provider, key));
+      // A new key may have different model access.
+      if (saved) setModelCache(({ [provider]: _stale, ...rest }) => rest);
+      return saved;
+    },
     removeKey: async (provider) => {
       if (!api) return;
       if (await adopt(() => api.removeKey(provider))) {

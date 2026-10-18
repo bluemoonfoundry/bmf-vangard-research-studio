@@ -29,5 +29,9 @@ describe('useAi', () => {
       await result.current.loadModels('openai');
     });
     expect(result.current.models('openai')?.[0].id).toBe('m1');
+    await act(async () => {
+      await result.current.saveKey('openai', 'k2');
+    });
+    expect(result.current.models('openai')).toBeUndefined();
   });
 });
