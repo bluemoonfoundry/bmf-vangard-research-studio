@@ -109,6 +109,8 @@ export function createLlmService({ settings, keys, adapters, emit, now = () => n
     const modelCache = new Map();
     /** @type {Map<string, { controller: AbortController, finished: boolean }>} */
     const active = new Map();
+    /** Bumped by every abortAll(), so a chat that was still starting when it ran can tell. */
+    let abortEpoch = 0;
 
     async function requireEnabled() {
         const s = await settings.read();
@@ -180,6 +182,7 @@ export function createLlmService({ settings, keys, adapters, emit, now = () => n
     }
 
     function abortAll() {
+        abortEpoch += 1;
         for (const requestId of [...active.keys()]) {
             try {
                 abortOne(requestId);
@@ -312,6 +315,7 @@ export function createLlmService({ settings, keys, adapters, emit, now = () => n
          * @param {unknown} rawRequest
          */
         async startChat(requestId, rawRequest) {
+            const epoch = abortEpoch;
             await requireEnabled();
             if (!isValidItemId(requestId)) invalid('The chat request id is invalid.');
             const id = /** @type {string} */ (requestId);
@@ -320,6 +324,8 @@ export function createLlmService({ settings, keys, adapters, emit, now = () => n
             if (!key) invalid(`${request.provider} is not set up. Add its API key in Settings → AI.`);
             // Checked after the awaits so two concurrent starts with one id can't both register.
             if (active.has(id)) invalid('That chat request is already running.');
+            // AI was turned off (or the project/window closed) while this chat was starting: never send it.
+            if (abortEpoch !== epoch) throw new LlmError('CANCELLED', 'Cancelled');
             const entry = { controller: new globalThis.AbortController(), finished: false };
             active.set(id, entry);
             void runStream(id, request, /** @type {string} */ (key), entry);

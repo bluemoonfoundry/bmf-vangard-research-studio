@@ -179,6 +179,25 @@ describe('llmService', () => {
         expect(events).toHaveLength(1);
     });
 
+    it('a chat still starting when AI is disabled never reaches the provider', async () => {
+        const { service, keys, adapters, events } = await enabled();
+        let release!: () => void;
+        const gate = new Promise<void>(r => (release = r));
+        const realGet = keys.get;
+        keys.get = async (p: string) => {
+            await gate;
+            return realGet(p);
+        };
+        const starting = service.startChat('r1', request());
+        await new Promise(r => setTimeout(r, 0));
+        await service.setSettings({ enabled: false });
+        release();
+        expect(await codeOf(starting)).toBe('CANCELLED');
+        await new Promise(r => setTimeout(r, 0));
+        expect(adapters.gemini.stream).not.toHaveBeenCalled();
+        expect(events).toEqual([]);
+    });
+
     it('cancel aborts one chat', async () => {
         const { service, adapters, events } = await enabled();
         adapters.gemini.stream.mockImplementation(waitForAbort);

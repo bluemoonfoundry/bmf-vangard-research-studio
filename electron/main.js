@@ -17,6 +17,7 @@ import { createLlmService } from './lib/llm/llmService.js';
 import { createGeminiAdapter } from './lib/llm/providers/gemini.js';
 import { createAnthropicAdapter } from './lib/llm/providers/anthropic.js';
 import { createOpenAiAdapter } from './lib/llm/providers/openai.js';
+import { resolveTestBaseUrl } from './lib/llm/testOverride.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const INDEX_HTML = path.join(__dirname, '..', 'dist', 'index.html');
@@ -214,7 +215,9 @@ function registerIpcHandlers() {
 
 function createLlm(userData) {
     // Test-only override so e2e runs talk to a local fake provider instead of the real APIs.
-    const baseUrl = process.env.VRS_LLM_BASE_URL || undefined;
+    // Honoured only unpackaged and for a loopback origin, since it would receive decrypted keys.
+    const { baseUrl, warning } = resolveTestBaseUrl(process.env.VRS_LLM_BASE_URL, { isPackaged: app.isPackaged });
+    if (warning) logger.warn(warning);
     return createLlmService({
         settings: createAppSettings(path.join(userData, 'settings.json')),
         keys: createApiKeyStore(path.join(userData, 'ai-keys.json'), safeStorage),
@@ -224,7 +227,13 @@ function createLlm(userData) {
             openai: createOpenAiAdapter({ baseUrl }),
         },
         emit: (requestId, event) => {
-            if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('llm:chat-event', { requestId, event });
+            if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) return;
+            try {
+                mainWindow.webContents.send('llm:chat-event', { requestId, event });
+            } catch (err) {
+                // Never log the event: it carries chat text.
+                logger.warn('Sending a chat event failed', err?.message);
+            }
         },
     });
 }
