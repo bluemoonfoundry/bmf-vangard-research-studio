@@ -2,50 +2,88 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** On demand, read chosen chats and documents with the configured AI and turn what they establish into proposed facts and proposed cards, each with evidence and an evidence strength, reviewed in a queue. Nothing becomes canon automatically, and rejections stay rejected.
+**Goal:** On demand, read chosen transcripts and documents with the configured AI and turn what they establish into
+`proposed` facts and proposed cards, each with evidence and a strength, reviewed in a queue. Nothing becomes canon
+on its own, rejections stay rejected, and unchanged sources are never sent twice.
 
-**Architecture:** The main process gains one non-streaming channel, `llm:extract`. It sends a renderer-built prompt with a fixed, main-owned JSON schema through each provider's structured-output feature and returns structurally validated JSON. Everything else is pure renderer logic in a new `src/extraction/`: reading a source as numbered turns, chunking, prompt text, checking results against the stored text (quotes, strength), fingerprints, merging into the bible and review transitions. A `useExtraction` hook runs jobs (run cache, chunks, cancel). Review state, rejections and the cache live in a new `bible/extraction.json`, plumbed exactly like `bible/bible.json`.
+**Architecture:** The main process gets one new channel, `llm:extract`. It streams a normal provider request with
+the provider's JSON-schema output turned on, collects the text, parses it and drops malformed items. Everything
+else is pure renderer logic in a new `src/extraction/`: building the source text with turn markers, chunking,
+cache keys, matching results against the current canon, fingerprints and rejections, evidence merging and
+review transitions. Pending suggestions, pending new cards, stored rejections and the run cache live in a new
+project file, `bible/extraction.json`, which is plumbed through the store exactly like `bible/bible.json`.
 
-**Tech Stack:** Electron (main process, ESM JS + JSDoc), React 19 + TypeScript, Vitest (`main` and `renderer` projects), Testing Library, Playwright.
+**Tech Stack:** Electron main (ESM JS + JSDoc), React 19 + TypeScript, Vitest (`main` + `renderer`), Testing
+Library, Playwright.
 
-**Spec:** `docs/superpowers/specs/2026-10-18-ai-extraction-design.md` (Part 3). Beads: vrs-063.6.3. The semantic conflict check (`llm:conflict-check`) is **out of scope** here (vrs-063.6.4).
+**Spec:** `docs/superpowers/specs/2026-10-18-ai-extraction-design.md` (Part 3). Beads: vrs-063.6.3. The semantic
+conflict check (`llm:conflict-check`) is **out of scope** (vrs-063.6.4).
+
+## Decisions this plan makes (the spec leaves them open)
+
+- **Structured output rides the existing streaming calls** ("stream-then-collect"): a long non-streaming request
+  can hit Node's 300 s headers timeout. Verified 2026-10-18 against the provider docs:
+  - Gemini: `generationConfig.responseMimeType: 'application/json'` + `generationConfig.responseJsonSchema`
+    (JSON Schema subset: type, properties, required, items, enum, description, additionalProperties, anyOf, min/maxItems).
+  - Anthropic: `output_config: { format: { type: 'json_schema', schema } }`, no beta header; objects need
+    `additionalProperties: false`. Supported on Claude 4.5+ models; older models fail with the provider's 400, which surfaces as is.
+  - OpenAI Responses: `text: { format: { type: 'json_schema', name, schema, strict: true } }`; every property
+    required, `additionalProperties: false`.
+  - One schema serves all three: **every property required, no nulls, no type arrays**. "None" is `""` (entity id,
+    `replaces`) or `0` (turn). The schema lives in the main process (`electron/lib/llm/extractionSchema.js`); the
+    renderer never sends a schema.
+- **`when` values** come back as text ("season 2, episode 3, order 1"). `parseWhen` turns that into a
+  `StoryPosition`; an unparsable `when` is dropped and counted.
+- **Rejections are partly derived.** A set-aside fact that no decision's `setAsideIds` lists *is* a rejection: the
+  writer set it aside by hand. `keepOne`'s set-asides are listed in its decision, so they don't count, as the spec
+  requires. `extraction.json` stores only rejections that have no fact: rejected new cards, dismissed suggestions,
+  and dismissed proposals of pending cards. Lifting a derived rejection returns the fact to `proposed`.
+- **Re-applying the same evidence never revives a decided value.** A proposal that matches a fact set aside by a
+  decision is skipped when that fact already carries the same evidence. Only new evidence brings it back as a new
+  `proposed` fact (which reopens the contradiction, per the spec).
+- **Strength is checked against turns.** `said`/`built_on` need at least one located quote in a writer (`user`)
+  turn; otherwise the proposal is downgraded to `suggested`. A source with no turns forces `suggested`, or `said`
+  when `ownWriting` is set.
+- **Quotes are located loosely but stored exactly.** Exact match inside the cited turn, then a whitespace-tolerant
+  match inside the turn, then the same two over the whole text. The stored `quote` is the stored text at the found
+  offsets, never the model's wording.
+- **Old exporter imports keep their offsets.** A body with no canonical turn headings is scanned for the raw
+  exporter headings (`### 👤 User` / `### 🤖 X`) in place (`exporterTurnSpans`), so the body is never rewritten.
+- **Cache key** = FNV-1a hash of (source text as sent + `EXTRACTION_PROMPT_VERSION` + provider + model). Canon is not
+  part of the key: cached raw results are re-matched against the current canon each time they're applied, so
+  applying is idempotent (evidence and pending proposals dedupe).
+- **Budget**: `inputTokenLimit ?? 100_000` tokens, of which 60% goes to source text after the system prompt and
+  canon. The canon section is capped at 40,000 characters; over that, only entities whose title appears in the
+  source are kept.
+- **UI**: a toolbar "Extract" button (AI on only) opens `ExtractModal` with the active source preselected, and a
+  "Review" workspace mode (AI on only, with a count badge) holds the queue. "Keep the newer" is non-AI and shows
+  on any contradiction whose versions sit in different sources. Binder context-menu entry: not added; the dialog
+  lists every source.
 
 ## Global Constraints
 
-- AI is strictly opt-in. Every extraction surface (Extract button and dialog, review queue, "This is my own writing" toggle, strength labels' actions) stays hidden while `ai.enabled` is false. `llm:extract` and `llm:extract-cancel` refuse with `AI_DISABLED`. `extraction.json` itself still loads, saves and recovers with AI off (it's project data).
-- Nothing becomes canon automatically: extraction only creates `proposed` facts (origin `"ai"`), pending cards and suggested items.
-- The main process owns network and keys. The renderer builds the prompt text, and main sends it and validates the JSON. `MAX_REQUEST_CHARS` (4,000,000) applies.
-- Provider wire formats (verified Oct 2026, recorded in each adapter's header comment):
-  - Gemini: `POST /v1beta/models/{model}:generateContent`, `generationConfig: { responseMimeType: 'application/json', responseSchema }` (OpenAPI subset: upper-case `type`, `properties`, `required`, `items`, `enum`, `propertyOrdering`; no `additionalProperties`). The text is in `candidates[0].content.parts[].text` (skip `thought` parts). `promptFeedback.blockReason` means blocked.
-  - Anthropic: `POST /v1/messages` (non-streaming), `output_config: { format: { type: 'json_schema', schema } }`, no beta header. Every object has `additionalProperties: false`, no numeric or length constraints. The text is in the `content[]` block with `type: 'text'`. `stop_reason` `refusal` or `max_tokens` means unusable.
-  - OpenAI: `POST /v1/responses` (non-streaming, `store: false`), `text: { format: { type: 'json_schema', name: 'extraction', strict: true, schema } }`. Strict mode: every property required, `additionalProperties: false`. The text is in an `output[]` item with `type: 'message'`, in the content part with `type: 'output_text'`. A `refusal` part means refused.
-- Offsets follow the bible's source rules: body offsets for `'chat'` and documents, per-message offsets plus `messageId` for `'ai-chat'`. A quote that can't be found is dropped, never stored with made-up offsets.
-- Bridge changes update `src/vite-env.d.ts`, `src/test/fakeBridge.ts`, `src/ai/aiApi.ts` and the bridge-surface list in `e2e/smoke/app-launch.spec.ts`.
+- AI is strictly opt-in: Extract, Review, ownWriting and the Rejected list are hidden while AI is off;
+  `llm:extract` refuses with `AI_DISABLED`; `abortAll()` aborts extractions and bumps `abortEpoch`.
+- Nothing auto-canon: extraction only creates `proposed` facts (origin `"ai"`) and pending cards/suggestions.
+- Keys never reach the renderer; CSP unchanged; `MAX_REQUEST_CHARS` applies to `llm:extract`.
 - Save order: docs, chats, `tree.json`, `bible/bible.json`, `bible/extraction.json`, `vrs.json`, then deletions.
-- No `schemaVersion` bump: `evidence`, `ownWriting` and `extraction.json` are additive.
-- Theme-token utilities only. `no-console`. Tests first. `npm run gate` passes before the issue closes.
-- Commit after each task. Message endings carry `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
-
-## Decisions (builder's calls, recorded in the spec in Task 9)
-
-1. **Strength is verified, not trusted.** A proposal counts as `said` or `built_on` only when at least one of its located quotes sits in a writer turn. Otherwise it's `suggested`, whatever the model claimed. A source without turns has only model turns, unless it's marked `ownWriting`, in which case every turn is the writer's and every proposal is `said`. This one rule implements the "sources without turns" and "This is my own writing" requirements.
-2. **Fact rejections are derived.** An AI fact (`origin: 'ai'`) with status `set_aside` that no decision's `setAsideIds` contains *is* an explicit rejection. So the fact's own "Set aside", in the queue or in the card or editor, needs no extra bookkeeping, and "Mark unreviewed" lifts it. `extraction.json` stores only the rejections that have no fact: rejected new cards, dismissed suggested items, and facts rejected inside a pending card.
-3. **A fingerprint** is `<entity part>\u0000<attributeKey>\u0000<value key>`. The entity part is `id:<entityId>` for an existing entity and `card:<kind>:<normalizeText(title)>` for a proposed card. The value key is `normalizeText(value)`, or `S<season>E<episode|->#<order|->` for a position. A rejection matches an entity by either its `id:` part or its `card:<kind>:<title>` part, so a fact rejected on a pending card stays rejected after the card is approved under that name.
-4. **`when` values** come back from the model as text `S<season>[E<episode>][#<order>]` (for example `S1E3#2`) and are parsed into a `StoryPosition`. An unparseable `when` value is dropped and counted as invalid.
-5. **Turn reading.** For `'chat'` items, use `turnSpans(body)` (canonical layout). If that finds none, `exporterTurnSpans(body)` finds `### 👤 User` / `### 🤖 X` headings in place in a pre-Part-1 import, keeping offsets into the stored body. For `'ai-chat'`, each message is a turn (`user` → writer). For documents and turnless chats, the body is one model turn.
-6. **Chunking**: the budget is `floor((inputTokenLimit ?? 100_000) * 0.5) * 4` characters for turns, after subtracting the canon section. Chunks are consecutive whole turns. A single turn larger than the budget is split at paragraph boundaries. Chunk N > 1 carries the previous chunk's `summary`.
-7. **Canon section cap**: 60,000 characters. Above it, keep only entities whose title appears in the source text (case-insensitive).
-8. **Run cache key**: `cyrb53` hash of the source text (as sent: turns joined) + `PROMPT_VERSION` + provider + model, one entry per source id. Cached proposals are re-applied (re-matched against current canon) on every run.
-9. **"Keep the newer"** is a non-AI convenience (it only uses source order). It's offered on any open contradiction whose versions' newest evidence positions differ, and is never applied automatically.
-10. **Review queue** is a workspace mode, "Review" (AI only), grouped by card: pending new cards first, then entities with proposed AI facts, then the collapsible "Only suggested" pile.
+- Additive schema only: `Fact.evidence?`, `Fact.replaces?`, `TreeItem.ownWriting?`, new file. No `schemaVersion` bump.
+- Bridge changes update `src/vite-env.d.ts`, `src/test/fakeBridge.ts`, `src/ai/aiApi.ts` and the bridge-surface list in `e2e/smoke/app-launch.spec.ts`.
+- Theme-token utilities only; `no-console`; tests first; `npm run gate` before closing.
+- Commit after each task, ending with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 
 ## Review Focus
 
-1. **The model invents or paraphrases a quote**: that evidence is dropped, and a proposal left with no evidence is dropped and counted. Nothing is stored with guessed offsets. Pinned in Task 6.
-2. **The model claims `said` for something only the model wrote**: it lands in "Only suggested", not in the bible. Pinned in Task 6.
-3. **Re-running after rejecting, or a branched chat repeating the same detail**: a rejected fingerprint never comes back, and an agreeing value adds evidence to the existing fact instead of a new fact. Pinned in Task 6.
-4. **AI turned off mid-run, or the project closed**: the run ends as cancelled, sources finished before that keep their results, and no request is sent after the cancel. Pinned in Tasks 2 and 7.
-5. **A project with no `bible/extraction.json`, or one saved by this phase opened with AI disabled**: it opens fine, extraction data is kept untouched on save, and no extraction UI shows. Pinned in Tasks 4 and 8.
+1. **A model reply that isn't valid JSON or is cut off** (max tokens) must end the run for that source with a clear
+   message, keep what earlier sources produced, and never write partial state. Pinned in Task 1 (`PROVIDER` "The AI's reply wasn't valid JSON") and Task 6.
+2. **Re-running after decisions** (keep-one, set aside, reject card, dismiss) must propose nothing already decided
+   and must not duplicate evidence. Pinned in Task 4 (idempotent apply, derived rejections, decided-evidence skip).
+3. **A model quote that differs only in whitespace or line breaks** from the stored text must still land on the
+   right offsets, and a paraphrased quote must be dropped. Pinned in Task 3.
+4. **Turning AI off mid-run** must stop the run (`CANCELLED`) without applying the in-flight source's results.
+   Pinned in Task 1 (abortAll/abortEpoch) and Task 6.
+5. **Deleting a source or an entity after a run** must not break the queue: pending proposals for deleted entities
+   are pruned on save, and evidence pointing at a deleted item resolves as a deleted source. Pinned in Task 2.
 
 ---
 
@@ -53,265 +91,349 @@
 
 | File | Responsibility |
 |---|---|
-| `electron/lib/llm/extractSchema.js` (new) | The extraction JSON schema, per-provider schema forms, structural validation of a reply |
-| `electron/lib/llm/providers/{gemini,anthropic,openai}.js` | `generateJson(request, schema, key, signal)` |
-| `electron/lib/llm/llmService.js` | `extract`, `cancelExtract`; abortAll/abortEpoch cover them |
-| `electron/main.js`, `electron/preload.js`, `src/vite-env.d.ts`, `src/ai/{aiApi,types}.ts`, `src/test/fakeBridge.ts` | Bridge |
-| `e2e/fakeProvider.ts` | `:generateContent` route returning a configured JSON reply |
-| `electron/lib/projectSchema.js`, `electron/lib/projectStore.js` | `evidence` validation; `bible/extraction.json` read/normalize/save |
-| `src/project/{types,projectState,useProject}.ts` | `Extraction` slice, `updateExtraction`, watcher path |
-| `src/bible/evidence.ts` (new) | `factSources`, `addEvidence`, `newerVersionIndex` |
-| `src/bible/cards.ts`, `src/components/bible/{VersionCard,ConflictQueue,EntityCard,FactRow}.tsx` | Counts from evidence; "Keep the newer"; strength label |
-| `src/extraction/types.ts` (new) | Extraction state and proposal types |
-| `src/extraction/sourceTurns.ts` (new) | Read a source as turns; chunking; hash |
-| `src/extraction/prompt.ts` (new) | `PROMPT_VERSION`, system text, canon context, request building |
-| `src/extraction/results.ts` (new) | Validate a reply against the source: quotes, strength, positions |
-| `src/extraction/apply.ts` (new) | Fingerprints, rejections, merging into bible + extraction, review transitions |
-| `src/extraction/useExtraction.ts` (new) | Runs jobs: cache, chunks, progress, cancel |
+| `electron/lib/llm/extractionSchema.js` (new) | The response JSON schema, `parseExtraction(text)` validation |
+| `electron/lib/llm/providers/{gemini,anthropic,openai}.js` | `request.jsonSchema` → provider structured-output fields |
+| `electron/lib/llm/llmService.js` | `extract(requestId, request)`, `cancelExtract` |
+| `electron/main.js`, `electron/preload.js`, `src/vite-env.d.ts`, `src/ai/{aiApi,types}.ts`, `src/test/fakeBridge.ts` | `llm:extract`, `llm:extract-cancel` bridge |
+| `electron/lib/projectSchema.js`, `electron/lib/projectStore.js` | `bible/extraction.json` validation, open/save; `Fact.evidence` validation |
+| `src/project/{types,projectState,useProject}.ts` | `extraction` state slice, `updateExtraction`, `updateCanon`, watcher path |
+| `src/extraction/types.ts` (new) | Shapes of `extraction.json` and raw results |
+| `src/extraction/sourceText.ts` (new) | Turns of a source, text sent, quote location, chunking, cache key |
+| `src/extraction/request.ts` (new) | Prompt (versioned), canon section, request building |
+| `src/extraction/apply.ts` (new) | Matching, fingerprints, rejections, evidence merge |
+| `src/extraction/review.ts` (new) | Review-queue transitions and grouping |
+| `src/bible/newer.ts` (new) | "Keep the newer" suggestion |
+| `src/bible/cards.ts` | Counts use `evidence` when present |
+| `src/extraction/useExtraction.ts` (new) | Run orchestration (cache, chunks, cancel, progress) |
 | `src/components/extraction/{ExtractModal,ReviewQueue}.tsx` (new) | Dialog and queue |
-| `src/components/workspace/{Workspace,Inspector,DocumentEditor}.tsx`, `src/components/chat/ChatHeader.tsx` | Wiring, `ownWriting` toggle, "Extract facts" from a chat |
-| `e2e/ai/extraction.spec.ts` (new) | End-to-end flow against the fake provider |
+| `src/components/bible/{FactRow,EntityCard,ConflictQueue}.tsx`, `src/components/workspace/{Workspace,Inspector}.tsx` | Evidence label, Rejected list, Keep the newer, entry points, ownWriting |
+| `e2e/fakeProvider.ts`, `e2e/ai/extraction.spec.ts` (new) | End-to-end extraction |
 
 ---
 
-### Task 1: Structured JSON per provider
+### Task 1: `llm:extract` in the main process and the bridge
 
 **Files:**
-- Create: `electron/lib/llm/extractSchema.js`, `electron/lib/llm/extractSchema.test.ts`
-- Modify: `electron/lib/llm/providers/{gemini,anthropic,openai}.js` and their `*.test.ts`
+- Create: `electron/lib/llm/extractionSchema.js`, `electron/lib/llm/extractionSchema.test.ts`
+- Modify: the three adapters + tests, `llmService.js` + test, `main.js`, `preload.js`, `src/vite-env.d.ts`, `src/ai/types.ts`, `src/ai/aiApi.ts` + test, `src/test/fakeBridge.ts`, `e2e/smoke/app-launch.spec.ts`
 
 **Interfaces:**
-- Produces:
-  ```js
-  // extractSchema.js
-  export const STRENGTHS = ['said', 'built_on', 'suggested'];
-  export const EXTRACTION_SCHEMA;            // JSON Schema (draft subset), every object additionalProperties:false, all properties required
-  export function geminiSchema(schema): object;   // OpenAPI-subset conversion (upper-case types, propertyOrdering, drops additionalProperties)
-  /** @returns {{ proposals: RawProposal[], summary: string, invalid: number }} */
-  export function validateExtraction(value: unknown);  // throws LlmError('PROVIDER', 'The provider returned an unusable answer.') if not an object with a proposals array
-  // RawProposal = { entityId: string, newCardKind: string, newCardTitle: string, newCardReason: string,
-  //   attribute: string, value: string, strength: 'said'|'built_on'|'suggested', replaces: string,
-  //   evidence: { turn: integer, quote: string }[] }   ("" means none for the string fields)
-  // Adapter method:
-  generateJson(request: { model, system, messages: {role,text}[], temperature? }, schema: object, key, signal)
-    => Promise<{ text: string, model: string, usage?: { inputTokens?, outputTokens? } }>
-  ```
-  `validateExtraction` drops (and counts in `invalid`) a proposal missing a non-empty `attribute`/`value`, with an unknown `strength`, with no evidence, or with neither `entityId` nor `newCardKind`+`newCardTitle`. Evidence items need an integer `turn` ≥ 1 and a non-empty `quote`. Strings are trimmed. A missing `summary` becomes `''`.
-
-- [ ] **Step 1: Write failing tests**: `extractSchema.test.ts` (`validateExtraction` keeps a well-formed proposal, drops each malformed kind and counts it, throws on `{}` and on a non-object; `geminiSchema(EXTRACTION_SCHEMA)` has no `additionalProperties` anywhere, has `type: 'OBJECT'` at the root and `propertyOrdering` equal to the `properties` keys). Per adapter, `generateJson`: the request URL, headers and body shape listed in Global Constraints (assert `body.generationConfig.responseMimeType === 'application/json'`, `body.output_config.format.type === 'json_schema'`, `body.text.format.strict === true`, `body.stream` absent/false, `store: false` for OpenAI); returns the text; thought parts skipped (Gemini); `blockReason` → `BAD_REQUEST`; Anthropic `stop_reason: 'refusal'` → `PROVIDER` "The model declined to answer."; `max_tokens` → `PROVIDER` "The answer was cut off. Try a smaller source or another model."; OpenAI refusal part → `PROVIDER` "The model declined to answer."; an aborted signal → `CANCELLED`; a key never appears in a thrown message.
-- [ ] **Step 2: Run** `npx vitest run --project main electron/lib/llm` (expect FAIL: missing exports).
-- [ ] **Step 3: Implement.** Use `requestJson`. Anthropic `max_tokens: 16000`. Gemini and OpenAI set no output cap. Temperature follows the same capability rules as `stream`. Extend each header comment with the verified structured-output rules.
-- [ ] **Step 4: Run** the same command (expect PASS).
-- [ ] **Step 5: Commit** `feat(ai): structured JSON output per provider`.
-
-### Task 2: `llm:extract` channel and bridge
-
-**Files:**
-- Modify: `electron/lib/llm/llmService.js` (+test), `electron/main.js`, `electron/preload.js`, `src/vite-env.d.ts`, `src/ai/types.ts`, `src/ai/aiApi.ts` (+test), `src/test/fakeBridge.ts`, `e2e/smoke/app-launch.spec.ts`, `e2e/fakeProvider.ts`
-
-**Interfaces:**
-- Consumes: Task 1 `generateJson`, `EXTRACTION_SCHEMA`, `validateExtraction`, `geminiSchema`.
-- Produces:
+- Produces (renderer types in `src/ai/types.ts`):
   ```ts
-  // src/ai/types.ts
-  export interface ExtractRequest { provider: ProviderId; model: string; system: string; text: string; temperature?: number }
-  export interface RawProposal { entityId: string; newCardKind: string; newCardTitle: string; newCardReason: string;
-    attribute: string; value: string; strength: 'said' | 'built_on' | 'suggested'; replaces: string; evidence: { turn: number; quote: string }[] }
-  export interface ExtractResult { proposals: RawProposal[]; summary: string; invalid: number; model: string; usage?: { inputTokens?: number; outputTokens?: number } }
-  // bridge (window.vrs.ai) and AiApi (unwrapped)
-  extract(requestId: string, request: ExtractRequest): Promise<VrsIpcResult<ExtractResult>>;
-  cancelExtract(requestId: string): Promise<VrsIpcResult<void>>;
+  export type Strength = 'said' | 'built_on' | 'suggested';
+  export interface RawEvidence { quote: string; turn: number }            // turn 1-based; 0 = unknown
+  export interface RawProposal {
+    entity: { id: string; name: string; kind: string; reason: string };   // id '' = new card proposal
+    attribute: string; value: string; strength: Strength;
+    evidence: RawEvidence[]; replaces: string;                             // '' = none
+  }
+  export interface ExtractRequest { provider: ProviderId; model: string; system: string; text: string }
+  export interface ExtractResult { proposals: RawProposal[]; summary: string; dropped: number; model: string;
+    usage?: { inputTokens?: number; outputTokens?: number } }
+  // VrsApi['ai']: extract(requestId, request): Promise<IpcResult<ExtractResult>>; cancelExtract(requestId): Promise<IpcResult<void>>
   ```
-  Service: `extract(requestId, raw)` checks `requireEnabled`, `isValidItemId(requestId)`, the request shape (`text` non-empty, total chars ≤ `MAX_REQUEST_CHARS`, else INVALID "The source is too long to send."), the key, a duplicate id, and the `abortEpoch` captured at entry (→ `CANCELLED`). It registers an `AbortController` in a separate `jobs` map, calls `generateJson` (Gemini gets `geminiSchema(...)`), `JSON.parse`s the text (failure → PROVIDER "The provider returned an unusable answer."), and returns `validateExtraction` + `model` + `usage`. Errors are scrubbed. `cancelExtract(id)` (requires enabled) aborts that job. `abortAll()` also aborts every job. A job aborted mid-request rejects with `CANCELLED`.
-  Fake provider: `POST /v1beta/models/{model}:generateContent` records into `extracts: StreamRequest[]` and replies `{ candidates: [{ content: { parts: [{ text: <setExtractReply JSON> }] }, finishReason: 'STOP' }], modelVersion }`. It honours `hold()` and `release()`. `setExtractReply(value: unknown)` sets the reply, defaulting to `{ proposals: [], summary: '' }`.
+- `extractionSchema.js`: `EXTRACTION_SCHEMA` (object), `ENTITY_KIND_IDS`, `parseExtraction(text: string): { proposals, summary, dropped }` (throws `LlmError('PROVIDER', "The AI's reply wasn't valid JSON. Try again, or try a smaller source.")`).
+- Adapters: `request.jsonSchema?: object` and `request.maxOutputTokens?: number` (Anthropic only; extraction passes 32000).
 
-- [ ] **Step 1: Failing tests** in `llmService.test.ts`: refused with `AI_DISABLED` while off (both channels); invalid id → INVALID; oversize → INVALID; a successful call returns validated proposals and passes `geminiSchema` for gemini and the raw schema for others; unparseable text → PROVIDER; `abortAll()` during a pending call → the promise rejects `CANCELLED`; `abortAll()` while the key lookup is awaited → `CANCELLED`, and the adapter is never called; `cancelExtract` aborts only its own job. In `aiApi.test.ts`, `extract`/`cancelExtract` unwrap.
-- [ ] **Step 2: Run** `npx vitest run electron/lib/llm/llmService.test.ts src/ai` (expect FAIL).
-- [ ] **Step 3: Implement** the service and IPC (`handle('llm:extract', (id, r) => llm.extract(id, r))`, `handle('llm:extract-cancel', (id) => llm.cancelExtract(id))`), preload, types, fake bridge (`fake.ai.extractReplies: ExtractResult[]` queue and `fake.ai.extractCalls`), bridge-surface list (`'cancelExtract', 'extract'` added in sorted order), fake provider route.
-- [ ] **Step 4: Run** `npx vitest run` (expect PASS) and `npm run typecheck`.
-- [ ] **Step 5: Commit** `feat(ai): llm:extract channel with cancel`.
+- [ ] **Step 1: Write failing tests**
+  - `extractionSchema.test.ts`: `parseExtraction` keeps a valid proposal unchanged; drops (and counts) an item with
+    an unknown strength, an unknown kind, an empty attribute/value, no evidence, an evidence quote that is empty, or a
+    non-integer/negative turn; trims attribute/value; a missing `summary` reads as `''`; non-JSON or a non-object
+    throws `PROVIDER`; tolerates a ```` ```json ```` fence around the JSON.
+  - Adapter tests (one each): with `jsonSchema` set, Gemini's body has `generationConfig.responseMimeType === 'application/json'`
+    and `generationConfig.responseJsonSchema === schema` (temperature still merged in); Anthropic's has
+    `output_config.format = { type: 'json_schema', schema }` and `max_tokens === request.maxOutputTokens`; OpenAI's has
+    `text.format = { type: 'json_schema', name: 'extraction', schema, strict: true }`. Without it the bodies are unchanged.
+  - `llmService.test.ts` `describe('extract')`: refuses `AI_DISABLED` while off; rejects an invalid request id, unknown
+    provider, empty text, and text over `MAX_REQUEST_CHARS` (`INVALID`); streams with `messages: [{ role: 'user', text }]`,
+    `webSearch: false`, `readUrls: false`, the schema and `maxOutputTokens: 32000`, and resolves with the parsed result + `model`/`usage`
+    from `done`; `cancelExtract(id)` rejects the pending call with `CANCELLED`; `abortAll()` does too; an `abortAll()` while
+    the call awaits settings rejects `CANCELLED` and never calls the adapter; an `error` event rejects with its code; no
+    chat event is emitted for extraction ids.
+  - `aiApi.test.ts`: `extract` and `cancelExtract` unwrap.
 
-### Task 3: Evidence on facts, counts and "Keep the newer"
+- [ ] **Step 2: Run** `npx vitest run electron/lib/llm src/ai` → FAIL (missing exports/fields).
 
-**Files:**
-- Create: `src/bible/evidence.ts`, `src/bible/evidence.test.ts`
-- Modify: `src/project/types.ts`, `electron/lib/projectSchema.js` (+test), `src/bible/cards.ts` (+test), `src/components/bible/{VersionCard,ConflictQueue,EntityCard,FactRow}.tsx` (+ConflictQueue/EntityCard tests)
+- [ ] **Step 3: Implement.** Adapters add the fields in `buildBody` and list them in their header comment's rule list.
+  `extract` shares `active`/`abortOne`; an extract entry carries `onAbort` that rejects instead of emitting, so
+  `abortOne` calls `entry.onAbort?.() ?? emit(...)`. `main.js`: `handle('llm:extract', ...)`, `handle('llm:extract-cancel', ...)`.
+  Preload: `extract`, `cancelExtract`. fakeBridge: records `fake.ai.extractions` and resolves with `fake.ai.extractResult`
+  (a settable value or function).
 
-**Interfaces:**
-- Produces:
-  ```ts
-  export type EvidenceStrength = 'said' | 'built_on' | 'suggested';
-  export interface Evidence { source: FactSource; strength: EvidenceStrength }
-  // Fact gains: evidence?: Evidence[]
-  // src/bible/evidence.ts
-  export function factSources(f: Fact): FactSource[];   // source first, then evidence sources not equal to it (same itemId+messageId+start+end)
-  export function addEvidence(b: Bible, factId: string, evidence: Evidence[], now: string): Bible; // dedupes by itemId+messageId+start+end; returns b when nothing new
-  export function strengthOf(f: Fact): EvidenceStrength | null;  // strongest of evidence (said > built_on > suggested), null without evidence
-  export function newerVersionIndex(c: Contradiction, b: Bible, items: readonly TreeItem[]): number | null;
-  ```
-  `newerVersionIndex`: each version's rank = max position in `orderedSources(b, items)` over its facts' `factSources` (−1 when none listed). It returns the index of the unique maximum, or null when it's tied, or when every rank is −1. `projectSchema.checkFact` validates `evidence` (optional array; each `{ source: <same rules as source>, strength ∈ STRENGTHS }`). `sourceCount` and `cameFrom` in `cards.ts` use `factSources`. VersionCard gains an optional `suggested?: boolean`, which shows a "Keep the newer" primary button, with `onKeep`, in place of "Keep this one" plus a "newer source" note. FactRow shows the strength label (`said` → "you said it", `built_on` → "you built on it", `suggested` → "only suggested") when `strengthOf(fact)` isn't null.
+- [ ] **Step 4: Run** `npx vitest run electron/lib/llm src/ai` → PASS; `npm run typecheck` → clean.
 
-- [ ] **Step 1: Failing tests**: `factSources` dedupe; `addEvidence` idempotent; `strengthOf` ordering; `newerVersionIndex` (newer source wins; tie → null; unlisted sources count oldest); `cards.test.ts` (a fact with one source plus evidence from a second item counts 2 sources, and `cameFrom` lists both); `projectSchema.test.ts` (rejects an evidence item with a bad strength or bad source, accepts a valid one); ConflictQueue (a "Keep the newer" button keeps the version from the later source).
-- [ ] **Step 2: Run** `npx vitest run src/bible src/components/bible electron/lib/projectSchema.test.ts` (expect FAIL).
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: Run** again (expect PASS).
-- [ ] **Step 5: Commit** `feat(bible): fact evidence lists, source counts from evidence, Keep the newer`.
+- [ ] **Step 5: Commit** `feat(ai): llm:extract with structured output for Gemini, Claude and OpenAI`
 
-### Task 4: `bible/extraction.json` plumbing
+---
+
+### Task 2: `bible/extraction.json` and fact evidence storage
 
 **Files:**
 - Create: `src/extraction/types.ts`
-- Modify: `electron/lib/projectSchema.js` (+test), `electron/lib/projectStore.js` (+test), `src/project/{types,projectState,useProject}.ts` (+tests)
+- Modify: `electron/lib/projectSchema.js` + test, `electron/lib/projectStore.js` + test, `src/project/{types,projectState,useProject}.ts` + tests
 
 **Interfaces:**
-- Produces:
+- Produces (`src/project/types.ts`):
   ```ts
-  // src/extraction/types.ts
-  export interface ProposalEntity { id?: string; kind: string; title: string; reason?: string }   // raw names kept so cached results re-match
-  export interface Proposal {
-    entity: ProposalEntity; attribute: string; value: string | StoryPosition;
-    strength: EvidenceStrength; evidence: FactSource[]; replaces?: string;
-  }
-  export interface CacheEntry { hash: string; at: string; proposals: Proposal[] }
-  export interface PendingCard { id: string; kind: string; title: string; reason: string; proposals: Proposal[] }
-  export interface SuggestedItem { id: string; proposal: Proposal }
-  export interface Rejection { key: string; label: string; at: string }
-  export interface Extraction { rejections: Rejection[]; cache: Record<string, CacheEntry>; pendingCards: PendingCard[]; suggested: SuggestedItem[] }
-  export const emptyExtraction = (): Extraction => ({ rejections: [], cache: {}, pendingCards: [], suggested: [] });
+  export interface Evidence { source: FactSource; strength: Strength }
+  // Fact gains: evidence?: Evidence[]; replaces?: string
+  // TreeItem gains: ownWriting?: boolean
+  // OpenedProject gains extraction: ExtractionState; SavePayload gains extraction?: ExtractionState
   ```
-  `OpenedProject` and `readStructure` results gain `extraction: Extraction`. `SavePayload` and `RecoverySnapshot` gain `extraction?: Extraction`. Main: `EXTRACTION_FILE = 'bible/extraction.json'`, and `normalizeExtraction(raw)` (undefined → empty; non-object, a non-array list or a non-object cache → `CORRUPT` "extraction.json ..."; unknown fields kept). Written right after `bible.json`. Reducer: `extraction`/`savedExtraction` like the bible, an `extractionUpdated` action, `saved`/`recoveryRestored`/`structureReloaded`/`structureKeptMine` handling, `isStructureDirty` includes it, and `buildSavePayload` includes it when changed, after `pruneExtraction(e, items)` (in `src/extraction/types.ts`) drops cache entries of deleted sources and returns `e` itself when nothing is pruned. Pending cards and suggested items are kept: they carry entity names and re-match on the next apply. `useProject` exposes `updateExtraction(update: (e: Extraction) => Extraction)` and treats `bible/extraction.json` like `bible/bible.json` in the external-change handler.
+- `src/extraction/types.ts`:
+  ```ts
+  export type EntityRef = { entityId: string } | { cardId: string };
+  export interface PendingProposal {
+    id: string; ref: EntityRef; attribute: string; value: string | StoryPosition;
+    strength: Strength; evidence: Evidence[]; replaces?: string; createdAt: string;
+  }
+  export interface PendingCard { id: string; kind: EntityKind; title: string; reason: string; createdAt: string }
+  export interface StoredRejection { fingerprint: string; label: string; at: string }   // label e.g. "Mara · eyes: green"
+  export interface CachedRun { itemId: string; key: string; provider: ProviderId; model: string; at: string;
+    proposals: RawProposal[]; dropped: number }
+  export interface ExtractionState { rejections: StoredRejection[]; runs: CachedRun[]; cards: PendingCard[]; pending: PendingProposal[] }
+  export const emptyExtraction = (): ExtractionState => ({ rejections: [], runs: [], cards: [], pending: [] });
+  ```
+- `projectSchema.js`: `EXTRACTION_FILE = 'bible/extraction.json'`, `normalizeExtraction(raw)` (missing → empty;
+  four arrays required to be arrays of objects; ids valid; unknown fields kept), `checkFact` validates optional
+  `evidence` (array of `{ source: <valid source>, strength: string }`).
+- `projectState.ts`: `extraction` / `savedExtraction`; actions `{ type: 'extractionUpdated'; update }` and
+  `{ type: 'canonUpdated'; update: (c: { bible: Bible; extraction: ExtractionState }) => { bible; extraction } }`;
+  `structureReloaded` carries `extraction`; `buildSavePayload` sends `pruneExtraction(extraction, items)` when changed.
+  `pruneExtraction` (in `src/extraction/review.ts`, Task 5, but the save needs it now: create it here) drops pending
+  proposals whose `entityId` no longer exists and runs of deleted items.
+- `useProject`: exposes `updateExtraction`, `updateCanon`; `bible/extraction.json` joins the watched structure paths.
 
-- [ ] **Step 1: Failing tests**: projectStore (opening a project without the file gives an empty extraction; save writes it after bible.json in `onWrite` order; a corrupt file → `CORRUPT`); projectSchema (`validateSavePayload` normalizes `extraction`); projectState (`extractionUpdated` makes the project dirty, a save marks it clean, `buildSavePayload` drops cache entries of deleted sources, `recoveryRestored` adopts the snapshot's extraction); useProject (an external change to `bible/extraction.json` reloads the structure).
-- [ ] **Step 2: Run** `npx vitest run electron/lib/projectStore.test.ts electron/lib/projectSchema.test.ts src/project` (expect FAIL).
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: Run** again (expect PASS); `npm run typecheck`.
-- [ ] **Step 5: Commit** `feat(extraction): bible/extraction.json load, save, recovery and watch`.
+- [ ] **Step 1: Failing tests**
+  - `projectSchema.test.ts`: `normalizeExtraction(undefined)` → empty; keeps unknown fields; throws `CORRUPT` for a
+    non-array `pending` or a pending entry with an invalid id; `normalizeBible` accepts a fact with valid `evidence`
+    and rejects `evidence: [{ source: { itemId: '../x' } }]`; `validateSavePayload` accepts `extraction`.
+  - `projectStore.test.ts`: open reads `bible/extraction.json` (missing → empty); save writes it after
+    `bible/bible.json` and before `vrs.json` (assert `onWrite` order); `readStructure` returns it.
+  - `projectState.test.ts`: `extractionUpdated` makes the project dirty and `saved` cleans it; `canonUpdated`
+    changes both slices in one action; deleting an entity then building the payload prunes its pending proposals;
+    recovery restore adopts `snapshot.extraction`; `structureKeptMine` marks it unsaved.
+- [ ] **Step 2: Run** `npx vitest run electron/lib/projectSchema.test.ts electron/lib/projectStore.test.ts src/project` → FAIL.
+- [ ] **Step 3: Implement** following the `bible` slice everywhere it appears (open, save, readStructure, reducer, payload, recovery, watcher list in `useProject.ts:381`).
+- [ ] **Step 4: Run** the same tests → PASS; `npm test` → all green.
+- [ ] **Step 5: Commit** `feat(extraction): bible/extraction.json and fact evidence storage`
 
-### Task 5: Reading sources and building requests
+---
+
+### Task 3: Source text, quote location, chunking and the cache key
 
 **Files:**
-- Create: `src/extraction/sourceTurns.ts` (+test), `src/extraction/prompt.ts` (+test)
-- Modify: `src/chat/importFormats.ts` (+test): `exporterTurnSpans`
+- Create: `src/extraction/sourceText.ts` + test
+- Modify: `src/chat/importFormats.ts` + test (`exporterTurnSpans`)
 
 **Interfaces:**
 - Produces:
   ```ts
   // importFormats.ts
-  export function exporterTurnSpans(body: string): TurnSpan[] | null;  // AI Chat Exporter headings found in place; footer and the stray 'Model' line excluded from spans
-  // sourceTurns.ts
-  export interface SourceTurn { n: number; role: TurnRole; text: string; offset: number; messageId?: string }  // offset: where `text` starts in the stored body (0 for ai-chat: offsets are into the message)
-  export interface SourceDoc { itemId: string; title: string; hasTurns: boolean; turns: SourceTurn[] }
-  export function readSource(item: TreeItem, body: string | undefined, chat: ChatTranscript | undefined): SourceDoc | null; // null when not loaded or empty
-  export function chunkTurns(turns: SourceTurn[], budgetChars: number): SourceTurn[][];
-  export function turnBudget(inputTokenLimit: number | undefined, canonChars: number): number;  // max(4_000, floor((limit ?? 100_000) * 0.5) * 4 - canonChars)
-  export function hashText(s: string): string;   // cyrb53, hex
-  export function sourceHash(doc: SourceDoc, provider: string, model: string): string;
-  // prompt.ts
-  export const PROMPT_VERSION = 'extract-v1';
-  export const CANON_CAP_CHARS = 60_000;
-  export function canonContext(items: TreeItem[], bible: Bible, extraction: Extraction, sourceText: string): string;
-  export function buildExtractRequest(args: { provider: ProviderId; model: string; doc: SourceDoc; chunk: SourceTurn[]; chunkIndex: number; chunkCount: number;
-    canon: string; summary: string; ownWriting: boolean }): ExtractRequest;
+  export function exporterTurnSpans(body: string): TurnSpan[] | null;   // raw '### 👤 User' / '### 🤖 X' headings, in place
+  // sourceText.ts
+  export interface SourceTurn { index: number; role: 'user' | 'model' | 'unknown'; label: string;
+    text: string; offset: number; messageId?: string }    // offset into the body (0 for AI Chat messages)
+  export interface ExtractionSource { item: TreeItem; turns: SourceTurn[]; hasTurns: boolean }
+  export function extractionSource(item: TreeItem, body: string | undefined, chat: ChatTranscript | undefined): ExtractionSource | null;
+  export function sourceTextFor(turns: SourceTurn[]): string;          // "[Turn N · Label]\n<text>" blocks joined by "\n\n"
+  export function locateEvidence(src: ExtractionSource, quote: string, turn: number): { source: FactSource; turn: SourceTurn } | null;
+  export function chunkTurns(turns: SourceTurn[], maxChars: number): SourceTurn[][];
+  export function cacheKey(text: string, provider: ProviderId, model: string): string;   // includes EXTRACTION_PROMPT_VERSION
   ```
-  The turn text format sent to the model is `[Turn <n> · <You|Model>]\n<text>` per turn. `ownWriting` labels every turn `You`, and a turnless source labels its single turn `Model`. `canonContext` lists each entity as `- id=<id> · <Kind> · <Title>` followed by `    <attribute>: <value> (kept|proposed)` lines for live facts and `    <attribute>: <value> (rejected)` for derived and stored rejections, then the attributes in use per kind (`attributeSuggestions`). The system prompt (fixed text in `prompt.ts`) must instruct the model to: reuse existing entity ids, attribute names and value wordings verbatim when they mean the same thing; condense each fact to a short value; quote evidence verbatim from the numbered turns; judge `built_on` from the writer's *later* turns (use counts, not only explicit acceptance); propose only the latest version when the writer changed their mind within the source and put the earlier value in `replaces`; never propose a rejected value; propose new cards only for named things with at least one fact; write `when` as `S<season>[E<episode>][#<order>]`; and return a running `summary` (entities and adopted facts so far, under 300 words).
+- [ ] **Step 1: Failing tests**
+  - `exporterTurnSpans` on a raw exporter body returns user/model spans whose `body.slice(start, end)` is the turn text,
+    with the `Model` residue line and `---` separators outside the span; returns null for plain text.
+  - `extractionSource`: a canonical chat gives roles from labels; an old raw-exporter chat gives turns via
+    `exporterTurnSpans` and offsets into the unchanged body; a document with no headings gives one `unknown` turn
+    and `hasTurns: false`; an AI Chat gives one turn per message with `messageId` and `offset: 0`; an unloaded body → null.
+  - `locateEvidence`: exact quote in the cited turn → body offsets (`body.slice(start, end) === quote`); a quote with
+    "\n" where the body has "\n\n  " still lands, and the stored `quote` is the body's text; a quote in a different turn
+    than cited is found by the whole-text fallback; a paraphrase → null; AI Chat evidence carries `messageId` and
+    message offsets.
+  - `chunkTurns`: everything fits → one chunk; otherwise consecutive chunks under `maxChars`, never splitting a turn;
+    a single oversized turn is its own chunk.
+  - `cacheKey` is stable for equal inputs and differs when the text, provider or model changes.
+- [ ] **Step 2: Run** `npx vitest run src/extraction/sourceText.test.ts src/chat/importFormats.test.ts` → FAIL.
+- [ ] **Step 3: Implement.** Whitespace-tolerant match: escape the quote, replace whitespace runs with `\s+`, search
+  with a `RegExp` (cap the quote at 2,000 chars). Hash: FNV-1a 32-bit run twice with different seeds, hex-joined.
+- [ ] **Step 4: Run** → PASS.
+- [ ] **Step 5: Commit** `feat(extraction): source turns, loose quote location, chunking, cache key`
 
-- [ ] **Step 1: Failing tests**: `exporterTurnSpans` on the existing fixture `src/chat/fixtures/aistudio-exporter-sample.md` (roles and labels; `body.slice(start, end)` equals the turn text with no `Model` residue); `readSource` for a canonical chat, a raw-exporter chat (offsets into the stored body), an ai-chat (messageIds, `offset` 0), a document (one model turn), and an unloaded body (null); `chunkTurns` keeps whole turns, splits an oversize turn at a blank line with correct offsets, and never returns an empty chunk; `hashText` is stable and differs on a one-character change; `canonContext` caps at `CANON_CAP_CHARS` by keeping only mentioned entities; `buildExtractRequest` labels turns as specified and includes the summary only for chunk > 1.
-- [ ] **Step 2: Run** `npx vitest run src/extraction src/chat/importFormats.test.ts` (expect FAIL).
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: Run** again (expect PASS).
-- [ ] **Step 5: Commit** `feat(extraction): read sources as turns, chunk, build requests`.
+---
 
-### Task 6: Checking results and merging them into the bible
+### Task 4: Prompt, canon section and applying results
 
 **Files:**
-- Create: `src/extraction/results.ts` (+test), `src/extraction/apply.ts` (+test)
+- Create: `src/extraction/request.ts` + test, `src/extraction/apply.ts` + test
 
 **Interfaces:**
-- Consumes: Task 3 `addEvidence`; Task 4 types; Task 5 `SourceDoc`.
-- Produces:
+- `request.ts`:
   ```ts
-  // results.ts
-  export function parsePosition(s: string): StoryPosition | null;     // 'S1', 'S1E3', 'S1E3#2', case-insensitive, spaces allowed
-  export interface CheckedResult { proposals: Proposal[]; dropped: number }
-  export function checkResult(raw: RawProposal[], doc: SourceDoc, items: TreeItem[], ownWriting: boolean): CheckedResult;
-  // apply.ts
-  export const fingerprint: (entityPart: string, attribute: string, value: Fact['value']) => string;
-  export function entityParts(e: ProposalEntity | TreeItem): string[];   // ['id:<id>'] and/or ['card:<kind>:<title>']
-  export function rejectedKeys(b: Bible, e: Extraction, items: TreeItem[]): Set<string>;  // stored + derived (Decision 2)
-  export interface ApplyIds { newId(): string; now: string }
-  export interface ApplySummary { added: number; merged: number; suggested: number; cards: number; skipped: number }
-  export function applyProposals(b: Bible, e: Extraction, items: TreeItem[], proposals: Proposal[], ids: ApplyIds): { bible: Bible; extraction: Extraction; summary: ApplySummary };
-  export function approveCard(b: Bible, e: Extraction, items: TreeItem[], cardId: string, entityId: string, ids: ApplyIds): { bible: Bible; extraction: Extraction };  // caller has added the entity item
-  export function rejectCard(e: Extraction, cardId: string, now: string): Extraction;
-  export function rejectCardFact(e: Extraction, cardId: string, index: number, now: string): Extraction;
-  export function promoteSuggested(b: Bible, e: Extraction, items: TreeItem[], suggestedId: string, ids: ApplyIds): { bible: Bible; extraction: Extraction };
-  export function dismissSuggested(e: Extraction, suggestedId: string, now: string): Extraction;
-  export function liftRejection(e: Extraction, key: string): Extraction;
-  export function rejectionsFor(b: Bible, e: Extraction, entity: TreeItem): { key: string; label: string; factId?: string }[];
+  export const EXTRACTION_PROMPT_VERSION = 1;
+  export const CANON_CAP_CHARS = 40_000;
+  export function extractionCanon(items: TreeItem[], bible: Bible, extraction: ExtractionState, sourceText: string): string;
+  export function buildExtractRequest(args: { provider: ProviderId; model: string; canon: string; source: ExtractionSource;
+    chunk: SourceTurn[]; chunkIndex: number; chunkCount: number; summary: string }): ExtractRequest;
+  export function sourceBudgetChars(inputTokenLimit: number | undefined, fixedChars: number): number; // ((limit ?? 100_000) * 0.6) * 4 - fixedChars, min 4_000
   ```
-  `checkResult`: entity resolution order: a `entityId` that names an existing entity; else an entity whose kind (when given) and `normalizeText(title)` match `newCardTitle`; else a new card (`kind` must be a known `ENTITY_KINDS` id, else dropped). Each evidence quote is located with `locateQuote` inside its turn's text, falling back to a search across every turn. Turn offsets turn it into a `FactSource` (`messageId` for ai-chat). Unlocated quotes are dropped, and a proposal with none left is dropped. Strength follows Decision 1. `when` values go through `parsePosition`, and a failure drops the proposal.
-  `applyProposals`, per proposal, in order: skip if any of its fingerprints is in `rejectedKeys`. `suggested` merges into `e.suggested` (by fingerprint, merging evidence). A new-card entity merges into `e.pendingCards` (by kind + normalized title; proposals merged by fingerprint). Otherwise, if a live fact agrees on the same entity and attribute (`groupVersions` rule), `addEvidence`, else `addFact` with `{ status: 'proposed', origin: 'ai', source: evidence[0], evidence: evidence.map(source => ({ source, strength })), note?: replaces ? 'Replaces "<replaces>"' : undefined }`. A proposal whose entity now exists (a cached card that was approved) attaches to it.
-
-- [ ] **Step 1: Failing tests** (Review Focus 1–3): an invented quote is dropped; a proposal with only invented quotes is dropped and counted; `said` with only model-turn evidence becomes `suggested`; built_on with a later writer-turn quote stays `built_on`; a document proposal is `suggested`, and the same with `ownWriting` is `said`; ten agreeing mentions in one run give one fact with ten evidence entries; a second run over an identical source adds no evidence (dedupe); a rejected fingerprint (derived, from a set-aside AI fact) is skipped on re-run, but a fact set aside by `keepOne` is not treated as rejected and comes back as a new proposed fact; a new-card proposal goes to `pendingCards`, and `approveCard` turns its said/built_on proposals into proposed facts on the new entity and its suggested ones into `e.suggested`; `rejectCard` makes later proposals for that card skip; `rejectCardFact` before approval still blocks that fact after approval; `promoteSuggested` adds a proposed fact and `dismissSuggested` records a rejection; `liftRejection` removes it; `parsePosition` table.
-- [ ] **Step 2: Run** `npx vitest run src/extraction` (expect FAIL).
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: Run** again (expect PASS).
-- [ ] **Step 5: Commit** `feat(extraction): check results against the source and merge into proposals`.
-
-### Task 7: Running extraction jobs
-
-**Files:**
-- Create: `src/extraction/useExtraction.ts` (+test)
-
-**Interfaces:**
-- Consumes: Tasks 2, 5, 6.
-- Produces:
+  The system prompt says: extract condensed facts per entity; `said` / `built_on` / `suggested` as in the spec, looking
+  for later *use* by the writer, not only acceptance; reuse existing entity ids, attribute names and value wording
+  exactly when meaning the same; only the latest version when the writer changed their mind in this source, with the
+  earlier one in `replaces`; quotes copied verbatim from one turn, each tagged with its turn number; `when` as
+  "season N[, episode N][, order N]"; never propose anything listed as rejected. Canon lists every entity
+  (`id`, title, kind), attribute names per kind (`attributeSuggestions`), live and rejected values per attribute.
+- `apply.ts`:
   ```ts
-  export interface ExtractionPlan { sources: { item: TreeItem; doc: SourceDoc; cached: boolean; requests: number; tokens: number }[]; tokens: number; requests: number }
-  export interface RunProgress { done: number; total: number; current: string | null; summary: ApplySummary; dropped: number; errors: { title: string; message: string }[]; finished: boolean; cancelled: boolean }
-  export function planExtraction(args: { items: TreeItem[]; ids: string[]; bodyOf; chatOf; bible; extraction; provider; model; inputTokenLimit?: number }): ExtractionPlan;
-  export function useExtraction(args: { ai: AiApi | null; project: Pick<ProjectController, 'state' | 'updateBible' | 'updateExtraction'> }): {
-    progress: RunProgress | null; start(ids: string[], provider: ProviderId, model: string, inputTokenLimit?: number): Promise<void>; cancel(): void; clear(): void;
-  };
+  export interface ApplyContext { items: TreeItem[]; bible: Bible; extraction: ExtractionState; source: ExtractionSource; now: string; newId(): string }
+  export interface ApplySummary { facts: number; merged: number; suggested: number; cards: number; skipped: number; dropped: number }
+  export function applyResults(ctx: ApplyContext, proposals: RawProposal[]): { bible: Bible; extraction: ExtractionState; summary: ApplySummary };
+  export function fingerprint(entityKey: string, attribute: string, value: string | StoryPosition): string;
+  export const entityKeyOf = (ref: { entityId: string } | { kind: string; title: string }) => string;  // id, or `new:<kind>:<normalized title>`
+  export function rejectedFingerprints(bible: Bible, extraction: ExtractionState): Set<string>;
+  export function parseWhen(text: string): StoryPosition | null;
   ```
-  Sources run one at a time, chunks one at a time. `ownWriting` is read from the item. A fresh `requestId` (`crypto.randomUUID()`) goes to each call. A cache hit (same `sourceHash`) makes no request. After each source, its proposals are written to `e.cache[itemId]` and applied through `updateBible`/`updateExtraction`, reading the latest state from a ref. `cancel()` calls `cancelExtract` on the in-flight id and stops before the next request. `ai` turning null (AI disabled) cancels. An error on one source is recorded and the run moves on. A `CANCELLED` error ends the run.
+- [ ] **Step 1: Failing tests** (`apply.test.ts` unless noted)
+  - `request.test.ts`: the canon lists entity ids, kinds, attribute names, live (kept and proposed) values and rejected
+    values; over `CANON_CAP_CHARS` only entities named in the source text remain; the request text holds
+    `sourceTextFor(chunk)`, the summary only when `chunkCount > 1`, and "part 2 of 3"; `sourceBudgetChars(undefined, 0) === 240_000`.
+  - Matching: `entity.id` of an existing entity → that entity; an unknown id with a title matching an entity
+    (case/whitespace-insensitive) → that entity; no match → a new `PendingCard` (kind, title, reason) and the proposal
+    pending on it; a second proposal for the same new title joins the same card; a cached card title that now matches
+    an entity attaches to the entity.
+  - Placement: `said` on an existing entity → a `proposed` fact (origin `ai`, `source` = first evidence, `evidence` with
+    strength, `replaces` kept when non-empty); `suggested` → `extraction.pending`, not the bible.
+  - Strength rules: `said` with evidence only in model turns → pending as `suggested`; a no-turn source → `suggested`;
+    with `item.ownWriting` → `said`.
+  - Merging: a proposal whose value normalizes equal to a live fact adds evidence to it (no new fact); the same
+    evidence twice is not duplicated; applying the same proposals twice leaves state equal (deep) to applying once;
+    pending proposals with equal fingerprints merge evidence.
+  - Rejections: a fingerprint of a fact the writer set aside (no decision lists it) is skipped; a fact set aside by
+    `keepOne` with the same evidence is skipped, but with new evidence comes back as a new `proposed` fact; a stored
+    rejection skips the proposal; a rejected card fingerprint (`new:<kind>:<title>`, attribute `''`) skips the card and
+    its proposals.
+  - Drops: a quote that can't be located is dropped (and the proposal too when no evidence is left), counted in
+    `dropped`; an unparsable `when` value is dropped; `parseWhen('Season 2, episode 3, order 1')` → `{ season: 2, episode: 3, order: 1 }`, `parseWhen('soon')` → null.
+- [ ] **Step 2: Run** `npx vitest run src/extraction` → FAIL.
+- [ ] **Step 3: Implement.** Agreement uses `groupVersions`' notion (`normalizeText` equal, or `positionsCompatible`). Evidence identity: `itemId`, `messageId`, `start`, `end`.
+- [ ] **Step 4: Run** → PASS.
+- [ ] **Step 5: Commit** `feat(extraction): prompt, canon section, matching, fingerprints and evidence merge`
 
-- [ ] **Step 1: Failing tests** (`renderHook` with `createFakeBridge`): a two-source run calls `extract` twice and applies both; a second run with unchanged sources makes no calls; changing the model invalidates the cache; a source needing two chunks sends the first summary in the second request; `cancel()` mid-run keeps the first source's results and makes no further calls; an error on source 1 still runs source 2 and is listed.
-- [ ] **Step 2: Run** `npx vitest run src/extraction/useExtraction.test.ts` (expect FAIL).
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: Run** again (expect PASS).
-- [ ] **Step 5: Commit** `feat(extraction): run extraction jobs with cache and cancel`.
+---
 
-### Task 8: Extract dialog, review queue and toggles
+### Task 5: Review transitions, Keep the newer, evidence-based counts
 
 **Files:**
-- Create: `src/components/extraction/ExtractModal.tsx` (+test), `src/components/extraction/ReviewQueue.tsx` (+test)
-- Modify: `src/components/workspace/{Workspace,Inspector,DocumentEditor}.tsx` (+Workspace test), `src/components/chat/ChatHeader.tsx`, `src/components/bible/EntityCard.tsx`
+- Create: `src/extraction/review.ts` + test, `src/bible/newer.ts` + test
+- Modify: `src/bible/cards.ts` + test
 
 **Interfaces:**
-- Consumes: Tasks 3–7.
-- Produces (UI contract, used by the e2e test):
-  - Toolbar button "Extract" and mode button "Review" (with a count of pending cards + proposed AI facts + suggested), shown only when `ai.enabled`.
-  - `ExtractModal` (`role="dialog"`, title "Extract facts"): a checklist of source items in source order (`aria-label` = item title), a per-row "This is my own writing" checkbox, a model `<select aria-label="Model">` (configured providers' models, defaulting to Settings), the estimate line `"<n> sources · ~<tokens> tokens · <requests> requests (<cached> cached)"`, buttons "Start" / "Cancel run" / "Close", progress `"<done> of <total>"` and the final summary `"<added> new · <merged> merged · <suggested> only suggested · <cards> new cards"`.
-  - `ReviewQueue` (`aria-label="Review queue"`): sections "New cards" (each: title, kind, reason, its facts with quotes; a folder `<select aria-label="Folder for <title>">` defaulting to the folder of the first entity of that kind, "Approve card", "Reject card", per-fact "Reject"), one section per entity (`aria-label` = its title) with proposed AI facts (quote, strength label, "Keep", "Set aside", "Show conflict" when in an open contradiction), and a `<details>` "Only suggested (<n>)" with "Promote" / "Dismiss" per item.
-  - Inspector: "This is my own writing" checkbox for chat, ai-chat and document items when AI is on (`ownWriting: true`, removed when unchecked).
-  - Chat toolbar (DocumentEditor for `chat` items, ChatHeader for `ai-chat`): "Extract facts" opens `ExtractModal` with that item preselected. AI only.
-  - EntityCard: a "Rejected" `<details>` listing `rejectionsFor(...)`. "Lift" calls `liftRejection` for stored ones and sets the fact back to `proposed` for derived ones.
+- `review.ts` (all pure, `(state) => state` over `Canon = { bible: Bible; extraction: ExtractionState }`):
+  ```ts
+  export interface ReviewGroup { key: string; entity?: TreeItem; card?: PendingCard; facts: Fact[]; pending: PendingProposal[] }
+  export function reviewGroups(items: TreeItem[], bible: Bible, extraction: ExtractionState): ReviewGroup[];   // AI-origin proposed facts + pending, by card; new cards last
+  export function reviewCount(items: TreeItem[], bible: Bible, extraction: ExtractionState): number;
+  export function approveCard(c: Canon, cardId: string, entityId: string, now: string, newId: () => string): Canon; // said/built_on → proposed facts; suggested stay pending on the entity; rejections keyed new:<kind>:<title> re-keyed to entityId
+  export function rejectCard(c: Canon, cardId: string, now: string): Canon;     // stored rejection, card and its proposals removed
+  export function promote(c: Canon, pendingId: string, now: string, newId: () => string): Canon;  // to a proposed fact (existing entity only)
+  export function dismiss(c: Canon, pendingId: string, now: string): Canon;     // stored rejection
+  export function rejectionsFor(entity: TreeItem, bible: Bible, extraction: ExtractionState): { fingerprint: string; label: string; factId?: string }[];
+  export function liftRejection(c: Canon, fingerprint: string, now: string): Canon;  // stored → removed; derived → fact back to proposed
+  export function pruneExtraction(x: ExtractionState, items: readonly TreeItem[]): ExtractionState;  // from Task 2
+  ```
+- `newer.ts`: `newerVersion(c: Contradiction, order: readonly string[]): number | null` (oldest-first ids; the version
+  whose latest evidence item ranks furthest down; unlisted = oldest; null on a tie or when all evidence is from one item).
+- `cards.ts`: `sourceCount` and `cameFrom` count `evidence[].source.itemId` when present, else `source.itemId`.
+- [ ] **Step 1: Failing tests:** each transition above, with one assertion per comment's promise; `reviewGroups` puts an
+  entity's AI proposed facts and pending suggestions in one group, ignores manual proposed facts, and lists new cards
+  after entities; `newerVersion` picks the later source, null for a same-source pair and for a tie; `cardStats().sources`
+  counts two evidence items from different chats as 2.
+- [ ] **Step 2: Run** `npx vitest run src/extraction src/bible` → FAIL.
+- [ ] **Step 3: Implement.**
+- [ ] **Step 4: Run** → PASS.
+- [ ] **Step 5: Commit** `feat(extraction): review transitions, keep-the-newer suggestion, evidence counts`
 
-- [ ] **Step 1: Failing tests**: Workspace (no Extract/Review buttons with AI off; both shown with AI on); ExtractModal (the estimate updates with the selection; Start calls `start` with the picked ids and model; "Cancel run" calls `cancel`); ReviewQueue (Approve creates an entity in the chosen folder and its facts become proposed; Reject card records a rejection; Keep/Set aside change status; Promote/Dismiss); Inspector (the toggle sets `ownWriting`, hidden with AI off); EntityCard (the Rejected list shows a set-aside AI fact, and Lift makes it proposed).
-- [ ] **Step 2: Run** `npx vitest run src/components` (expect FAIL).
-- [ ] **Step 3: Implement.** Approving a card: `addItem({ type: 'entity', entityKind, title, parentId })`, then `approveCard(...)` with the new id.
-- [ ] **Step 4: Run** again (expect PASS); `npm run typecheck && npm run lint`.
-- [ ] **Step 5: Commit** `feat(extraction): extract dialog, review queue, own-writing toggle`.
+---
 
-### Task 9: End-to-end test and docs
+### Task 6: Running an extraction (hook + dialog + entry points)
+
+**Files:**
+- Create: `src/extraction/useExtraction.ts` + test, `src/components/extraction/ExtractModal.tsx` + test
+- Modify: `src/components/workspace/{Workspace,Inspector}.tsx` + tests
+
+**Interfaces:**
+- ```ts
+  export interface RunSourceStatus { itemId: string; state: 'waiting' | 'cached' | 'running' | 'done' | 'error' | 'cancelled'; message?: string; summary?: ApplySummary }
+  export interface ExtractionRun { running: boolean; statuses: RunSourceStatus[]; start(ids: string[], provider: ProviderId, model: ModelInfo): void; cancel(): void }
+  export function useExtraction(args: { ai: AiApi | null; project: ProjectController }): ExtractionRun;
+  ```
+  Per source, in order: build the source; key it; a cached run with that key is applied without a request; otherwise
+  each chunk is requested in turn (summary threaded), then the run is cached (`runs` keeps one per item) and applied
+  through a single `updateCanon`. An error or cancel stops the run and applies nothing from that source. `cancel()`
+  calls `cancelExtract` on the in-flight id. Turning AI off (`ai` becomes null) cancels.
+- `ExtractModal` props: `{ items, sources: TreeItem[] (orderedSources), initialIds, aiStatus, models, loadModels, run, onSetOwnWriting(id, value), onReview(), onClose() }`.
+  Shows source checkboxes (a no-turns source shows "No turns found: proposals will be 'suggested' unless this is your
+  own writing" with an "This is my own writing" checkbox), provider/model selects (defaults from settings),
+  the estimate ("3 sources · ~42,000 tokens · 1 cached · Gemini 2.5 Flash"), Start, per-source progress lines, Cancel, and
+  at the end the totals and a "Review" button.
+- Workspace: "Extract" toolbar button and "Review" mode button with `reviewCount` badge, both only when `aiEnabled`.
+  Inspector: "This is my own writing" checkbox on chat/document items when a new `aiEnabled` prop is true.
+- [ ] **Step 1: Failing tests**
+  - `useExtraction.test.ts` (fake bridge): an uncached source sends one `extract` and applies a proposed fact; running
+    it again sends nothing (status `cached`) and adds nothing; a two-chunk source sends two requests, the second
+    containing the first's `summary`; an `extract` rejection leaves bible and extraction unchanged and sets `error`
+    with the message; `cancel()` calls `cancelExtract` and stops before the next source.
+  - `ExtractModal.test.tsx`: preselects `initialIds`; the estimate counts tokens and cached sources; ticking "own
+    writing" calls `onSetOwnWriting`; Start calls `run.start` with the chosen ids and model.
+  - `Workspace.test.tsx`: Extract and Review are absent with AI off and present with AI on.
+- [ ] **Step 2: Run** `npx vitest run src/extraction src/components/extraction src/components/workspace` → FAIL.
+- [ ] **Step 3: Implement.**
+- [ ] **Step 4: Run** → PASS.
+- [ ] **Step 5: Commit** `feat(extraction): run extraction from the workspace with cache, chunks and cancel`
+
+---
+
+### Task 7: Review queue, evidence labels, Rejected list, Keep the newer
+
+**Files:**
+- Create: `src/components/extraction/ReviewQueue.tsx` + test
+- Modify: `src/components/bible/{FactRow,EntityCard,ConflictQueue}.tsx` + tests, `Workspace.tsx`
+
+**Interfaces:**
+- `ReviewQueue` props: `{ items, bible, extraction, bodyOf, chatOf, updateCanon, addEntity(kind, title, parentId): string, onOpenSource, onOpenCard }`.
+  Per group: header (entity title → opens card, or "New card · <kind>" with reason, a folder select defaulting to the
+  folder of the first entity of that kind, Approve / Reject); proposed facts with quote, strength label and source
+  count, Keep / Set aside; pending proposals of a new card listed under it. A collapsible "Only suggested (N)"
+  section lists suggestions by card with Promote / Dismiss. Empty: "Nothing to review."
+- `FactRow`: when `fact.evidence` is set, a label (`said` → "You said this", `built_on` → "Built on", `suggested` →
+  "Suggested") from the strongest evidence, and "N sources" when more than one, and `replaces` as "Changed from: X".
+- `EntityCard`: a "Rejected" side section (only with a new `aiEnabled` prop and rejections) listing `rejectionsFor`
+  with Lift. `EntityCard` and `ConflictQueue`: a primary "Keep the newer" button when `newerVersion` is not null
+  (both take a new `sourceOrder: string[]` prop from `orderedSources(...).map(i => i.id)`).
+- [ ] **Step 1: Failing tests:** Approve creates the entity (via `addEntity`) and moves its facts into proposed; Reject
+  removes the card; Promote/Dismiss move a suggestion; Set aside on an AI fact then re-applying the run proposes
+  nothing (integration through `applyResults`); FactRow shows "Built on" and "2 sources"; Keep the newer keeps the
+  version from the later source; Lift returns a set-aside fact to pending.
+- [ ] **Step 2: Run** `npx vitest run src/components` → FAIL.
+- [ ] **Step 3: Implement.**
+- [ ] **Step 4: Run** → PASS.
+- [ ] **Step 5: Commit** `feat(extraction): review queue, evidence labels, rejected list, keep the newer`
+
+---
+
+### Task 8: End to end, docs, gate
 
 **Files:**
 - Create: `e2e/ai/extraction.spec.ts`
-- Modify: `CLAUDE.md` (Story Bible + AI Layer sections, save order), `docs/superpowers/specs/2026-10-18-ai-extraction-design.md` ("Part 3 implementation decisions": Decisions 1–10 above, one line each)
+- Modify: `e2e/fakeProvider.ts` (`extractionReply(result): string[]` helper splitting JSON into chunks; records the request body so the spec can assert `responseJsonSchema`), `CLAUDE.md`, the spec (Part 3 implementation decisions)
 
-- [ ] **Step 1: Write the e2e** (`aiTest` fixture, AI enabled against the fake): import the exporter fixture, create the character "Mara", `setExtractReply` with one `built_on` proposal for Mara (a writer-turn quote from the fixture), one proposal with an invented quote, one `said` proposal backed only by a model-turn quote, and one new-card proposal. Run Extract and check the summary line. In Review: Mara's fact is proposed with "you built on it", "Only suggested (1)", and one new card. Approve the card. Set Mara's fact aside, run again (the cache means no new request: `fake.extracts.length` unchanged), and the fact is not re-proposed. Save, reopen, and the queue state survives. Turn AI off: the Extract and Review buttons are gone.
-- [ ] **Step 2: Run** `npm run test:e2e -- e2e/ai/extraction.spec.ts` (expect PASS after fixing what fails).
-- [ ] **Step 3: Docs.**
-- [ ] **Step 4: Run** `npm run gate` (expect all green).
-- [ ] **Step 5: Commit** `test(e2e): AI extraction flow; docs: Part 3 implementation decisions`.
+- [ ] **Step 1: Write the e2e:** with AI on (aiTest fixture) import the sample transcript, open Extract, Start; the fake
+  returns one `said` proposal for a new card and one `suggested`; Review shows the new card; Approve; the card wall shows
+  the entity with "1 to review"; Keep makes it canon; re-running makes no new request (fake `streams` count unchanged).
+  With AI off, the Extract and Review buttons are absent. The bridge-surface list includes `extract`, `cancelExtract`.
+- [ ] **Step 2: Run** `npm run test:e2e -- e2e/ai/extraction.spec.ts` → PASS after any fixes.
+- [ ] **Step 3: Docs:** CLAUDE.md gains an "AI extraction" section (llm:extract, extraction.json, derived rejections,
+  cache key, save order) and the save-order lines; the spec gains "Part 3 implementation decisions" (this plan's
+  decision list, condensed).
+- [ ] **Step 4: Run** `npm run gate` → all green.
+- [ ] **Step 5: Commit** `test(e2e): AI extraction flow; docs: Part 3 implementation decisions`
