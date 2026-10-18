@@ -265,7 +265,8 @@ instead (the writer's decision). The writer expects only a handful of competing 
 is enough.
 
 - The project keeps **one source order**: an ordered list of the item ids that can be extraction sources
-  (imported chats, AI Chats, documents), oldest first. It's stored in `bible/extraction.json`. Ids of deleted items
+  (imported chats, AI Chats, documents), oldest first. It's stored in `bible/bible.json` as `sourceOrder` (Part 1 implementation decision: that file already
+  loads, saves, recovers and is watched). Ids of deleted items
   are pruned, and an item missing from the list counts as oldest.
 - **Placing each import as it arrives:** the import step shows the existing ordered sources and asks where the new
   chat goes, defaulting to newest. In a multi-file import, the batch is ordered in the same step, starting in
