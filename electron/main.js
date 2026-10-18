@@ -153,6 +153,7 @@ function registerIpcHandlers() {
         projectDirty = false;
     });
     handle('project:read-doc', (id) => projectSession.readDoc(id));
+    handle('project:read-chat', (id) => projectSession.readChat(id));
     handle('project:read-structure', () => projectSession.readStructure());
     handle('project:read-asset', (name) => projectSession.readAsset(name));
     handle('project:import-media', async (kind) => {

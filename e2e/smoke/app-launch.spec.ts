@@ -41,7 +41,7 @@ test('the preload bridge exposes only the intended API', async ({ window }) => {
     app: ['closeConfirmed', 'getVersion', 'onSaveBeforeClose', 'openExternal'],
     project: [
       'close', 'confirmUnsaved', 'create', 'discardRecovery', 'exportDossier', 'importMedia', 'importText',
-      'listRecent', 'onExternalChange', 'open', 'openRecent', 'readAsset', 'readDoc', 'readStructure', 'removeRecent', 'save',
+      'listRecent', 'onExternalChange', 'open', 'openRecent', 'readAsset', 'readChat', 'readDoc', 'readStructure', 'removeRecent', 'save',
       'setDirty', 'writeRecovery',
     ],
   });

@@ -42,6 +42,7 @@ export function createProjectApi(bridge: VrsApi): ProjectApi {
     removeRecent: (root) => unwrap(raw.removeRecent(root)),
     close: (options) => unwrap(raw.close(options)),
     readDoc: (id) => unwrap(raw.readDoc(id)),
+    readChat: (id) => unwrap(raw.readChat(id)),
     readStructure: () => unwrap(raw.readStructure()),
     readAsset: (name) => unwrap(raw.readAsset(name)),
     importMedia: (kind) => unwrap(raw.importMedia(kind)),

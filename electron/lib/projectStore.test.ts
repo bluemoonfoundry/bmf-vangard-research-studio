@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
-import { createProject, importAsset, openProject, readAsset, readDoc, readStructure, saveProject } from './projectStore.js';
+import { createProject, importAsset, openProject, readAsset, readChat, readDoc, readStructure, saveProject } from './projectStore.js';
 import { CURRENT_SCHEMA_VERSION } from './projectSchema.js';
 
 const NOW = '2026-10-17T12:00:00.000Z';
@@ -272,5 +272,49 @@ describe('bible persistence', () => {
         await saveProject(root, { bible }, { now: LATER });
         await saveProject(root, { manifest: { name: 'Y' } }, { now: LATER });
         expect(await readJson(path.join(root, 'bible', 'bible.json'))).toEqual(bible);
+    });
+});
+
+describe('chat transcripts', () => {
+    const chat = { version: 1, settings: {}, messages: [{ id: 'm1', role: 'user', text: 'hi' }] };
+
+    beforeEach(async () => {
+        await createProject(root, { id: 'p1', name: 'X', now: NOW });
+    });
+
+    it('writes chats before tree.json', async () => {
+        const writes: string[] = [];
+        await saveProject(root, { docs: { a: 'text' }, chats: { c: chat }, tree: { items: [docItem('a')] } },
+            { now: LATER, onWrite: (rel) => writes.push(rel) });
+        expect(writes).toEqual(['docs/a.md', 'chats/c.json', 'tree.json', 'vrs.json']);
+        expect(await readJson(path.join(root, 'chats', 'c.json'))).toEqual(chat);
+        expect((await readChat(root, 'c')).transcript).toEqual(chat);
+    });
+
+    it('deletes a chat file on null', async () => {
+        await saveProject(root, { chats: { c: chat } }, { now: LATER });
+        const writes: string[] = [];
+        await saveProject(root, { chats: { c: null } }, { now: LATER, onWrite: (rel, content) => writes.push(`${rel}:${content}`) });
+        await expect(fs.stat(path.join(root, 'chats', 'c.json'))).rejects.toMatchObject({ code: 'ENOENT' });
+        expect(writes).toContain('chats/c.json:null');
+    });
+
+    it('readChat: missing -> null without problem', async () => {
+        expect(await readChat(root, 'nope')).toEqual({ transcript: null, problem: null });
+    });
+
+    it('readChat: corrupt -> problem message', async () => {
+        await fs.writeFile(path.join(root, 'chats', 'bad.json'), '{ not json');
+        await fs.writeFile(path.join(root, 'chats', 'odd.json'), '{"version":1,"settings":{},"messages":[{"id":"m","role":"bot","text":""}]}');
+        const bad = await readChat(root, 'bad');
+        expect(bad.transcript).toBeNull();
+        expect(bad.problem).toEqual(expect.any(String));
+        const odd = await readChat(root, 'odd');
+        expect(odd.transcript).toBeNull();
+        expect(odd.problem).toMatch(/role/);
+    });
+
+    it('readChat rejects an invalid id', async () => {
+        await expect(readChat(root, '../vrs')).rejects.toMatchObject({ code: 'INVALID' });
     });
 });

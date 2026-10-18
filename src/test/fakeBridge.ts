@@ -5,6 +5,7 @@ import type {
   SavePayload, TextImport, UnsavedChoice,
 } from '@/project/types';
 import type { AiSettingsPatch, AiStatus, ChatEvent, ChatRequest, ModelInfo, ProviderId, StreamEvent } from '@/ai/types';
+import type { ChatTranscript } from '@/chat/types';
 
 const ok = <T,>(value: T): Promise<IpcResult<T>> => Promise.resolve({ ok: true, value });
 
@@ -55,6 +56,7 @@ export function createFakeBridge() {
       tree: { items: [] } as ProjectTree,
       bible: emptyBible() as Bible,
       docs: {} as Record<string, string>,
+      chats: {} as Record<string, ChatTranscript>,
       assets: {} as Record<string, Uint8Array>,
     },
     /** What the next media-import dialog "picks" (null = cancelled). */
@@ -119,6 +121,7 @@ export function createFakeBridge() {
       }),
       close: vi.fn((_options?: { discardRecovery?: boolean }) => ok(undefined)),
       readDoc: vi.fn((id: string) => ok(fake.disk.docs[id] ?? '')),
+      readChat: vi.fn((id: string) => ok({ transcript: fake.disk.chats[id] ?? null, problem: null })),
       readStructure: vi.fn(() => ok({ manifest: fake.disk.manifest!, tree: fake.disk.tree, bible: fake.disk.bible })),
       readAsset: vi.fn((name: string): Promise<IpcResult<Uint8Array>> => {
         const bytes = fake.disk.assets[name];
@@ -141,6 +144,10 @@ export function createFakeBridge() {
         for (const [id, body] of Object.entries(payload.docs ?? {})) {
           if (body === null) delete fake.disk.docs[id];
           else fake.disk.docs[id] = body;
+        }
+        for (const [id, transcript] of Object.entries(payload.chats ?? {})) {
+          if (transcript === null) delete fake.disk.chats[id];
+          else fake.disk.chats[id] = transcript;
         }
         if (payload.tree) fake.disk.tree = payload.tree;
         if (payload.bible) fake.disk.bible = payload.bible;

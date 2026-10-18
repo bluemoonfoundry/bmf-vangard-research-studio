@@ -1,3 +1,5 @@
+import type { ChatTranscript } from '@/chat/types';
+
 /** Renderer-side shapes of the project format defined in electron/lib/projectSchema.js. */
 
 export interface ProjectManifest {
@@ -119,6 +121,8 @@ export interface SavePayload {
   tree?: ProjectTree;
   /** Document bodies by item id; null deletes the document file. */
   docs?: Record<string, string | null>;
+  /** AI chat transcripts by item id; null deletes the transcript file. */
+  chats?: Record<string, ChatTranscript | null>;
   bible?: Bible;
   /** Asset files to remove; the main process keeps any the saved tree still references. */
   deletedAssets?: string[];

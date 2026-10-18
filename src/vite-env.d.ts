@@ -18,6 +18,7 @@ interface VrsApi {
     removeRecent(root: string): Promise<VrsIpcResult<void>>;
     close(options?: { discardRecovery?: boolean }): Promise<VrsIpcResult<void>>;
     readDoc(id: string): Promise<VrsIpcResult<string>>;
+    readChat(id: string): Promise<VrsIpcResult<{ transcript: import('@/chat/types').ChatTranscript | null; problem: string | null }>>;
     readStructure(): Promise<VrsIpcResult<{
       manifest: import('@/project/types').ProjectManifest;
       tree: import('@/project/types').ProjectTree;

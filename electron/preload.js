@@ -28,6 +28,7 @@ contextBridge.exposeInMainWorld('vrs', {
     removeRecent: (root) => ipcRenderer.invoke('project:remove-recent', root),
     close: (options) => ipcRenderer.invoke('project:close', options),
     readDoc: (id) => ipcRenderer.invoke('project:read-doc', id),
+    readChat: (id) => ipcRenderer.invoke('project:read-chat', id),
     readStructure: () => ipcRenderer.invoke('project:read-structure'),
     readAsset: (name) => ipcRenderer.invoke('project:read-asset', name),
     // Shows a native open dialog; the main process copies the pick into assets/.

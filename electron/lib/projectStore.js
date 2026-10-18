@@ -16,6 +16,7 @@ import {
     migrateProject,
     normalizeTree,
     normalizeBible,
+    normalizeChat,
     referencedAssets,
     validateSavePayload,
 } from './projectSchema.js';
@@ -55,6 +56,11 @@ async function resolveInside(root, relPath) {
 function docRelPath(id) {
     if (!isValidItemId(id)) throw new ProjectFormatError('INVALID', `Invalid document id: ${id}`);
     return `docs/${id}.md`;
+}
+
+function chatRelPath(id) {
+    if (!isValidItemId(id)) throw new ProjectFormatError('INVALID', `Invalid chat id: ${id}`);
+    return `chats/${id}.json`;
 }
 
 function assetRelPath(name) {
@@ -122,6 +128,27 @@ export async function readDoc(root, id) {
     }
 }
 
+/**
+ * Reads chats/<id>.json. A missing file is an unremarkable "no transcript yet"; a damaged or
+ * too-new one comes back as `problem` text so the chat can say so without failing the project.
+ */
+export async function readChat(root, id) {
+    const full = await resolveInside(root, chatRelPath(id));
+    let text;
+    try {
+        text = await fs.readFile(full, 'utf-8');
+    } catch (err) {
+        if (err.code === 'ENOENT') return { transcript: null, problem: null };
+        throw err;
+    }
+    try {
+        return { transcript: normalizeChat(JSON.parse(text)), problem: null };
+    } catch (err) {
+        if (err instanceof ProjectFormatError) return { transcript: null, problem: err.message };
+        return { transcript: null, problem: `chats/${id}.json is not valid JSON.` };
+    }
+}
+
 /** Reads an imported asset's bytes. */
 export async function readAsset(root, name) {
     const full = await resolveInside(root, assetRelPath(name));
@@ -161,12 +188,12 @@ export async function readStructure(root) {
 }
 
 /**
- * Saves the parts of a project named in `payload` ({ manifest?, tree?, bible?, docs?, deletedAssets? }).
+ * Saves the parts of a project named in `payload` ({ manifest?, tree?, bible?, docs?, chats?, deletedAssets? }).
  *
  * Each file is written atomically, and the order keeps the folder consistent
- * if the save is interrupted part-way: document bodies first, then the tree
- * that references them, then bible/bible.json, then vrs.json, and deletions only once nothing
- * references the deleted documents. The worst case is an orphaned docs/*.md,
+ * if the save is interrupted part-way: document bodies, then chat
+ * transcripts, then the tree that references them, then bible/bible.json, then vrs.json, and
+ * deletions (docs, chats, assets) only once nothing references the deleted files. The worst case is an orphaned docs/*.md,
  * never a tree entry pointing at a missing or half-written file. Assets the
  * saved tree still references (e.g. shared by a duplicated item) are kept.
  *
@@ -180,6 +207,7 @@ export async function readStructure(root) {
 export async function saveProject(root, payload, { now, onWrite = () => {} } = {}) {
     const request = validateSavePayload(payload);
     const docs = Object.entries(request.docs ?? {});
+    const chats = Object.entries(request.chats ?? {});
 
     const write = async (relPath, content) => {
         const full = await resolveInside(root, relPath);
@@ -192,6 +220,9 @@ export async function saveProject(root, payload, { now, onWrite = () => {} } = {
     for (const [id, body] of docs) {
         if (body !== null) await write(docRelPath(id), body);
     }
+    for (const [id, transcript] of chats) {
+        if (transcript !== null) await write(chatRelPath(id), toJson(transcript));
+    }
     if (request.tree) await write(TREE_FILE, toJson(request.tree));
     if (request.bible) await write(BIBLE_FILE, toJson(request.bible));
 
@@ -202,6 +233,14 @@ export async function saveProject(root, payload, { now, onWrite = () => {} } = {
     for (const [id, body] of docs) {
         if (body !== null) continue;
         const relPath = docRelPath(id);
+        const full = await resolveInside(root, relPath);
+        onWrite(relPath, null);
+        await fs.rm(full, { force: true });
+    }
+
+    for (const [id, transcript] of chats) {
+        if (transcript !== null) continue;
+        const relPath = chatRelPath(id);
         const full = await resolveInside(root, relPath);
         onWrite(relPath, null);
         await fs.rm(full, { force: true });
