@@ -13,7 +13,8 @@ export function sanitizeSearchSuggestions(html: string): string {
     ADD_TAGS: ['style'],
     // Without this a leading <style> is parsed into <head> and lost.
     FORCE_BODY: true,
-    FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'form', 'input', 'button', 'textarea', 'select'],
+    FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'form', 'input', 'button', 'textarea', 'select', 'area', 'map'],
+    FORBID_ATTR: ['xlink:href'],
     ALLOWED_URI_REGEXP: /^https?:/i,
     ALLOW_DATA_ATTR: false,
   });

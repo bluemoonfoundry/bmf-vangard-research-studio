@@ -34,5 +34,8 @@ export function SearchSuggestions({ html, onOpenLink }: SearchSuggestionsProps) 
   }, [clean]);
 
   if (!clean.trim()) return null;
-  return <div ref={host} data-testid="search-suggestions" className="border-t border-line pt-1.5" />;
+  return <div ref={host} data-testid="search-suggestions" className="border-t border-line pt-1.5"
+      // Containment keeps provider CSS (:host{position:fixed}, inline fixed) from overlaying the app.
+      style={{ position: 'relative', overflow: 'hidden', contain: 'content' }}
+    />;
 }

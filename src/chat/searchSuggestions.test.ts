@@ -20,6 +20,11 @@ describe('sanitizeSearchSuggestions', () => {
     expect(out).toContain('http://ok.test/');
   });
 
+  it('drops area/map and xlink:href links that bypass the click handler', () => {
+    const out = sanitizeSearchSuggestions('<map name="m"><area href="https://a.test/" shape="rect"></map><svg><a xlink:href="https://b.test/"><text>t</text></a></svg>');
+    expect(out).not.toMatch(/<area|<map|xlink:href/i);
+  });
+
   it('does not alter the Markdown sanitizer config', async () => {
     const { renderMarkdown } = await import('@/workspace/markdown');
     sanitizeSearchSuggestions('<style>a{}</style>');
