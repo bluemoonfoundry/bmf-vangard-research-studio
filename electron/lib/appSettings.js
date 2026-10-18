@@ -46,8 +46,10 @@ export function createAppSettings(filePath) {
     async function read() {
         try {
             return normalize(JSON.parse(await fs.readFile(filePath, 'utf-8')));
-        } catch {
-            return normalize(null);
+        } catch (err) {
+            // Only a missing or corrupt file reads as defaults; other errors must not lead to an overwrite.
+            if (err instanceof SyntaxError || (err && err.code === 'ENOENT')) return normalize(null);
+            throw err;
         }
     }
 

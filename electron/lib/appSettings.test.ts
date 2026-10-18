@@ -50,4 +50,11 @@ describe('appSettings', () => {
         expect(reread.ai.enabled).toBe(true);
         expect(reread.ai.providers.gemini).toEqual({ lastTestOk: null });
     });
+
+    it('rethrows non-ENOENT read errors instead of defaulting', async () => {
+        await fs.mkdir(file);
+        const settings = createAppSettings(file);
+        await expect(settings.read()).rejects.toBeTruthy();
+        await expect(settings.update(s => s)).rejects.toBeTruthy();
+    });
 });
