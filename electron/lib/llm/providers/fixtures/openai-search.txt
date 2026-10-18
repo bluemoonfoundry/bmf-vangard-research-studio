@@ -1,0 +1,18 @@
+event: response.created
+data: {"type":"response.created","sequence_number":0,"response":{"id":"resp_2","status":"in_progress","model":"gpt-4.1-2025-04-14","output":[],"usage":null}}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","sequence_number":1,"output_index":0,"item":{"id":"ws_1","type":"web_search_call","status":"in_progress"}}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","sequence_number":6,"item_id":"msg_2","output_index":1,"content_index":0,"delta":"Rates fell "}
+
+event: response.output_text.annotation.added
+data: {"type":"response.output_text.annotation.added","sequence_number":7,"item_id":"msg_2","output_index":1,"content_index":0,"annotation_index":0,"annotation":{"type":"url_citation","start_index":0,"end_index":11,"url":"https://example.com/euro","title":"Euro rate"}}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","sequence_number":8,"item_id":"msg_2","output_index":1,"content_index":0,"delta":"today."}
+
+event: response.completed
+data: {"type":"response.completed","sequence_number":12,"response":{"id":"resp_2","status":"completed","model":"gpt-4.1-2025-04-14","output":[{"id":"ws_1","type":"web_search_call","status":"completed","action":{"type":"search","query":"euro rate"}},{"id":"msg_2","type":"message","status":"completed","role":"assistant","content":[{"type":"output_text","text":"Rates fell today.","annotations":[{"type":"url_citation","start_index":0,"end_index":11,"url":"https://example.com/euro","title":"Euro rate"},{"type":"url_citation","start_index":12,"end_index":17,"url":"https://news.example.org/final","title":"Final news"},{"type":"url_citation","start_index":12,"end_index":17,"url":"file:///etc/passwd","title":"Bad"}]}]}],"usage":{"input_tokens":30,"output_tokens":40,"total_tokens":70}}}
+

@@ -1,0 +1,6 @@
+event: response.created
+data: {"type":"response.created","sequence_number":0,"response":{"id":"resp_3","status":"in_progress","model":"gpt-4.1","output":[],"usage":null}}
+
+event: response.failed
+data: {"type":"response.failed","sequence_number":2,"response":{"id":"resp_3","status":"failed","error":{"code":"server_error","message":"The model failed (key SECRET-KEY-123)."},"usage":null}}
+

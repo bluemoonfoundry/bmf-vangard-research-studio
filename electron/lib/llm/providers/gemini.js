@@ -1,5 +1,6 @@
 import { LlmError, requestJson, requestStream, scrub } from '../http.js';
 import { readSse } from '../sse.js';
+import { normalizeSources } from '../sources.js';
 
 /**
  * Google Gemini adapter (Generative Language API, v1beta).
@@ -45,17 +46,11 @@ function buildBody(request) {
     return body;
 }
 
-/** @param {unknown} uri */
-function isHttpUrl(uri) {
-    return typeof uri === 'string' && /^https?:\/\//i.test(uri);
-}
-
-/** @param {Map<string, {title?: string, url: string}>} into @param {any} grounding */
+/** @param {{ url?: unknown, title?: unknown }[]} into @param {any} grounding */
 function collectSources(into, grounding) {
     for (const chunk of (grounding && grounding.groundingChunks) || []) {
         const web = chunk && chunk.web;
-        if (!web || !isHttpUrl(web.uri) || into.has(web.uri)) continue;
-        into.set(web.uri, web.title ? { title: web.title, url: web.uri } : { url: web.uri });
+        if (web) into.push({ url: web.uri, title: web.title });
     }
 }
 
@@ -107,7 +102,8 @@ export function createGeminiAdapter({ baseUrl = DEFAULT_BASE_URL, fetchFn = glob
                 secrets,
             });
 
-            const sources = new Map();
+            /** @type {{ url?: unknown, title?: unknown }[]} */
+            const cited = [];
             let entryPointHtml = '';
             let model = request.model;
             /** @type {{ inputTokens?: number, outputTokens?: number } | undefined} */
@@ -139,13 +135,14 @@ export function createGeminiAdapter({ baseUrl = DEFAULT_BASE_URL, fetchFn = glob
                     gotText = true;
                     onEvent({ type: 'text', delta: part.text });
                 }
-                collectSources(sources, cand.groundingMetadata);
+                collectSources(cited, cand.groundingMetadata);
                 const html = cand.groundingMetadata && cand.groundingMetadata.searchEntryPoint && cand.groundingMetadata.searchEntryPoint.renderedContent;
                 if (html) entryPointHtml = html;
             }
 
             if (!gotText && blocked) throw new LlmError('BAD_REQUEST', scrub(`The request was blocked by the provider (${blocked}).`, secrets));
-            if (sources.size) onEvent({ type: 'sources', sources: [...sources.values()] });
+            const sources = normalizeSources(cited);
+            if (sources.length) onEvent({ type: 'sources', sources });
             if (entryPointHtml) onEvent({ type: 'extras', extras: { gemini: { searchEntryPointHtml: entryPointHtml } } });
             onEvent(usage ? { type: 'done', model, usage } : { type: 'done', model });
         },

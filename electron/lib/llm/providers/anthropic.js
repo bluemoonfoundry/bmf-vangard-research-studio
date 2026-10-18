@@ -1,5 +1,6 @@
 import { LlmError, requestJson, requestStream, scrub } from '../http.js';
 import { readSse } from '../sse.js';
+import { normalizeSources } from '../sources.js';
 
 /**
  * Anthropic Claude adapter (Messages API).
@@ -66,10 +67,9 @@ function buildBody(request) {
     return body;
 }
 
-/** @param {Map<string, {title?: string, url: string}>} into @param {unknown} url @param {unknown} title */
+/** @param {{ url?: unknown, title?: unknown }[]} into @param {unknown} url @param {unknown} title */
 function addSource(into, url, title) {
-    if (typeof url !== 'string' || !/^https?:\/\//i.test(url) || into.has(url)) return;
-    into.set(url, typeof title === 'string' && title ? { title, url } : { url });
+    into.push({ url, title });
 }
 
 /**
@@ -122,7 +122,8 @@ export function createAnthropicAdapter({ baseUrl = DEFAULT_BASE_URL, fetchFn = g
                 secrets,
             });
 
-            const sources = new Map();
+            /** @type {{ url?: unknown, title?: unknown }[]} */
+            const cited = [];
             let model = request.model;
             /** @type {{ inputTokens?: number, outputTokens?: number } | undefined} */
             let usage;
@@ -155,9 +156,9 @@ export function createAnthropicAdapter({ baseUrl = DEFAULT_BASE_URL, fetchFn = g
                     case 'content_block_start': {
                         const block = msg.content_block;
                         if (block && block.type === 'web_search_tool_result' && Array.isArray(block.content)) {
-                            for (const r of block.content) addSource(sources, r && r.url, r && r.title);
+                            for (const r of block.content) addSource(cited, r && r.url, r && r.title);
                         } else if (block && block.type === 'web_fetch_tool_result' && block.content && block.content.type === 'web_fetch_result') {
-                            addSource(sources, block.content.url, block.content.content && block.content.content.title);
+                            addSource(cited, block.content.url, block.content.content && block.content.content.title);
                         }
                         break;
                     }
@@ -166,7 +167,7 @@ export function createAnthropicAdapter({ baseUrl = DEFAULT_BASE_URL, fetchFn = g
                         if (d && d.type === 'text_delta' && typeof d.text === 'string' && d.text !== '') {
                             onEvent({ type: 'text', delta: d.text });
                         } else if (d && d.type === 'citations_delta' && d.citation && d.citation.type === 'web_search_result_location') {
-                            addSource(sources, d.citation.url, d.citation.title);
+                            addSource(cited, d.citation.url, d.citation.title);
                         }
                         break;
                     }
@@ -175,7 +176,8 @@ export function createAnthropicAdapter({ baseUrl = DEFAULT_BASE_URL, fetchFn = g
                 }
             }
 
-            if (sources.size) onEvent({ type: 'sources', sources: [...sources.values()] });
+            const sources = normalizeSources(cited);
+            if (sources.length) onEvent({ type: 'sources', sources });
             onEvent(usage ? { type: 'done', model, usage } : { type: 'done', model });
         },
     };
