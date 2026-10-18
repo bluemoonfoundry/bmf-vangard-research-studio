@@ -97,6 +97,7 @@ function ProviderRow({ id, name, ai }: { id: ProviderId; name: string; ai: AiCon
 /** App-level AI settings (spec §1): master switch, provider keys, default provider and model. */
 export function SettingsDialog({ ai, onClose }: SettingsDialogProps) {
   const { status, loadModels } = ai;
+  const [confirmReset, setConfirmReset] = useState(false);
   const defaultProvider = status?.defaultProvider ?? null;
 
   useEffect(() => {
@@ -130,9 +131,22 @@ export function SettingsDialog({ ai, onClose }: SettingsDialogProps) {
       ) : (
         <div className="space-y-4">
           {status.keyStoreProblem && (
-            <p role="alert" className="rounded border border-danger bg-surface-sunken p-3 text-sm font-medium text-danger">
-              {status.keyStoreProblem}
-            </p>
+            <div role="alert" className="flex items-center gap-3 rounded border border-danger bg-surface-sunken p-3 text-sm font-medium text-danger">
+              <span className="flex-1">{status.keyStoreProblem}</span>
+              <button type="button" className={btn} onClick={() => setConfirmReset(true)}>Reset stored keys</button>
+            </div>
+          )}
+          {confirmReset && (
+            <ConfirmDialog
+              title="Reset stored keys"
+              message="Start over with no saved API keys? The unreadable key file is kept as a backup next to it, and AI is turned off until you add a key again."
+              confirmLabel="Reset stored keys"
+              onCancel={() => setConfirmReset(false)}
+              onConfirm={() => {
+                setConfirmReset(false);
+                void ai.resetKeys();
+              }}
+            />
           )}
           {ai.error && <p role="alert" className="rounded border border-danger bg-surface-sunken p-3 text-sm text-danger">{ai.error}</p>}
 

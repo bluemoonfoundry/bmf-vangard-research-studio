@@ -50,6 +50,12 @@ function fakeKeys() {
             store.check();
             stored.delete(p);
         },
+        reset: vi.fn(async (_stamp: string) => {
+            if (!store.broken) throw Object.assign(new Error('The key store reads fine.'), { code: 'INVALID' });
+            store.broken = false;
+            stored.clear();
+            return '/userData/ai-keys.json.corrupt-stamp';
+        }),
     };
     return store;
 }
@@ -215,6 +221,33 @@ describe('llmService', () => {
         expect(settings.state.ai.enabled).toBe(false);
         expect(status.enabled).toBe(false);
         expect(status.providers.gemini).toEqual({ configured: false, lastTestOk: null });
+    });
+
+    it('resetKeys backs up a broken store, turns AI off and forgets test results', async () => {
+        const { service, keys, settings, adapters, events } = await enabled();
+        adapters.gemini.stream.mockImplementation(waitForAbort);
+        await service.startChat('r1', request());
+        keys.broken = true;
+        const status = await service.resetKeys();
+        expect(keys.reset).toHaveBeenCalledWith('2026-10-17T12-00-00-000Z');
+        expect(settings.state.ai.enabled).toBe(false);
+        for (const id of IDS) expect(settings.state.ai.providers[id].lastTestOk).toBeNull();
+        expect(status.keyStoreProblem).toBeNull();
+        expect(status.enabled).toBe(false);
+        expect(events).toEqual([{ requestId: 'r1', event: { type: 'error', code: 'CANCELLED', message: 'Cancelled' } }]);
+    });
+
+    it('resetKeys refuses while the key store reads fine', async () => {
+        const { service, keys, settings } = await enabled();
+        expect(await codeOf(service.resetKeys())).toBe('INVALID');
+        expect(keys.stored.has('gemini')).toBe(true);
+        expect(settings.state.ai.enabled).toBe(true);
+    });
+
+    it('resetKeys stays available while AI is off', async () => {
+        const { service, keys } = setup();
+        keys.broken = true;
+        await expect(service.resetKeys()).resolves.toMatchObject({ keyStoreProblem: null });
     });
 
     it('status never includes key material', async () => {

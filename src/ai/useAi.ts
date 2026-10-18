@@ -12,6 +12,8 @@ export interface AiController {
   setSettings(patch: AiSettingsPatch): Promise<void>;
   saveKey(provider: ProviderId, key: string): Promise<boolean>;
   removeKey(provider: ProviderId): Promise<void>;
+  /** Recovery for an unreadable key store: backs it up and starts with no keys. */
+  resetKeys(): Promise<void>;
   testKey(provider: ProviderId): Promise<boolean>;
   /** Cached models for a provider, once loaded. */
   models(provider: ProviderId): ModelInfo[] | undefined;
@@ -103,6 +105,9 @@ export function useAi(api: AiApi | null): AiController {
       if (await adopt(() => api.removeKey(provider))) {
         setModelCache(({ [provider]: _gone, ...rest }) => rest);
       }
+    },
+    resetKeys: async () => {
+      if (api && await adopt(() => api.resetKeys())) setModelCache({});
     },
     testKey: (provider) => (api ? adopt(() => api.testKey(provider)) : Promise.resolve(false)),
     models,

@@ -76,11 +76,50 @@ describe('apiKeys', () => {
         expect(await fs.readFile(file, 'utf-8')).toBe('{ corrupt');
     });
 
+    it('reset moves a corrupt key file aside and starts fresh', async () => {
+        const keys = createApiKeyStore(file, safeStorage);
+        await fs.writeFile(file, '{ corrupt', 'utf-8');
+        const backup = await keys.reset('2026-10-18T09-30-00-000Z');
+        expect(backup).toBe(`${file}.corrupt-2026-10-18T09-30-00-000Z`);
+        expect(await fs.readFile(backup!, 'utf-8')).toBe('{ corrupt');
+        expect(await keys.has('openai')).toBe(false);
+        await keys.set('openai', 'b');
+        expect(await keys.get('openai')).toBe('b');
+    });
+
+    it('reset with no key file does nothing', async () => {
+        const keys = createApiKeyStore(file, safeStorage);
+        expect(await keys.reset('stamp')).toBeNull();
+        expect(await fs.readdir(tmp)).toEqual([]);
+    });
+
+    it('reset refuses a key file that reads fine', async () => {
+        const keys = createApiKeyStore(file, safeStorage);
+        await keys.set('gemini', 'a');
+        await expect(keys.reset('stamp')).rejects.toMatchObject({ code: 'INVALID' });
+        expect(await keys.get('gemini')).toBe('a');
+    });
+
+    it('reset rejects a stamp that is not a plain file-name part', async () => {
+        const keys = createApiKeyStore(file, safeStorage);
+        await fs.writeFile(file, '{ corrupt', 'utf-8');
+        await expect(keys.reset('../x')).rejects.toMatchObject({ code: 'INVALID' });
+        expect(await fs.readFile(file, 'utf-8')).toBe('{ corrupt');
+    });
+
     it('rejects on a non-ENOENT read error', async () => {
         await fs.mkdir(file); // reading a directory fails with EISDIR
         const keys = createApiKeyStore(file, safeStorage);
         await expect(keys.set('openai', 'b')).rejects.toMatchObject({ code: 'UNAVAILABLE' });
         await expect(keys.get('openai')).rejects.toMatchObject({ code: 'UNAVAILABLE' });
+    });
+
+    it('reset moves an unreadable key store aside too', async () => {
+        await fs.mkdir(file);
+        const keys = createApiKeyStore(file, safeStorage);
+        const backup = await keys.reset('stamp');
+        expect((await fs.stat(backup!)).isDirectory()).toBe(true);
+        expect(await keys.has('openai')).toBe(false);
     });
 
     it('throws a coded error when a stored key cannot be decrypted', async () => {

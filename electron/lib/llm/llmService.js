@@ -49,7 +49,7 @@ export const EXTRACT_MAX_OUTPUT_TOKENS = 32_000;
 /** How long a key test / model-list call may take. */
 const LIST_TIMEOUT_MS = 30_000;
 
-const KEY_STORE_PROBLEM = 'Your saved API keys could not be read. Add your keys again in Settings → AI.';
+const KEY_STORE_PROBLEM = 'Your saved API keys could not be read. Reset stored keys, then add your keys again.';
 const CANCELLED_EVENT = Object.freeze({ type: 'error', code: 'CANCELLED', message: 'Cancelled' });
 const SETTINGS_FIELDS = ['enabled', 'defaultProvider', 'defaultModel'];
 
@@ -344,6 +344,25 @@ export function createLlmService({ settings, keys, adapters, emit, now = () => n
                 await settings.update((s) => ({ ...s, ai: { ...s.ai, enabled: false } }));
                 abortAll();
             }
+            return getStatus();
+        },
+
+        /**
+         * Recovery for an unreadable key store: moves it aside (`ai-keys.json.corrupt-<ts>`), turns AI
+         * off and forgets every key's test result. Refused while the store reads fine.
+         */
+        async resetKeys() {
+            await keys.reset(now().replace(/[:.]/g, '-'));
+            modelCache.clear();
+            await settings.update((s) => ({
+                ...s,
+                ai: {
+                    ...s.ai,
+                    enabled: false,
+                    providers: Object.fromEntries(Object.entries(s.ai.providers).map(([id, p]) => [id, { ...p, lastTestOk: null }])),
+                },
+            }));
+            abortAll();
             return getStatus();
         },
 

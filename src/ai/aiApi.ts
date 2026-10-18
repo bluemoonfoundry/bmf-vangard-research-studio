@@ -17,6 +17,7 @@ export function createAiApi(bridge: VrsApi): AiApi {
     setSettings: (patch) => unwrap(raw.setSettings(patch)),
     saveKey: (provider, key) => unwrap(raw.saveKey(provider, key)),
     removeKey: (provider) => unwrap(raw.removeKey(provider)),
+    resetKeys: () => unwrap(raw.resetKeys()),
     testKey: (provider) => unwrap(raw.testKey(provider)),
     listModels: (provider, options) => unwrap(raw.listModels(provider, options)),
     startChat: (requestId, request) => unwrap(raw.startChat(requestId, request)),

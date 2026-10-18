@@ -190,6 +190,13 @@ export function createFakeBridge() {
         if (!Object.values(fake.ai.status.providers).some(p => p.configured)) fake.ai.status.enabled = false;
         return ok(fake.ai.status);
       }),
+      resetKeys: vi.fn(() => {
+        fake.ai.status = { ...fake.ai.status, enabled: false, keyStoreProblem: null };
+        for (const id of Object.keys(fake.ai.status.providers) as ProviderId[]) {
+          fake.ai.status.providers[id] = { configured: false, lastTestOk: null };
+        }
+        return ok(fake.ai.status);
+      }),
       testKey: vi.fn((_provider: ProviderId) => ok(fake.ai.status)),
       listModels: vi.fn((provider: ProviderId, _options?: { refresh?: boolean }) => ok(fake.ai.models[provider] ?? [])),
       startChat: vi.fn((requestId: string, request: ChatRequest) => {
