@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { formatTurns, parseTranscript, turnSpans } from '@/chat/importFormats';
-import sample from './fixtures/aistudio-exporter-sample.md?raw';
+import { normalizeChatText } from '@/bible/entities';
+import raw from './fixtures/aistudio-exporter-sample.md?raw';
+
+// The checkout may have CRLF line endings (core.autocrlf); the parser normalizes, the test regexes expect LF.
+const sample = normalizeChatText(raw);
 
 describe('parseTranscript: AI Chat Exporter markdown', () => {
   it('reads title, source and turns', () => {
