@@ -47,6 +47,8 @@ interface VrsApi {
     cancelChat(requestId: string): Promise<VrsIpcResult<void>>;
     cancelAll(): Promise<VrsIpcResult<void>>;
     onChatEvent(callback: (payload: import('@/ai/types').ChatEvent) => void): () => void;
+    extract(requestId: string, request: import('@/ai/types').ExtractRequest): Promise<VrsIpcResult<import('@/ai/types').ExtractResult>>;
+    cancelExtract(requestId: string): Promise<VrsIpcResult<void>>;
   };
 }
 

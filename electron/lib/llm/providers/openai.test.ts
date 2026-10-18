@@ -35,7 +35,7 @@ const baseRequest = {
     readUrls: false,
 };
 
-async function run(over: Partial<typeof baseRequest>, responses: { body: string; status?: number; type?: string }[] = [{ body: fixture('openai-text.txt') }]) {
+async function run(over: Partial<typeof baseRequest> & { jsonSchema?: object; maxOutputTokens?: number }, responses: { body: string; status?: number; type?: string }[] = [{ body: fixture('openai-text.txt') }]) {
     const { calls, fetchFn } = fakeFetch(responses);
     const events: StreamEvent[] = [];
     await createOpenAiAdapter({ fetchFn }).stream({ ...baseRequest, ...over }, KEY, new AbortController().signal, (e: StreamEvent) => events.push(e));
@@ -174,5 +174,18 @@ describe('openai adapter', () => {
             )) as unknown as typeof fetch;
         const p = createOpenAiAdapter({ fetchFn }).stream(baseRequest, KEY, ac.signal, () => ac.abort());
         await expect(p).rejects.toMatchObject({ code: 'CANCELLED' });
+    });
+});
+
+describe('openai structured output', () => {
+    const schema = { type: 'object', properties: { a: { type: 'string' } }, required: ['a'], additionalProperties: false };
+
+    it('asks for strict JSON matching the schema', async () => {
+        const { body } = await run({ jsonSchema: schema });
+        expect(body.text).toEqual({ format: { type: 'json_schema', name: 'extraction', schema, strict: true } });
+    });
+
+    it('leaves the body alone without a schema', async () => {
+        expect((await run({})).body.text).toBeUndefined();
     });
 });

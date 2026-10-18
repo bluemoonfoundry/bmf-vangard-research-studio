@@ -57,5 +57,7 @@ contextBridge.exposeInMainWorld('vrs', {
     cancelChat: (requestId) => ipcRenderer.invoke('llm:chat-cancel', requestId),
     cancelAll: () => ipcRenderer.invoke('llm:cancel-all'),
     onChatEvent: (callback) => subscribe('llm:chat-event', callback),
+    extract: (requestId, request) => ipcRenderer.invoke('llm:extract', requestId, request),
+    cancelExtract: (requestId) => ipcRenderer.invoke('llm:extract-cancel', requestId),
   },
 });

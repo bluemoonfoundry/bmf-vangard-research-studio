@@ -23,5 +23,7 @@ export function createAiApi(bridge: VrsApi): AiApi {
     cancelChat: (requestId) => unwrap(raw.cancelChat(requestId)),
     cancelAll: () => unwrap(raw.cancelAll()),
     onChatEvent: (callback) => raw.onChatEvent(callback),
+    extract: (requestId, request) => unwrap(raw.extract(requestId, request)),
+    cancelExtract: (requestId) => unwrap(raw.cancelExtract(requestId)),
   };
 }

@@ -35,7 +35,7 @@ const baseRequest = {
     readUrls: false,
 };
 
-async function run(over: Partial<typeof baseRequest>, responses: { body: string; status?: number; type?: string }[] = [{ body: fixture('gemini-text.txt') }]) {
+async function run(over: Partial<typeof baseRequest> & { jsonSchema?: object; maxOutputTokens?: number }, responses: { body: string; status?: number; type?: string }[] = [{ body: fixture('gemini-text.txt') }]) {
     const { calls, fetchFn } = fakeFetch(responses);
     const events: StreamEvent[] = [];
     await createGeminiAdapter({ fetchFn }).stream({ ...baseRequest, ...over }, KEY, new AbortController().signal, (e: StreamEvent) => events.push(e));
@@ -165,5 +165,18 @@ describe('gemini adapter', () => {
             )) as unknown as typeof fetch;
         const p = createGeminiAdapter({ fetchFn }).stream(baseRequest, KEY, ac.signal, () => ac.abort());
         await expect(p).rejects.toMatchObject({ code: 'CANCELLED' });
+    });
+});
+
+describe('gemini structured output', () => {
+    const schema = { type: 'object', properties: { a: { type: 'string' } }, required: ['a'], additionalProperties: false };
+
+    it('asks for JSON matching the schema, keeping temperature', async () => {
+        const { body } = await run({ jsonSchema: schema, temperature: 0.2 });
+        expect(body.generationConfig).toEqual({ temperature: 0.2, responseMimeType: 'application/json', responseJsonSchema: schema });
+    });
+
+    it('leaves the body alone without a schema', async () => {
+        expect((await run({})).body.generationConfig).toBeUndefined();
     });
 });

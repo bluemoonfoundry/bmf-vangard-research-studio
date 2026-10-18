@@ -4,7 +4,7 @@ import type {
   Bible, ExternalChange, ImportedAsset, IpcResult, MediaKind, OpenedProject, ProjectManifest, ProjectTree, RecentProject,
   SavePayload, TextImportBatch, UnsavedChoice,
 } from '@/project/types';
-import type { AiSettingsPatch, AiStatus, ChatEvent, ChatRequest, ModelInfo, ProviderId, StreamEvent } from '@/ai/types';
+import type { AiSettingsPatch, AiStatus, ChatEvent, ChatRequest, ExtractRequest, ExtractResult, ModelInfo, ProviderId, StreamEvent } from '@/ai/types';
 import type { ChatTranscript } from '@/chat/types';
 
 const ok = <T,>(value: T): Promise<IpcResult<T>> => Promise.resolve({ ok: true, value });
@@ -75,6 +75,11 @@ export function createFakeBridge() {
       models: {} as Partial<Record<ProviderId, ModelInfo[]>>,
       startedChats: [] as { requestId: string; request: ChatRequest }[],
       cancelledChats: [] as string[],
+      extractions: [] as { requestId: string; request: ExtractRequest }[],
+      cancelledExtractions: [] as string[],
+      /** What `extract` resolves with: a value, a function of the request, or a function that throws to fail. */
+      extractResult: { proposals: [], summary: '', dropped: 0, model: 'fake-model' } as ExtractResult
+        | ((request: ExtractRequest, requestId: string) => ExtractResult | Promise<ExtractResult>),
       emitChatEvent(requestId: string, event: StreamEvent) {
         chatListeners.forEach(l => l({ requestId, event }));
       },
@@ -196,6 +201,20 @@ export function createFakeBridge() {
       onChatEvent: vi.fn((cb: (payload: ChatEvent) => void) => {
         chatListeners.add(cb);
         return () => chatListeners.delete(cb);
+      }),
+      extract: vi.fn(async (requestId: string, request: ExtractRequest): Promise<VrsIpcResult<ExtractResult>> => {
+        fake.ai.extractions.push({ requestId, request });
+        const r = fake.ai.extractResult;
+        try {
+          return { ok: true, value: typeof r === 'function' ? await r(request, requestId) : r };
+        } catch (e) {
+          const err = e as { code?: string; message?: string };
+          return { ok: false, error: { code: err.code ?? 'PROVIDER', message: err.message ?? String(e) } };
+        }
+      }),
+      cancelExtract: vi.fn((requestId: string) => {
+        fake.ai.cancelledExtractions.push(requestId);
+        return ok(undefined);
       }),
     },
   } satisfies VrsApi;
