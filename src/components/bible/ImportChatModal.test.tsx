@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import * as formats from '@/chat/importFormats';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { TextImportBatch } from '@/project/types';
 import { normalizeChatText } from '@/bible/entities';
@@ -74,6 +75,58 @@ describe('ImportChatModal', () => {
     fireEvent.change(place, { target: { value: '0' } });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Import' }));
     expect(vi.mocked(props.onImport).mock.calls[0][1]).toBe(0);
+  });
+
+  it('appends a second pick to the batch, skipping a file already listed unchanged', async () => {
+    const first: TextImportBatch = { imports: [{ title: 'a', text: 'alpha', fileName: 'a.txt' }], skipped: [] };
+    const second: TextImportBatch = {
+      imports: [{ title: 'a', text: 'alpha', fileName: 'a.txt' }, { title: 'b', text: 'beta', fileName: 'b.txt' }],
+      skipped: [],
+    };
+    const importTexts = vi.fn().mockResolvedValueOnce(first).mockResolvedValueOnce(second);
+    const { props, dialog } = setup({ importTexts });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Choose files…' }));
+    await within(dialog).findByRole('textbox', { name: 'Title for a.txt' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add files…' }));
+    await within(dialog).findByRole('textbox', { name: 'Title for b.txt' });
+    expect(within(dialog).getAllByRole('textbox', { name: 'Title for a.txt' })).toHaveLength(1);
+    expect(within(dialog).getByText('2 files')).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Import' }));
+    expect(vi.mocked(props.onImport).mock.calls[0][0].map(e => e.body)).toEqual(['alpha', 'beta']);
+  });
+
+  it('removes a row, and removing the last one goes back to paste', async () => {
+    const batch: TextImportBatch = {
+      imports: [{ title: 'a', text: 'alpha', fileName: 'a.txt' }, { title: 'b', text: 'beta', fileName: 'b.txt' }],
+      skipped: [],
+    };
+    const { props, dialog } = setup({ importTexts: vi.fn(async () => batch) });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Choose files…' }));
+    await within(dialog).findByRole('textbox', { name: 'Title for a.txt' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Remove a.txt' }));
+    expect(within(dialog).queryByRole('textbox', { name: 'Title for a.txt' })).toBeNull();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Import' }));
+    expect(vi.mocked(props.onImport).mock.calls[0][0].map(e => e.body)).toEqual(['beta']);
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Remove b.txt' }));
+    expect(within(dialog).getByRole('textbox', { name: 'Chat text' })).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'Import' })).toBeDisabled();
+  });
+
+  it('stays on paste when every picked file was skipped', async () => {
+    const batch: TextImportBatch = { imports: [], skipped: [{ fileName: 'pic.png', message: 'pic.png is not a supported text file.' }] };
+    const { dialog } = setup({ importTexts: vi.fn(async () => batch) });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Choose files…' }));
+    expect(await within(dialog).findByText('pic.png: pic.png is not a supported text file.')).toBeInTheDocument();
+    expect(within(dialog).getByRole('textbox', { name: 'Chat text' })).toBeInTheDocument();
+    expect(within(dialog).queryByText('0 files')).toBeNull();
+  });
+
+  it('parses pasted text once per change', () => {
+    const spy = vi.spyOn(formats, 'parseTranscript');
+    const { dialog } = setup();
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Chat text' }), { target: { value: sample } });
+    expect(spy).toHaveBeenCalledTimes(1);
+    spy.mockRestore();
   });
 
   it('hides placement when there are no other sources', async () => {
