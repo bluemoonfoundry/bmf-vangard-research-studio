@@ -156,6 +156,21 @@ editing, source links and decision flows must keep working.
   age, ...). Store pins on the entity item, for example `cardFacts: string[]` of attribute keys.
 - **Portrait**: the first referenced image item, unless the writer picks one (`portraitId`).
 
+### Part 2 implementation decisions
+
+- The wall is a workspace mode ("Cards" in the toolbar, next to Conflicts and Timeline). Clicking a card opens the full
+  view in place; "Card wall" goes back, "Open in editor" opens the entity in the research view, and the editor's facts
+  panel has "Open card".
+- The full view sits alongside `EntityPanel` rather than replacing it. The full view handles canon, pins, decisions,
+  pending facts, notes and links; `EntityPanel` keeps set-aside facts, "Mark unreviewed" and editing kept facts.
+- A card shows its pinned lines only when any are pinned (stale pins are ignored), else the first five canon lines in
+  `DEFAULT_CARD_ORDER`. An attribute the writer kept several versions of shows them joined with " / ".
+- "In N sources" counts the distinct source items of live (kept and proposed) facts. Each canon line's count is the
+  distinct sources of the facts that agree on that value. Part 3's `evidence` list will feed both counts.
+- Proposed facts that are part of an open conflict show only inside that conflict, not again in the pending list.
+- New entities from the wall go in the folder holding the first entity of that kind (top level if none).
+- Importing new media from the card is not offered yet: "Link an item" links existing binder items.
+
 ## Part 3: AI extraction to proposals (AI only)
 
 ### What the writer does

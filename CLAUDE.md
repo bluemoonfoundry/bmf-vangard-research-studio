@@ -158,6 +158,10 @@ version field; the project's `schemaVersion` in `vrs.json` (now 2) covers it.
   With `messageId` (an AI Chat message) offsets are into that message's stored text; a deleted message resolves to
   missing with reason "message was deleted".
 - **Entities** are binder items (`type: 'entity'`, `entityKind`); events show When / Must come after instead of plain facts.
+- **Card wall** (Workspace "Cards" mode; logic in `src/bible/cards.ts`, UI `CardWall` + `EntityCard`): a tab per kind (plus
+  "Other"), cards show kept facts only. Pins are `cardFacts` (attribute keys) on the entity item; with none, a per-kind
+  `DEFAULT_CARD_ORDER` applies. The portrait is `portraitId`, else the first linked image. Media and related entities are
+  plain `references`. `EntityPanel` (in the editor) stays the place for full fact editing, set-aside facts and unreviewing.
 
 ## AI Layer and AI Chat
 

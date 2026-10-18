@@ -109,9 +109,9 @@ export function EntityCard(props: EntityCardProps) {
     );
   };
 
-  const linkButton = (i: TreeItem, open: (id: string) => void) => (
+  const linkButton = (i: TreeItem, onOpen: (id: string) => void) => (
     <li key={i.id}>
-      <button type="button" className="text-left text-accent hover:underline" onClick={() => open(i.id)}>{titleOf(i)}</button>
+      <button type="button" className="text-left text-accent hover:underline" onClick={() => onOpen(i.id)}>{titleOf(i)}</button>
     </li>
   );
 
