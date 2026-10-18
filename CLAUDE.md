@@ -173,8 +173,10 @@ Strictly opt-in (see Project Overview). Main-process code in `electron/lib/`, re
 - **Settings** live in `userData/settings.json` (`appSettings.js`: `ai.{enabled, defaultProvider, defaultModel, providers[id].lastTestOk}`;
   unknown fields kept; missing/corrupt reads as defaults). **Keys** live in `userData/ai-keys.json` (`apiKeys.js`), each value
   `safeStorage`-encrypted; `set` refuses (`UNAVAILABLE`) when encryption is unavailable, never plaintext. An unreadable or corrupt
-  store throws instead of being overwritten and surfaces as `AiStatus.keyStoreProblem`. Keys never reach the renderer.
-- **Opt-in rule** (`llmService.js`): every `llm:*` channel except `llm:save-key`, `llm:remove-key` and `llm:test` refuses with
+  store throws instead of being overwritten and surfaces as `AiStatus.keyStoreProblem`; Settings then offers "Reset stored keys"
+  (`llm:reset-keys`), which renames it to `ai-keys.json.corrupt-<ts>`, turns AI off and clears every `lastTestOk` (refused while
+  the store reads fine). Keys never reach the renderer.
+- **Opt-in rule** (`llmService.js`): every `llm:*` channel except `llm:save-key`, `llm:remove-key`, `llm:reset-keys` and `llm:test` refuses with
   `AI_DISABLED` while AI is disabled. Enabling (`settings:set-ai`) needs a provider with a saved key and a passing test
   (`lastTestOk`); `llm:save-key` stores a key only after a model-list call succeeds. Removing the last configured key
   (`llm:remove-key`) turns AI off (and aborts in-flight requests). Disabling calls `abortAll()`, which aborts

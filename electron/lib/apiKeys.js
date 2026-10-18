@@ -96,5 +96,31 @@ export function createApiKeyStore(filePath, safeStorage) {
                 await store(entries);
             });
         },
+
+        /**
+         * Recovery for a store that can't be read: renames it to `<file>.corrupt-<stamp>` so the
+         * next write starts fresh. Refuses a store that reads fine, so working keys are never dropped.
+         * @param {string} stamp  File-name-safe timestamp.
+         * @returns {Promise<string | null>} The backup path, or null when there was no file.
+         */
+        async reset(stamp) {
+            if (typeof stamp !== 'string' || !/^[\w-]+$/.test(stamp)) throw fail('INVALID', 'Invalid backup name.');
+            return serialise(async () => {
+                try {
+                    await load();
+                } catch {
+                    const backup = `${filePath}.corrupt-${stamp}`;
+                    await fs.rename(filePath, backup);
+                    logger.warn(`Moved an unreadable key store aside to ${path.basename(backup)}.`);
+                    return backup;
+                }
+                try {
+                    await fs.access(filePath);
+                } catch {
+                    return null;
+                }
+                throw fail('INVALID', 'The key store reads fine; remove keys one at a time instead.');
+            });
+        },
     };
 }

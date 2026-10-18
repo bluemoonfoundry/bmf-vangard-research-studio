@@ -51,6 +51,7 @@ contextBridge.exposeInMainWorld('vrs', {
     setSettings: (patch) => ipcRenderer.invoke('settings:set-ai', patch),
     saveKey: (provider, key) => ipcRenderer.invoke('llm:save-key', provider, key),
     removeKey: (provider) => ipcRenderer.invoke('llm:remove-key', provider),
+    resetKeys: () => ipcRenderer.invoke('llm:reset-keys'),
     testKey: (provider) => ipcRenderer.invoke('llm:test', provider),
     listModels: (provider, options) => ipcRenderer.invoke('llm:list-models', provider, options),
     startChat: (requestId, request) => ipcRenderer.invoke('llm:chat-start', requestId, request),

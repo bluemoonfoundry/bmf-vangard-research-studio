@@ -208,6 +208,7 @@ function registerIpcHandlers() {
     handle('settings:set-ai', (patch) => llm.setSettings(patch));
     handle('llm:save-key', (provider, key) => llm.saveKey(provider, key));
     handle('llm:remove-key', (provider) => llm.removeKey(provider));
+    handle('llm:reset-keys', () => llm.resetKeys());
     handle('llm:test', (provider) => llm.testKey(provider));
     handle('llm:list-models', (provider, options) => llm.listModels(provider, { refresh: options?.refresh === true }));
     handle('llm:chat-start', (requestId, request) => llm.startChat(requestId, request));

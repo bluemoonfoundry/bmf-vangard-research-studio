@@ -42,6 +42,8 @@ interface VrsApi {
     setSettings(patch: import('@/ai/types').AiSettingsPatch): Promise<VrsIpcResult<import('@/ai/types').AiStatus>>;
     saveKey(provider: import('@/ai/types').ProviderId, key: string): Promise<VrsIpcResult<import('@/ai/types').AiStatus>>;
     removeKey(provider: import('@/ai/types').ProviderId): Promise<VrsIpcResult<import('@/ai/types').AiStatus>>;
+    /** Moves an unreadable key store aside and starts fresh; refused while it reads fine. */
+    resetKeys(): Promise<VrsIpcResult<import('@/ai/types').AiStatus>>;
     testKey(provider: import('@/ai/types').ProviderId): Promise<VrsIpcResult<import('@/ai/types').AiStatus>>;
     listModels(provider: import('@/ai/types').ProviderId, options?: { refresh?: boolean }): Promise<VrsIpcResult<import('@/ai/types').ModelInfo[]>>;
     startChat(requestId: string, request: import('@/ai/types').ChatRequest): Promise<VrsIpcResult<string>>;

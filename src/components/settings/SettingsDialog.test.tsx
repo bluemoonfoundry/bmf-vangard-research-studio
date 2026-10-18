@@ -143,4 +143,21 @@ describe('SettingsDialog', () => {
     await setup(f => { f.ai.status.keyStoreProblem = 'Stored keys could not be read.'; });
     expect(screen.getByRole('alert')).toHaveTextContent('Stored keys could not be read.');
   });
+
+  it('reset stored keys asks first, then clears the key store problem', async () => {
+    const { bridge } = await setup(f => { f.ai.status.keyStoreProblem = 'Stored keys could not be read.'; });
+    fireEvent.click(screen.getByRole('button', { name: 'Reset stored keys' }));
+    const dialog = screen.getByRole('dialog', { name: 'Reset stored keys' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    expect(bridge.ai.resetKeys).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Reset stored keys' }));
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Reset stored keys' })).getByRole('button', { name: 'Reset stored keys' }));
+    await waitFor(() => expect(bridge.ai.resetKeys).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.queryByText('Stored keys could not be read.')).toBeNull());
+  });
+
+  it('no reset button while the key store reads fine', async () => {
+    await setup();
+    expect(screen.queryByRole('button', { name: 'Reset stored keys' })).toBeNull();
+  });
 });
