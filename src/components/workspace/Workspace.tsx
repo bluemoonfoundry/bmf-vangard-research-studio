@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, ArrowDownUp, BookOpen, CalendarRange, MessageSquare, Columns2, LayoutGrid, Plus, Rows2, SlidersHorizontal, Square, Table, Download, X } from 'lucide-react';
+import { AlertTriangle, ArrowDownUp, BookOpen, CalendarRange, Contact, MessageSquare, Columns2, LayoutGrid, Plus, Rows2, SlidersHorizontal, Square, Table, Download, X } from 'lucide-react';
 import type { EntityKind, FactSource, ItemType, MediaKind, TreeItem } from '@/project/types';
 import type { ProjectController } from '@/project/useProject';
 import { AI_CHAT_TYPE } from '@/project/projectState';
@@ -23,6 +23,10 @@ import { SourceOrderModal } from '@/components/bible/SourceOrderModal';
 import { findContradictions, openContradictions } from '@/bible/contradictions';
 import { ConflictQueue } from '@/components/bible/ConflictQueue';
 import { TimelineView } from '@/components/bible/TimelineView';
+import { CardWall } from '@/components/bible/CardWall';
+import { EntityCard } from '@/components/bible/EntityCard';
+import type { WallTabId } from '@/bible/cards';
+import { ENTITY_KINDS, entityKindOf } from '@/bible/entities';
 import { resolveSource, sourceText } from '@/bible/sources';
 import { factsCitingItems } from '@/bible/links';
 import { AddItemModal } from '@/components/workspace/AddItemModal';
@@ -31,8 +35,8 @@ import { ExportModal } from '@/components/workspace/ExportModal';
 import { ConfirmDialog } from '@/components/workspace/ConfirmDialog';
 import { btn, btnGhost, btnPrimary, input, segment, segmentGroup } from '@/components/workspace/ui';
 
-/** What the content area shows: the research panes, the conflict queue, or the timeline. */
-export type WorkspaceMode = 'research' | 'conflicts' | 'timeline';
+/** What the content area shows: the research panes, the card wall, the conflict queue, or the timeline. */
+export type WorkspaceMode = 'research' | 'cards' | 'conflicts' | 'timeline';
 
 /** How a folder (or the top level) is shown. Non-folder items always open in the editor. */
 export type FolderView = 'corkboard' | 'outliner' | 'editor';
@@ -98,6 +102,9 @@ export function Workspace({ project, ai, aiApi }: WorkspaceProps) {
   const [highlight, setHighlight] = useState<{ itemId: string; messageId?: string; start: number; end: number } | null>(null);
   const [mode, setMode] = useState<WorkspaceMode>('research');
   const [conflictKey, setConflictKey] = useState<string | undefined>(undefined);
+  const [cardTab, setCardTab] = useState<WallTabId>('character');
+  /** The entity whose full card is open in the card wall; null shows the wall. */
+  const [cardId, setCardId] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
@@ -143,6 +150,13 @@ export function Workspace({ project, ai, aiApi }: WorkspaceProps) {
     setConflictKey(key);
     setMode('conflicts');
   }, []);
+
+  const openCard = useCallback((id: string) => {
+    const entity = items.find(i => i.id === id);
+    if (entity) setCardTab(entityKindOf(entity) ?? 'other');
+    setCardId(id);
+    setMode('cards');
+  }, [items]);
 
   const navigate = useCallback((id: string | null) => {
     setMode('research');
@@ -242,8 +256,18 @@ export function Workspace({ project, ai, aiApi }: WorkspaceProps) {
     onShowConflict: showConflict,
     onOpenSource: openSource,
     onOpenEntity: navigate,
+    onOpenCard: openCard,
   };
   const addEntity = (entityKind: EntityKind, title: string, parentId: string | null) => addItem({ type: 'entity', entityKind, title, parentId });
+
+  /** A new entity from the card wall goes next to the others of its kind. */
+  const newEntityOfKind = (kind: EntityKind) => {
+    const parentId = items.find(i => entityKindOf(i) === kind)?.parentId ?? null;
+    const name = ENTITY_KINDS.find(k => k.id === kind)?.name ?? 'Entity';
+    expand(parentId);
+    openCard(addEntity(kind, `New ${name.toLowerCase()}`, parentId));
+  };
+  const card = cardId ? byId.get(cardId) : undefined;
 
   /** One content pane: an editor for items, or a corkboard/outliner/editor for folders and the top level. */
   const renderPane = (item: TreeItem | null, view: FolderView, open: (id: string | null) => void) => {
@@ -423,6 +447,9 @@ export function Workspace({ project, ai, aiApi }: WorkspaceProps) {
           <button type="button" className={btn} onClick={() => setExporting(true)}>
             <Download className="h-3.5 w-3.5" /> Export
           </button>
+          <button type="button" className={segment(mode === 'cards')} aria-pressed={mode === 'cards'} onClick={() => { setCardId(null); setMode(m => (m === 'cards' ? 'research' : 'cards')); }}>
+            <Contact className="h-3.5 w-3.5" /> Cards
+          </button>
           <button type="button" className={segment(mode === 'conflicts')} aria-pressed={mode === 'conflicts'} onClick={() => { setConflictKey(undefined); setMode(m => (m === 'conflicts' ? 'research' : 'conflicts')); }}>
             <AlertTriangle className="h-3.5 w-3.5" /> Conflicts
             <span className="rounded-full bg-surface-sunken px-1.5 text-[11px] text-content" aria-label={`${openContradictionCount} open`}>{openContradictionCount}</span>
@@ -475,7 +502,36 @@ export function Workspace({ project, ai, aiApi }: WorkspaceProps) {
           onMove={moveItem}
         />
         <main className="flex min-h-0 min-w-0 flex-1 flex-col bg-surface">
-          {mode === 'conflicts' ? (
+          {mode === 'cards' ? (
+            card?.type === 'entity' ? (
+              <EntityCard
+                key={card.id}
+                entity={card}
+                items={items}
+                bible={state.bible}
+                assets={assets}
+                bodyOf={contentOf}
+                chatOf={chatOf}
+                updateBible={updateBible}
+                onUpdateItem={updateItem}
+                onChangeBody={editDoc}
+                onOpenSource={openSource}
+                onOpenItem={navigate}
+                onOpenCard={openCard}
+                onBack={() => setCardId(null)}
+              />
+            ) : (
+              <CardWall
+                items={items}
+                bible={state.bible}
+                assets={assets}
+                tab={cardTab}
+                onTab={setCardTab}
+                onOpenCard={openCard}
+                onNewEntity={newEntityOfKind}
+              />
+            )
+          ) : mode === 'conflicts' ? (
             <ConflictQueue
               bible={state.bible}
               items={items}

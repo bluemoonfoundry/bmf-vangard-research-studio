@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { AlertTriangle, ChevronDown, ChevronRight, Plus } from 'lucide-react';
+import { AlertTriangle, ChevronDown, ChevronRight, Contact, Plus } from 'lucide-react';
 import type { Bible, EntityKind, Fact, FactSource, TreeItem } from '@/project/types';
 import type { ChatOf } from '@/chat/types';
 import { attributeSuggestions, isEvent } from '@/bible/entities';
@@ -26,11 +26,13 @@ export interface EntityPanelProps {
   onOpenSource(source: FactSource): void;
   /** Opens another entity (an event's participant or plotline, a dependency, a backlink). */
   onOpenEntity?(id: string): void;
+  /** Opens this entity's full card in the card wall. */
+  onOpenCard?(id: string): void;
 }
 
 const now = () => new Date().toISOString();
 
-export function EntityPanel({ entity, items, bible, bodyOf, chatOf, updateBible, onShowConflict, onOpenSource, onOpenEntity }: EntityPanelProps) {
+export function EntityPanel({ entity, items, bible, bodyOf, chatOf, updateBible, onShowConflict, onOpenSource, onOpenEntity, onOpenCard }: EntityPanelProps) {
   const [adding, setAdding] = useState(false);
   const [showAside, setShowAside] = useState(false);
 
@@ -90,11 +92,18 @@ export function EntityPanel({ entity, items, bible, bodyOf, chatOf, updateBible,
     <div className="flex flex-col gap-3 rounded-lg border border-line p-3" data-testid="entity-panel">
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-semibold">Facts</h2>
-        {!adding && (
-          <button type="button" className={btn} onClick={() => setAdding(true)}>
-            <Plus className="h-3.5 w-3.5" /> Add fact
-          </button>
-        )}
+        <div className="flex gap-1.5">
+          {onOpenCard && (
+            <button type="button" className={btn} onClick={() => onOpenCard(entity.id)}>
+              <Contact className="h-3.5 w-3.5" /> Open card
+            </button>
+          )}
+          {!adding && (
+            <button type="button" className={btn} onClick={() => setAdding(true)}>
+              <Plus className="h-3.5 w-3.5" /> Add fact
+            </button>
+          )}
+        </div>
       </div>
 
       {adding && (

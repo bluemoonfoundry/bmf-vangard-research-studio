@@ -464,6 +464,46 @@ describe('conflict queue', () => {
   });
 });
 
+describe('card wall', () => {
+  const mara = item('m', 'Mara', { type: 'entity', entityKind: 'character' } as Partial<TreeItem>);
+  const keep = item('k', 'Keep', { type: 'entity', entityKind: 'location' } as Partial<TreeItem>);
+  const bible = (): Bible => ({
+    facts: [{ id: 'a', entityId: 'm', attribute: 'Role', value: 'heir', status: 'kept', origin: 'manual', createdAt: 'T0', updatedAt: 'T0' }],
+    dependencies: [], decisions: [],
+  });
+  const cards = () => screen.getByRole('list', { name: 'Cards' });
+
+  it('opens a card from the wall and goes back', async () => {
+    await open([mara, keep], {}, bible());
+    fireEvent.click(screen.getByRole('button', { name: /^Cards/ }));
+    expect(within(cards()).getByText('heir')).toBeInTheDocument();
+    fireEvent.click(within(cards()).getByRole('button', { name: /^Mara/ }));
+    expect(screen.getByLabelText('Title')).toHaveValue('Mara');
+    fireEvent.click(screen.getByRole('button', { name: 'Card wall' }));
+    expect(cards()).toBeInTheDocument();
+  });
+
+  it('creates an entity of the current kind and opens its card', async () => {
+    await open([mara, keep], {}, bible());
+    fireEvent.click(screen.getByRole('button', { name: /^Cards/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Locations 1' }));
+    fireEvent.click(screen.getByRole('button', { name: 'New location' }));
+    expect(screen.getByLabelText('Title')).toHaveValue('New location');
+    expect(treeItem('New location')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Card wall' }));
+    expect(screen.getByRole('button', { name: 'Locations 2' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('opens an entity card from its page in the editor', async () => {
+    await open([mara, keep], {}, bible());
+    fireEvent.click(treeItem('Mara'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Open card' }));
+    expect(screen.getByLabelText('Title')).toHaveValue('Mara');
+    fireEvent.click(screen.getByRole('button', { name: 'Open in editor' }));
+    expect(screen.getByRole('textbox', { name: 'Document title' })).toHaveValue('Mara');
+  });
+});
+
 describe('delete warning for story bible facts', () => {
   const src = (n: string) => ({ itemId: 'c', quote: 'q', start: 0, end: 1 + n.length });
   const f = (id: string, entityId: string, withSource: boolean) => ({
