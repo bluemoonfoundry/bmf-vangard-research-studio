@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { Bible, FactSource, TreeItem } from '@/project/types';
-import type { ChatOf } from '@/chat/buildChatRequest';
+import type { ChatOf } from '@/chat/types';
 import { isEvent } from '@/bible/entities';
 import { isWhenAttribute } from '@/bible/normalize';
 import { findContradictions, groupVersions, openContradictions } from '@/bible/contradictions';

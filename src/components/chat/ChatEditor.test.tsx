@@ -438,9 +438,15 @@ describe('fact capture from messages', () => {
     selectIn(within(aiMessage()).getByText(/said a penny/).closest('p')!, 'The harbourmaster said');
     expect(screen.queryByRole('button', { name: 'Save fact' })).toBeNull();
     expect(within(aiMessage()).getByText("Couldn't match this selection to the message text. Use Show raw to capture.")).toBeInTheDocument();
+    // Clicking away clears the note; a new unmatched selection brings it back.
+    window.getSelection()!.removeAllRanges();
+    fireEvent.mouseUp(document.body);
+    expect(within(aiMessage()).queryByText(/Couldn't match this selection/)).toBeNull();
+    selectIn(within(aiMessage()).getByText(/said a penny/).closest('p')!, 'The harbourmaster said');
+    expect(within(aiMessage()).getByText(/Couldn't match this selection/)).toBeInTheDocument();
 
     fireEvent.click(within(aiMessage()).getByRole('button', { name: 'Show raw' }));
-    const raw = within(aiMessage()).getByLabelText('Chat transcript');
+    const raw = within(aiMessage()).getByLabelText('Raw message text');
     expect(raw).toHaveTextContent(STORED);
     selectIn(raw, '**harbourmaster** said');
     fireEvent.change(screen.getByLabelText('Entity'), { target: { value: 'mara' } });
@@ -452,9 +458,9 @@ describe('fact capture from messages', () => {
 
   it('marks a highlighted message range in raw view', () => {
     captureSetup({ highlight: { messageId: 'a1', start: 22, end: 34 } });
-    const raw = within(aiMessage()).getByLabelText('Chat transcript');
+    const raw = within(aiMessage()).getByLabelText('Raw message text');
     expect(raw.querySelector('mark')).toHaveTextContent('said a penny');
     // Other messages stay rendered.
-    expect(within(screen.getAllByRole('article')[0]).queryByLabelText('Chat transcript')).toBeNull();
+    expect(within(screen.getAllByRole('article')[0]).queryByLabelText('Raw message text')).toBeNull();
   });
 });

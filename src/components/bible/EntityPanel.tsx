@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { AlertTriangle, ChevronDown, ChevronRight, Plus } from 'lucide-react';
 import type { Bible, EntityKind, Fact, FactSource, TreeItem } from '@/project/types';
-import type { ChatOf } from '@/chat/buildChatRequest';
+import type { ChatOf } from '@/chat/types';
 import { attributeSuggestions, isEvent } from '@/bible/entities';
 import { attributeKey } from '@/bible/normalize';
 import { findContradictions, openContradictions, contradictionKey } from '@/bible/contradictions';

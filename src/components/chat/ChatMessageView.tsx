@@ -66,7 +66,12 @@ export function ChatMessageView({ message, actions, busy, onOpenLink, onCapture,
     const report = () => {
       const el = rendered.current;
       const sel = window.getSelection();
-      if (!el || !sel || sel.rangeCount === 0 || sel.isCollapsed) return;
+      if (!el || !sel) return;
+      // Clicking away (an empty selection) drops a stale "couldn't match" note.
+      if (sel.rangeCount === 0 || sel.isCollapsed) {
+        setUnmatched(false);
+        return;
+      }
       const range = sel.getRangeAt(0);
       if (!el.contains(range.startContainer) || !el.contains(range.endContainer)) return;
       const quote = sel.toString();
@@ -174,6 +179,7 @@ export function ChatMessageView({ message, actions, busy, onOpenLink, onCapture,
         </div>
       ) : streaming && !message.text ? null : raw ? (
         <ChatView
+          label="Raw message text"
           text={message.text}
           highlight={highlight}
           onSelectRange={canCapture ? (r) => onCapture({ start: r.start, end: r.end, quote: r.quote, anchor: r.rect }) : undefined}

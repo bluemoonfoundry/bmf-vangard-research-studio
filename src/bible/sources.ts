@@ -1,9 +1,10 @@
 import type { FactSource } from '@/project/types';
-import type { ChatTranscript } from '@/chat/types';
+import type { ChatOf } from '@/chat/types';
 
 export type SourceState =
   | { status: 'exact' | 'relocated'; start: number; end: number }
-  | { status: 'missing' | 'deleted' };
+  | { status: 'missing'; reason?: 'message_deleted' }
+  | { status: 'deleted' };
 
 /**
  * Finds where a fact's quote sits in its source body now. An undefined body means "not loaded yet";
@@ -12,7 +13,7 @@ export type SourceState =
 export function resolveSource(source: FactSource, body: string | null | undefined, itemExists: boolean): SourceState {
   if (!itemExists) return { status: 'deleted' };
   if (body === undefined) return { status: 'exact', start: source.start, end: source.end };
-  if (body === null) return { status: 'missing' };
+  if (body === null) return { status: 'missing', reason: 'message_deleted' };
   const { quote } = source;
   if (quote === '') return { status: 'missing' };
   if (body.slice(source.start, source.end) === quote) return { status: 'exact', start: source.start, end: source.end };
@@ -28,7 +29,7 @@ export function resolveSource(source: FactSource, body: string | null | undefine
 export function sourceText(
   source: FactSource,
   bodyOf: (id: string) => string | undefined,
-  chatOf: (id: string) => ChatTranscript | undefined,
+  chatOf: ChatOf,
 ): string | null | undefined {
   if (source.messageId === undefined) return bodyOf(source.itemId);
   const chat = chatOf(source.itemId);

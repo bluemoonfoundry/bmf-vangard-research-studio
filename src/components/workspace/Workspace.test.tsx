@@ -610,7 +610,7 @@ describe('AI chat items', () => {
     await waitFor(() => expect(bridge.project.readChat).toHaveBeenCalled());
     fireEvent.click(treeItem('Mara'));
     fireEvent.click(await screen.findByRole('button', { name: 'Lighthouse' }));
-    const raw = await screen.findByLabelText('Chat transcript');
+    const raw = await screen.findByLabelText('Raw message text');
     expect(raw).toHaveTextContent('Old Tamsin kept it.');
     expect(raw.querySelector('mark')).toHaveTextContent(/^Tamsin$/);
     expect(raw.closest('article')).toHaveAccessibleName(/^AI:/);

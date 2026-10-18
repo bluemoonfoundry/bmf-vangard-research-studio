@@ -1,6 +1,6 @@
 import type { Bible, FactSource, StoryPosition, TreeItem } from '@/project/types';
 import type { Version } from '@/bible/contradictions';
-import type { ChatOf } from '@/chat/buildChatRequest';
+import type { ChatOf } from '@/chat/types';
 import { checkPosition } from '@/bible/ordering';
 import { formatPosition } from '@/bible/normalize';
 import { resolveSource, sourceText } from '@/bible/sources';

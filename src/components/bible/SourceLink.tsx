@@ -21,7 +21,7 @@ export function SourceLink({ source, state, title, onOpen }: SourceLinkProps) {
           <button type="button" className="text-accent hover:underline" onClick={onOpen}>
             {title || 'Untitled'}
           </button>
-          {state.status === 'missing' && <span>passage no longer found</span>}
+          {state.status === 'missing' && <span>{state.reason === 'message_deleted' ? 'message was deleted' : 'passage no longer found'}</span>}
         </span>
       )}
     </div>

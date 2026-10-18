@@ -42,3 +42,6 @@ export interface ChatTranscript {
   messages: ChatMessage[];
   [k: string]: unknown;
 }
+
+/** An AI chat's transcript by item id, or undefined while it loads. */
+export type ChatOf = (id: string) => ChatTranscript | undefined;

@@ -5,7 +5,7 @@ import { ENTITY_KINDS, entityKindOf } from '@/bible/entities';
 import { attributeKey } from '@/bible/normalize';
 import { AI_CHAT_TYPE } from '@/project/projectState';
 import { transcriptPlainText } from '@/chat/transcript';
-import type { ChatTranscript } from '@/chat/types';
+import type { ChatOf, ChatTranscript } from '@/chat/types';
 import { itemTypeName } from '@/workspace/research';
 import { childrenOf } from '@/workspace/treeOps';
 
@@ -21,7 +21,7 @@ export const VRS_PREAMBLE = [
 /** A body text per item id (unsaved edits included), or undefined when not loaded. */
 export type ContentOf = (id: string) => string | undefined;
 /** The current transcript of an AI chat item, if loaded. */
-export type ChatOf = (id: string) => ChatTranscript | undefined;
+export type { ChatOf };
 
 const oneLine = (s: string): string => s.replace(/\s+/g, ' ').trim();
 const titleOf = (i: TreeItem): string => oneLine(i.title) || 'Untitled';

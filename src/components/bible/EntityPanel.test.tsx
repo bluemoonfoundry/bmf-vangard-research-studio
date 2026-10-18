@@ -4,6 +4,7 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import type { Bible, Fact, TreeItem } from '@/project/types';
 import { emptyBible } from '@/bible/normalize';
 import { EntityPanel } from '@/components/bible/EntityPanel';
+import type { ChatOf, ChatTranscript } from '@/chat/types';
 
 const items: TreeItem[] = [
   { id: 'e1', parentId: null, type: 'entity', entityKind: 'character', title: 'Mara', order: 0, keywords: [] },
@@ -16,8 +17,9 @@ const proposed = (over: Partial<Fact> = {}): Fact => ({
   source: { itemId: 'chat', quote: 'her green eyes', start: 0, end: 14 }, createdAt: 'T0', updatedAt: 'T0', ...over,
 });
 
-function Harness({ entity = items[0], list = items, initial = emptyBible(), onShowConflict, onOpenSource, onOpenEntity }: {
+function Harness({ entity = items[0], list = items, initial = emptyBible(), onShowConflict, onOpenSource, onOpenEntity, chatOf = () => undefined }: {
   entity?: TreeItem; list?: TreeItem[]; initial?: Bible; onOpenEntity?(id: string): void; onShowConflict?(k: string): void; onOpenSource?(s: unknown): void;
+  chatOf?: ChatOf;
 }) {
   const [bible, setBible] = useState(initial);
   return (
@@ -26,7 +28,7 @@ function Harness({ entity = items[0], list = items, initial = emptyBible(), onSh
       items={list}
       bible={bible}
       bodyOf={() => 'her green eyes'}
-      chatOf={() => undefined}
+      chatOf={chatOf}
       updateBible={(u) => setBible(u)}
       onShowConflict={onShowConflict}
       onOpenEntity={onOpenEntity}
@@ -43,6 +45,14 @@ function addFact(attribute: string, value: string) {
 }
 
 describe('EntityPanel', () => {
+  it('says the message was deleted for a source citing a removed AI chat message', () => {
+    const chat = { version: 1, settings: {}, messages: [] } as unknown as ChatTranscript;
+    const initial: Bible = { ...emptyBible(), facts: [proposed({ source: { itemId: 'chat', messageId: 'gone', quote: 'her green eyes', start: 0, end: 14 } })] };
+    render(<Harness initial={initial} chatOf={() => chat} />);
+    expect(screen.getByText('message was deleted')).toBeInTheDocument();
+    expect(screen.queryByText('passage no longer found')).toBeNull();
+  });
+
   it('shows a manually added fact under Kept', () => {
     render(<Harness />);
     addFact('death', 'Season 3 finale');

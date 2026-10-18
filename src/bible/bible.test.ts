@@ -326,7 +326,7 @@ describe('sources', () => {
       .toEqual({ status: 'relocated', start: 0, end: 7 });
   });
   it('resolveSource: null body is missing', () => {
-    expect(resolveSource(src, null, true)).toEqual({ status: 'missing' });
+    expect(resolveSource(src, null, true)).toEqual({ status: 'missing', reason: 'message_deleted' });
     expect(resolveSource(src, null, false)).toEqual({ status: 'deleted' });
   });
 
@@ -353,7 +353,7 @@ describe('sources', () => {
   it('sourceText: deleted message → null', () => {
     const source = { ...src, itemId: 'c', messageId: 'gone' };
     expect(sourceText(source, bodyOf, chatOf)).toBeNull();
-    expect(resolveSource(source, sourceText(source, bodyOf, chatOf), true)).toEqual({ status: 'missing' });
+    expect(resolveSource(source, sourceText(source, bodyOf, chatOf), true)).toEqual({ status: 'missing', reason: 'message_deleted' });
   });
 });
 
