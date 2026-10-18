@@ -1,17 +1,17 @@
 import { useState } from 'react';
 import { Upload } from 'lucide-react';
-import type { TextImport } from '@/project/types';
+import type { TextImportBatch } from '@/project/types';
 import { Modal } from '@/components/workspace/Modal';
 import { btn, btnPrimary, fieldLabel, input } from '@/components/workspace/ui';
 
 export interface ImportChatModalProps {
-  importText(): Promise<TextImport | null>;
+  importTexts(): Promise<TextImportBatch | null>;
   onCreate(fields: { title: string; importedFrom?: string }, text: string): void;
   onClose(): void;
 }
 
 /** Imports a chat transcript by paste or from a text file. Mount fresh for each use. */
-export function ImportChatModal({ importText, onCreate, onClose }: ImportChatModalProps) {
+export function ImportChatModal({ importTexts, onCreate, onClose }: ImportChatModalProps) {
   const [title, setTitle] = useState('');
   const [text, setText] = useState('');
   const [fileName, setFileName] = useState<string | null>(null);
@@ -20,7 +20,7 @@ export function ImportChatModal({ importText, onCreate, onClose }: ImportChatMod
   const chooseFile = async () => {
     setPicking(true);
     try {
-      const picked = await importText();
+      const picked = (await importTexts())?.imports[0];
       if (!picked) return;
       setText(picked.text);
       setTitle(picked.title);

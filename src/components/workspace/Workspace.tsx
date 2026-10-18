@@ -63,7 +63,7 @@ export function Workspace({ project, ai, aiApi }: WorkspaceProps) {
   const items = state.tree.items;
   const { docs, chats } = state;
   const {
-    addItem, updateItem, editDoc, moveItem, deleteItem, duplicateItem, loadAllDocs, importMedia, importText, discardAsset,
+    addItem, updateItem, editDoc, moveItem, deleteItem, duplicateItem, loadAllDocs, importMedia, importTexts, discardAsset,
     renameProject, exportDossier, reportError, assets, updateBible, updateChat,
   } = project;
   const aiEnabled = ai.enabled;
@@ -518,7 +518,7 @@ export function Workspace({ project, ai, aiApi }: WorkspaceProps) {
       )}
       {importingChat && (
         <ImportChatModal
-          importText={importText}
+          importTexts={importTexts}
           onCreate={(fields, text) => {
             expand(importingChat.parentId);
             navigate(addItem({ type: 'chat', parentId: importingChat.parentId, ...fields }, normalizeChatText(text)));

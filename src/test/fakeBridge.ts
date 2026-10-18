@@ -2,7 +2,7 @@ import { vi } from 'vitest';
 import { emptyBible } from '@/bible/normalize';
 import type {
   Bible, ExternalChange, ImportedAsset, IpcResult, MediaKind, OpenedProject, ProjectManifest, ProjectTree, RecentProject,
-  SavePayload, TextImport, UnsavedChoice,
+  SavePayload, TextImportBatch, UnsavedChoice,
 } from '@/project/types';
 import type { AiSettingsPatch, AiStatus, ChatEvent, ChatRequest, ModelInfo, ProviderId, StreamEvent } from '@/ai/types';
 import type { ChatTranscript } from '@/chat/types';
@@ -61,7 +61,7 @@ export function createFakeBridge() {
     },
     /** What the next media-import dialog "picks" (null = cancelled). */
     nextImport: null as ImportedAsset | null,
-    nextTextImport: null as TextImport | null,
+    nextTextImports: null as TextImportBatch | null,
     /** What the next export dialog returns as the saved path (null = cancelled). */
     nextExportPath: null as string | null,
     exports: [] as string[],
@@ -133,7 +133,7 @@ export function createFakeBridge() {
         if (picked) fake.disk.assets[picked.asset] = new Uint8Array([1, 2, 3]);
         return ok(picked);
       }),
-      importText: vi.fn(() => ok(fake.nextTextImport)),
+      importTexts: vi.fn(() => ok(fake.nextTextImports)),
       exportDossier: vi.fn((markdown: string) => {
         if (fake.nextExportPath) fake.exports.push(markdown);
         return ok(fake.nextExportPath);

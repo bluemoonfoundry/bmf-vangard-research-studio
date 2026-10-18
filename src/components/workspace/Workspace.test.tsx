@@ -343,7 +343,7 @@ describe('story bible items', () => {
 
   it('imports a chat file with its title', async () => {
     await open();
-    fake.nextTextImport = { title: 'Session 3', text: 'a\nb', fileName: 'Session 3.txt' };
+    fake.nextTextImports = { imports: [{ title: 'Session 3', text: 'a\nb', fileName: 'Session 3.txt' }], skipped: [] };
     fireEvent.click(screen.getByRole('button', { name: 'Import chat' }));
     const dialog = screen.getByRole('dialog', { name: 'Import chat' });
     fireEvent.click(within(dialog).getByRole('button', { name: 'From file…' }));

@@ -139,6 +139,11 @@ export interface TextImport {
   fileName: string;
 }
 
+export interface SkippedImport { fileName: string; message: string }
+
+/** The transcripts picked in one import dialog: what could be read, and what was skipped and why. */
+export interface TextImportBatch { imports: TextImport[]; skipped: SkippedImport[] }
+
 export interface ImportedAsset {
   /** File name under assets/. */
   asset: string;
