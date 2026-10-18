@@ -30,3 +30,19 @@ describe('DocumentEditor highlight', () => {
     expect(ta.selectionEnd).toBe(19);
   });
 });
+
+describe('DocumentEditor imported chats', () => {
+  const chat: TreeItem = { ...item, id: 'c', type: 'chat', title: 'Harbour chat' };
+
+  it('links back to AI Studio', () => {
+    const onOpenLink = vi.fn();
+    render(<DocumentEditor {...props} item={{ ...chat, sourceUrl: 'https://aistudio.google.com/prompts/abc' }} onOpenLink={onOpenLink} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Open in AI Studio' }));
+    expect(onOpenLink).toHaveBeenCalledWith('https://aistudio.google.com/prompts/abc');
+  });
+
+  it('shows no AI Studio link without a source', () => {
+    render(<DocumentEditor {...props} item={chat} />);
+    expect(screen.queryByRole('button', { name: 'Open in AI Studio' })).toBeNull();
+  });
+});
