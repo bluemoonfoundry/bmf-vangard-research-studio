@@ -4,6 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { test as base, _electron as electron } from 'playwright/test';
 import type { ElectronApplication, Page } from 'playwright/test';
+import { startFakeProvider, type FakeProvider } from './fakeProvider';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
@@ -14,13 +15,15 @@ export const APP_ENTRY = path.join(ROOT, 'electron', 'main.js');
 /** ELECTRON_RUN_AS_NODE=1 is inherited by shells spawned from Electron-based
  *  hosts (VS Code, agent terminals); it makes electron.exe run as plain Node,
  *  which rejects Playwright's Chromium flags and fails every launch. */
-function launchEnv(userDataDir: string): Record<string, string> {
+function launchEnv(userDataDir: string, llmBaseUrl?: string): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(process.env)) {
-    if (value !== undefined && key !== 'ELECTRON_RUN_AS_NODE') env[key] = value;
+    if (value !== undefined && key !== 'ELECTRON_RUN_AS_NODE' && key !== 'VRS_LLM_BASE_URL') env[key] = value;
   }
   // Keeps recents and recovery snapshots out of the developer's real profile.
   env.VRS_USER_DATA_DIR = userDataDir;
+  // Points every AI provider at a local fake (see fakeProvider.ts); never inherited from the shell.
+  if (llmBaseUrl) env.VRS_LLM_BASE_URL = llmBaseUrl;
   return env;
 }
 
@@ -32,10 +35,13 @@ function assertRendererBuilt() {
   }
 }
 
-/** Launches the app against `userDataDir`. Relaunching with the same dir simulates restarting VRS. */
-export async function launchApp(userDataDir: string) {
+/**
+ * Launches the app against `userDataDir`. Relaunching with the same dir simulates restarting VRS.
+ * Pass `llmBaseUrl` (a fake provider's) when the app may make AI calls.
+ */
+export async function launchApp(userDataDir: string, options: { llmBaseUrl?: string } = {}) {
   assertRendererBuilt();
-  const app = await electron.launch({ args: [APP_ENTRY], env: launchEnv(userDataDir) });
+  const app = await electron.launch({ args: [APP_ENTRY], env: launchEnv(userDataDir, options.llmBaseUrl) });
   const window = await app.firstWindow();
   await window.waitForLoadState('domcontentloaded');
   return { app, window };
@@ -122,6 +128,10 @@ type ElectronFixtures = {
   userDataDir: string;
   /** Scratch directory for project folders created by this test. */
   workDir: string;
+  /** A local fake AI provider, started on first use. */
+  fakeProvider: FakeProvider;
+  /** VRS_LLM_BASE_URL for the launched app: unset by default; aiTest points it at `fakeProvider`. */
+  llmBaseUrl: string | undefined;
   electronApp: ElectronApplication;
   window: Page;
 };
@@ -142,9 +152,17 @@ export const test = base.extend<ElectronFixtures>({
     await use(dir);
     removeDir(dir);
   },
-  electronApp: async ({ userDataDir }, use) => {
+  fakeProvider: async ({}, use) => {
+    const fake = await startFakeProvider();
+    await use(fake);
+    await fake.close();
+  },
+  llmBaseUrl: async ({}, use) => {
+    await use(undefined);
+  },
+  electronApp: async ({ userDataDir, llmBaseUrl }, use) => {
     assertRendererBuilt();
-    const app = await electron.launch({ args: [APP_ENTRY], env: launchEnv(userDataDir) });
+    const app = await electron.launch({ args: [APP_ENTRY], env: launchEnv(userDataDir, llmBaseUrl) });
     await use(app);
     await quitApp(app);
   },
@@ -152,6 +170,14 @@ export const test = base.extend<ElectronFixtures>({
     const page = await electronApp.firstWindow();
     await page.waitForLoadState('domcontentloaded');
     await use(page);
+  },
+});
+
+
+/** For AI specs: the app talks only to the fake provider, never to a real one. */
+export const aiTest = test.extend({
+  llmBaseUrl: async ({ fakeProvider }, use) => {
+    await use(fakeProvider.baseUrl);
   },
 });
 
