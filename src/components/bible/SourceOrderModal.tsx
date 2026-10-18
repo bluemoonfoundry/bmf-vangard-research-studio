@@ -5,7 +5,7 @@ import { btn, btnGhost, btnPrimary } from '@/components/workspace/ui';
 
 export interface SourceOrderModalProps {
   /** Oldest first. */
-  sources: { id: string; title: string }[];
+  sources: { id: string; title: string; detail?: string }[];
   onSave(ids: string[]): void;
   onClose(): void;
 }
@@ -40,11 +40,14 @@ export function SourceOrderModal({ sources, onSave, onClose }: SourceOrderModalP
             {rows.map((r, i) => (
               <li key={r.id} className="flex items-center gap-2 px-2 py-1">
                 <span className="w-5 text-right text-content-muted">{i + 1}</span>
-                <span className="flex-1 truncate">{r.title || 'Untitled'}</span>
-                <button type="button" className={btnGhost} aria-label={`Move ${r.title} up`} disabled={i === 0} onClick={() => move(i, i - 1)}>
+                <span className="flex min-w-0 flex-1 flex-col">
+                  <span className="truncate">{r.title || 'Untitled'}</span>
+                  {r.detail && <span className="truncate text-content-muted">{r.detail}</span>}
+                </span>
+                <button type="button" className={btnGhost} aria-label={`Move ${i + 1}. ${r.title || 'Untitled'} up`} disabled={i === 0} onClick={() => move(i, i - 1)}>
                   <ArrowUp className="h-3.5 w-3.5" />
                 </button>
-                <button type="button" className={btnGhost} aria-label={`Move ${r.title} down`} disabled={i === rows.length - 1} onClick={() => move(i, i + 1)}>
+                <button type="button" className={btnGhost} aria-label={`Move ${i + 1}. ${r.title || 'Untitled'} down`} disabled={i === rows.length - 1} onClick={() => move(i, i + 1)}>
                   <ArrowDown className="h-3.5 w-3.5" />
                 </button>
               </li>

@@ -46,6 +46,20 @@ describe('readTextImport', () => {
 });
 
 describe('readTextImports', () => {
+    it('skips a file it cannot read (missing, locked) and imports the rest', async () => {
+        const good = path.join(dir, 'a.md');
+        await fs.writeFile(good, 'hi');
+        const gone = path.join(dir, 'gone.md');
+        const folder = path.join(dir, 'folder.md');
+        await fs.mkdir(folder);
+        const r = await readTextImports([gone, good, folder]);
+        expect(r.imports.map(i => i.fileName)).toEqual(['a.md']);
+        expect(r.skipped).toEqual([
+            { fileName: 'gone.md', message: "gone.md couldn't be read (ENOENT)." },
+            { fileName: 'folder.md', message: "folder.md couldn't be read (EISDIR)." },
+        ]);
+    });
+
     it('imports what it can and reports the rest', async () => {
         const good = path.join(dir, 'a.md');
         await fs.writeFile(good, 'hi');

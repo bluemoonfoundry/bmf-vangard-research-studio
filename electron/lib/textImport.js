@@ -58,8 +58,15 @@ export async function readTextImports(filePaths, options) {
         try {
             imports.push(await readTextImport(filePath, options));
         } catch (err) {
-            if (!(err instanceof ProjectFormatError)) throw err;
-            skipped.push({ fileName: path.basename(String(filePath)), message: err.message });
+            const fileName = path.basename(String(filePath));
+            if (err instanceof ProjectFormatError) {
+                skipped.push({ fileName, message: err.message });
+            } else if (typeof err?.code === 'string') {
+                // A file system error (missing, locked, a folder, an online-only file) skips just that file.
+                skipped.push({ fileName, message: `${fileName} couldn't be read (${err.code}).` });
+            } else {
+                throw err;
+            }
         }
     }
     return { imports, skipped };

@@ -15,8 +15,8 @@ export interface ImportEntry {
 
 export interface ImportChatModalProps {
   importTexts(): Promise<TextImportBatch | null>;
-  /** Existing sources, oldest first. */
-  sources: { id: string; title: string }[];
+  /** Existing sources, oldest first; `detail` (e.g. the imported file name) tells same-titled versions apart. */
+  sources: { id: string; title: string; detail?: string }[];
   /** `position` is the index in `sources` before which the batch goes; sources.length = newest. */
   onImport(entries: ImportEntry[], position: number): void;
   onClose(): void;
@@ -127,10 +127,10 @@ export function ImportChatModal({ importTexts, sources, onImport, onClose }: Imp
                 </div>
                 {files.length > 1 && (
                   <div className="flex flex-col">
-                    <button type="button" className={btnGhost} aria-label={`Move ${f.title} up`} disabled={i === 0} onClick={() => move(i, i - 1)}>
+                    <button type="button" className={btnGhost} aria-label={`Move ${f.fileName} up`} disabled={i === 0} onClick={() => move(i, i - 1)}>
                       <ArrowUp className="h-3.5 w-3.5" />
                     </button>
-                    <button type="button" className={btnGhost} aria-label={`Move ${f.title} down`} disabled={i === files.length - 1} onClick={() => move(i, i + 1)}>
+                    <button type="button" className={btnGhost} aria-label={`Move ${f.fileName} down`} disabled={i === files.length - 1} onClick={() => move(i, i + 1)}>
                       <ArrowDown className="h-3.5 w-3.5" />
                     </button>
                   </div>
@@ -161,7 +161,7 @@ export function ImportChatModal({ importTexts, sources, onImport, onClose }: Imp
             <span className={fieldLabel}>Place</span>
             <select className={input} value={String(position)} onChange={(e) => setPosition(Number(e.target.value))}>
               <option value="0">Oldest (before everything)</option>
-              {sources.map((s, i) => <option key={s.id} value={String(i + 1)}>{`After ${s.title}`}</option>)}
+              {sources.map((s, i) => <option key={s.id} value={String(i + 1)}>{`After ${i + 1}. ${s.title || 'Untitled'}${s.detail ? ` (${s.detail})` : ''}`}</option>)}
             </select>
           </label>
         )}

@@ -32,7 +32,7 @@ test('imports an AI Studio export and an extensionless file, and keeps their sou
   await window.getByRole('button', { name: 'Source order' }).click();
   let order = window.getByRole('dialog', { name: 'Source order' });
   await expect(order.getByRole('listitem')).toHaveText([/Sky Harbour Test Chat/, /Harbour notes/]);
-  await order.getByRole('button', { name: 'Move Harbour notes up' }).click();
+  await order.getByRole('button', { name: 'Move 2. Harbour notes up' }).click();
   await order.getByRole('button', { name: 'Save' }).click();
 
   await window.getByRole('button', { name: 'Save', exact: true }).click();

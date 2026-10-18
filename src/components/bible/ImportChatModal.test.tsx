@@ -10,7 +10,7 @@ const sample = normalizeChatText(raw);
 function setup(over: Partial<ImportChatModalProps> = {}) {
   const props: ImportChatModalProps = {
     importTexts: vi.fn(async () => null),
-    sources: [{ id: 's1', title: 'Old chat' }, { id: 's2', title: 'Newer chat' }],
+    sources: [{ id: 's1', title: 'Old chat' }, { id: 's2', title: 'Newer chat', detail: 'newer.md' }],
     onImport: vi.fn(),
     onClose: vi.fn(),
     ...over,
@@ -46,17 +46,19 @@ describe('ImportChatModal', () => {
   it('lists picked files with their formats and skipped files, and imports them in the chosen order', async () => {
     const batch: TextImportBatch = {
       imports: [
-        { title: 'export', text: sample, fileName: 'export.md' },
+        { title: 'aistudio', text: sample, fileName: 'aistudio.md' },
         { title: 'notes', text: 'plain', fileName: 'notes' },
       ],
       skipped: [{ fileName: 'pic.png', message: 'pic.png is not a supported text file.' }],
     };
     const { props, dialog } = setup({ importTexts: vi.fn(async () => batch) });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Choose files…' }));
-    expect(await within(dialog).findByRole('textbox', { name: 'Title for export.md' })).toHaveValue('Sky Harbour Test Chat');
+    expect(await within(dialog).findByRole('textbox', { name: 'Title for aistudio.md' })).toHaveValue('Sky Harbour Test Chat');
     expect(within(dialog).getByRole('textbox', { name: 'Title for notes' })).toHaveValue('notes');
     expect(within(dialog).getByText('pic.png: pic.png is not a supported text file.')).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole('button', { name: 'Move notes up' }));
+    // Rows are labelled by file name (unique in one pick), not by title (two exports can share one).
+    expect(within(dialog).getByRole('button', { name: 'Move aistudio.md up' })).toBeEnabled();
     fireEvent.click(within(dialog).getByRole('button', { name: 'Import' }));
     const [entries] = vi.mocked(props.onImport).mock.calls[0];
     expect(entries.map(e => e.title)).toEqual(['notes', 'Sky Harbour Test Chat']);
@@ -67,6 +69,7 @@ describe('ImportChatModal', () => {
     const { props, dialog } = setup();
     fireEvent.change(within(dialog).getByRole('textbox', { name: 'Chat text' }), { target: { value: 'x' } });
     const place = within(dialog).getByRole('combobox', { name: 'Place' });
+    expect(within(place).getAllByRole('option').map(o => o.textContent)).toEqual(['Oldest (before everything)', 'After 1. Old chat', 'After 2. Newer chat (newer.md)']);
     expect(place).toHaveValue('2');
     fireEvent.change(place, { target: { value: '0' } });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Import' }));

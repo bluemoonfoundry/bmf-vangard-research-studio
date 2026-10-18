@@ -63,6 +63,9 @@ export function Workspace({ project, ai, aiApi }: WorkspaceProps) {
   const state = project.state!;
   const items = state.tree.items;
   const { docs, chats } = state;
+  // The imported file name tells re-exports of the same chat (same title) apart.
+  const sourceRows = orderedSources(state.bible, items)
+    .map(i => ({ id: i.id, title: i.title, ...(i.importedFrom && { detail: i.importedFrom }) }));
   const {
     addItem, updateItem, editDoc, moveItem, deleteItem, duplicateItem, loadAllDocs, importMedia, importTexts, discardAsset,
     renameProject, exportDossier, reportError, assets, updateBible, updateChat,
@@ -524,7 +527,7 @@ export function Workspace({ project, ai, aiApi }: WorkspaceProps) {
       {importingChat && (
         <ImportChatModal
           importTexts={importTexts}
-          sources={orderedSources(state.bible, items).map(i => ({ id: i.id, title: i.title }))}
+          sources={sourceRows}
           onImport={(entries, position) => {
             const { parentId } = importingChat;
             const ids = entries.map(({ body, ...fields }) => addItem({ type: 'chat', parentId, ...fields }, body));
@@ -538,7 +541,7 @@ export function Workspace({ project, ai, aiApi }: WorkspaceProps) {
       )}
       {orderingSources && (
         <SourceOrderModal
-          sources={orderedSources(state.bible, items).map(i => ({ id: i.id, title: i.title }))}
+          sources={sourceRows}
           onSave={(ids) => updateBible(b => setSourceOrder(b, ids))}
           onClose={() => setOrderingSources(false)}
         />

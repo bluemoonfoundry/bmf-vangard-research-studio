@@ -11,12 +11,22 @@ describe('SourceOrderModal', () => {
     render(<SourceOrderModal sources={sources} onSave={onSave} onClose={onClose} />);
     const dialog = screen.getByRole('dialog', { name: 'Source order' });
     expect(within(dialog).getByText(/Oldest at the top/)).toBeInTheDocument();
-    expect(within(dialog).getByRole('button', { name: 'Move First chat up' })).toBeDisabled();
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Move Second chat up' }));
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Move First chat down' }));
+    expect(within(dialog).getByRole('button', { name: 'Move 1. First chat up' })).toBeDisabled();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Move 2. Second chat up' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Move 2. First chat down' }));
     fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
     expect(onSave).toHaveBeenCalledWith(['b', 'c', 'a']);
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it('tells same-titled versions apart by their file names', () => {
+    render(<SourceOrderModal
+      sources={[{ id: 'v1', title: 'Clouds', detail: 'clouds-2026-09-01.md' }, { id: 'v2', title: 'Clouds', detail: 'clouds-2026-10-18.md' }]}
+      onSave={vi.fn()} onClose={vi.fn()}
+    />);
+    expect(screen.getByText('clouds-2026-09-01.md')).toBeInTheDocument();
+    expect(screen.getByText('clouds-2026-10-18.md')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Move 2. Clouds up' })).toBeEnabled();
   });
 
   it('does not save on cancel', () => {
