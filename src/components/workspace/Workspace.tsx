@@ -18,7 +18,7 @@ import { OutlinerView } from '@/components/workspace/OutlinerView';
 import { Inspector } from '@/components/workspace/Inspector';
 import { SplitPane, type SplitOrientation } from '@/components/workspace/SplitPane';
 import { ImportChatModal } from '@/components/bible/ImportChatModal';
-import { normalizeChatText } from '@/bible/entities';
+import { insertSources, orderedSources } from '@/bible/sourceOrder';
 import { findContradictions, openContradictions } from '@/bible/contradictions';
 import { ConflictQueue } from '@/components/bible/ConflictQueue';
 import { TimelineView } from '@/components/bible/TimelineView';
@@ -519,9 +519,14 @@ export function Workspace({ project, ai, aiApi }: WorkspaceProps) {
       {importingChat && (
         <ImportChatModal
           importTexts={importTexts}
-          onCreate={(fields, text) => {
-            expand(importingChat.parentId);
-            navigate(addItem({ type: 'chat', parentId: importingChat.parentId, ...fields }, normalizeChatText(text)));
+          sources={orderedSources(state.bible, items).map(i => ({ id: i.id, title: i.title }))}
+          onImport={(entries, position) => {
+            const { parentId } = importingChat;
+            const ids = entries.map(({ body, ...fields }) => addItem({ type: 'chat', parentId, ...fields }, body));
+            // addItem lists each new chat as newest; move the batch to where the writer placed it.
+            updateBible(b => insertSources(b, items, ids, position));
+            expand(parentId);
+            navigate(ids[0]);
           }}
           onClose={() => setImportingChat(null)}
         />

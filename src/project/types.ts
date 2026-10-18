@@ -71,6 +71,10 @@ export interface TreeItem {
   mediaMetadata?: MediaMetadata;
   entityKind?: string;
   importedFrom?: string;
+  /** How an imported chat was recognised (src/chat/importFormats.ts ImportedFormat). */
+  importedFormat?: string;
+  /** Where an imported chat came from, e.g. its AI Studio page. Opened through app:open-external. */
+  sourceUrl?: string;
   [extra: string]: unknown;
 }
 
