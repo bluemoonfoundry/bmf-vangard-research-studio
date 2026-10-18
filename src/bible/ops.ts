@@ -76,15 +76,18 @@ export const removeEntities = (b: Bible, ids: ReadonlySet<string>): Bible => ({
 });
 
 /**
- * Drops facts and decisions about entities that no longer exist, and
- * dependencies between events that no longer exist. Returns `b` itself when
- * nothing is orphaned.
+ * Drops facts and decisions about entities that no longer exist, dependencies
+ * between events that no longer exist, and source-order ids of deleted items.
+ * Returns `b` itself when nothing is orphaned.
  */
 export function pruneOrphans(b: Bible, items: readonly TreeItem[]): Bible {
   const entities = new Set(items.filter(i => i.type === 'entity').map(i => i.id));
   const facts = b.facts.filter(f => entities.has(f.entityId));
   const dependencies = b.dependencies.filter(d => entities.has(d.eventId) && entities.has(d.afterEventId));
   const decisions = b.decisions.filter(d => entities.has(d.entityId));
-  if (facts.length === b.facts.length && dependencies.length === b.dependencies.length && decisions.length === b.decisions.length) return b;
-  return { ...b, facts, dependencies, decisions };
+  const ids = new Set(items.map(i => i.id));
+  const sourceOrder = b.sourceOrder?.filter(id => ids.has(id));
+  if (facts.length === b.facts.length && dependencies.length === b.dependencies.length && decisions.length === b.decisions.length
+    && sourceOrder?.length === b.sourceOrder?.length) return b;
+  return sourceOrder ? { ...b, facts, dependencies, decisions, sourceOrder } : { ...b, facts, dependencies, decisions };
 }

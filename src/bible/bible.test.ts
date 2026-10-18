@@ -15,6 +15,7 @@ import type { ChatTranscript } from '@/chat/types';
 import { eventsLinkingTo, factsCitingItems } from '@/bible/links';
 import { normalizeChatText, entityKindOf, isEvent, ENTITY_KINDS, attributeSuggestions } from '@/bible/entities';
 import { contradictionKey, findContradictions, groupVersions, openContradictions } from '@/bible/contradictions';
+import { SOURCE_TYPES, appendSources, insertSources, isSourceItem, orderedSources, setSourceOrder } from '@/bible/sourceOrder';
 
 let n = 0;
 const fact = (over: Partial<Fact> = {}): Fact => ({
@@ -466,5 +467,54 @@ describe('storyBibleMarkdown', () => {
     const d = new Date(0);
     expect(generateDossier('P', plain, () => '', d, b)).toBe(generateDossier('P', plain, () => '', d));
     expect(generateDossier('P', items, () => '', d, b)).toContain('## Story Bible');
+  });
+});
+
+describe('sourceOrder', () => {
+  const it2 = (id: string, type: string, order = 0): TreeItem => ({ id, parentId: null, type, title: id, order, keywords: [] });
+  const items = [it2('A', 'document', 0), it2('B', 'chat', 1), it2('F', 'folder', 2), it2('C', 'chat', 3)];
+
+  it('lists unlisted sources first (binder order), then listed ones oldest first', () => {
+    expect(orderedSources({ ...emptyBible(), sourceOrder: ['C', 'B'] }, items).map(i => i.id)).toEqual(['A', 'C', 'B']);
+    expect(orderedSources(emptyBible(), items).map(i => i.id)).toEqual(['A', 'B', 'C']);
+  });
+
+  it('knows which items are sources', () => {
+    expect(SOURCE_TYPES).toEqual(['chat', 'ai-chat', 'document']);
+    expect(isSourceItem({ type: 'ai-chat' })).toBe(true);
+    expect(isSourceItem({ type: 'entity' })).toBe(false);
+  });
+
+  it('inserts new ids at a position among the existing sources', () => {
+    const b = { ...emptyBible(), sourceOrder: ['A', 'B'] };
+    const two = [it2('A', 'document'), it2('B', 'chat', 1)];
+    expect(insertSources(b, two, ['N1', 'N2'], 1).sourceOrder).toEqual(['A', 'N1', 'N2', 'B']);
+    expect(insertSources(b, two, ['N1'], 2).sourceOrder).toEqual(['A', 'B', 'N1']);
+    expect(insertSources(b, two, ['N1'], 0).sourceOrder).toEqual(['N1', 'A', 'B']);
+  });
+
+  it('insertSources moves ids that are already listed', () => {
+    const b = { ...emptyBible(), sourceOrder: ['A', 'B', 'N'] };
+    expect(insertSources(b, [it2('A', 'document'), it2('B', 'chat', 1)], ['N'], 0).sourceOrder).toEqual(['N', 'A', 'B']);
+  });
+
+  it('appends new ids and returns the same bible when nothing changes', () => {
+    const b = { ...emptyBible(), sourceOrder: ['A'] };
+    expect(appendSources(b, ['A', 'B']).sourceOrder).toEqual(['A', 'B']);
+    expect(appendSources(b, ['A'])).toBe(b);
+    expect(appendSources(b, [])).toBe(b);
+    expect(appendSources(emptyBible(), ['X']).sourceOrder).toEqual(['X']);
+  });
+
+  it('setSourceOrder stores the given order', () => {
+    expect(setSourceOrder(emptyBible(), ['B', 'A']).sourceOrder).toEqual(['B', 'A']);
+  });
+
+  it('pruneOrphans drops sourceOrder ids that are no longer in the tree', () => {
+    const b = { ...emptyBible(), sourceOrder: ['A', 'gone', 'B'] };
+    expect(pruneOrphans(b, items).sourceOrder).toEqual(['A', 'B']);
+    const clean = { ...emptyBible(), sourceOrder: ['A'] };
+    expect(pruneOrphans(clean, items)).toBe(clean);
+    expect(pruneOrphans(emptyBible(), items)).not.toHaveProperty('sourceOrder');
   });
 });

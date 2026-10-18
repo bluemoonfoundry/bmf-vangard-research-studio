@@ -110,7 +110,13 @@ export interface Decision {
   at: string;
 }
 
-export interface Bible { facts: Fact[]; dependencies: Dependency[]; decisions: Decision[] }
+export interface Bible {
+  facts: Fact[];
+  dependencies: Dependency[];
+  decisions: Decision[];
+  /** Ids of chat, AI chat and document items, oldest first (src/bible/sourceOrder.ts). */
+  sourceOrder?: string[];
+}
 
 export interface ProjectTree {
   items: TreeItem[];

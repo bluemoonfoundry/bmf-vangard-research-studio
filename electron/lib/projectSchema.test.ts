@@ -189,6 +189,14 @@ describe('normalizeBible', () => {
         expect(createEmptyBible()).toEqual({ facts: [], dependencies: [], decisions: [] });
     });
 
+    it('keeps a valid sourceOrder and rejects a malformed one', () => {
+        const base = { facts: [], dependencies: [], decisions: [] };
+        expect(normalizeBible({ ...base, sourceOrder: ['ok-id'] }).sourceOrder).toEqual(['ok-id']);
+        expect(() => normalizeBible({ ...base, sourceOrder: 'x' })).toThrow(corrupt);
+        expect(() => normalizeBible({ ...base, sourceOrder: [42] })).toThrow(/sourceOrder/);
+        expect(normalizeBible(base)).not.toHaveProperty('sourceOrder');
+    });
+
     it('rejects a malformed file, naming bible.json', () => {
         expect(() => normalizeBible({ facts: 'x' })).toThrow(/bible\.json/);
         expect(() => normalizeBible({ facts: 'x' })).toThrow(corrupt);
