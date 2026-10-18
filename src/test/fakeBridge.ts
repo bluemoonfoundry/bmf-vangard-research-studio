@@ -4,8 +4,25 @@ import type {
   Bible, ExternalChange, ImportedAsset, IpcResult, MediaKind, OpenedProject, ProjectManifest, ProjectTree, RecentProject,
   SavePayload, TextImport, UnsavedChoice,
 } from '@/project/types';
+import type { AiSettingsPatch, AiStatus, ChatEvent, ChatRequest, ModelInfo, ProviderId, StreamEvent } from '@/ai/types';
 
 const ok = <T,>(value: T): Promise<IpcResult<T>> => Promise.resolve({ ok: true, value });
+
+export function makeAiStatus(overrides: Partial<AiStatus> = {}): AiStatus {
+  return {
+    enabled: false,
+    defaultProvider: null,
+    defaultModel: null,
+    encryptionAvailable: true,
+    providers: {
+      gemini: { configured: false, lastTestOk: null },
+      anthropic: { configured: false, lastTestOk: null },
+      openai: { configured: false, lastTestOk: null },
+    },
+    keyStoreProblem: null,
+    ...overrides,
+  };
+}
 
 export function makeOpened(overrides: Partial<OpenedProject> = {}): OpenedProject {
   return {
@@ -27,6 +44,7 @@ export function makeOpened(overrides: Partial<OpenedProject> = {}): OpenedProjec
 export function createFakeBridge() {
   const externalListeners = new Set<(changes: ExternalChange[]) => void>();
   const closeListeners = new Set<() => void>();
+  const chatListeners = new Set<(payload: ChatEvent) => void>();
 
   const fake = {
     nextDialogResult: null as OpenedProject | null,
@@ -49,6 +67,16 @@ export function createFakeBridge() {
     saves: [] as SavePayload[],
     recoveryWrites: [] as SavePayload[],
     saveError: null as string | null,
+    /** The AI layer's main-process state; push stream events with `ai.emitChatEvent`. */
+    ai: {
+      status: makeAiStatus(),
+      models: {} as Partial<Record<ProviderId, ModelInfo[]>>,
+      startedChats: [] as { requestId: string; request: ChatRequest }[],
+      cancelledChats: [] as string[],
+      emitChatEvent(requestId: string, event: StreamEvent) {
+        chatListeners.forEach(l => l({ requestId, event }));
+      },
+    },
 
     load(project: OpenedProject, docs: Record<string, string> = {}) {
       fake.disk = { ...fake.disk, manifest: project.manifest, tree: project.tree, bible: project.bible, docs };
@@ -130,6 +158,37 @@ export function createFakeBridge() {
       onExternalChange: vi.fn((cb: (changes: ExternalChange[]) => void) => {
         externalListeners.add(cb);
         return () => externalListeners.delete(cb);
+      }),
+    },
+    ai: {
+      getSettings: vi.fn(() => ok(fake.ai.status)),
+      setSettings: vi.fn((patch: AiSettingsPatch) => {
+        fake.ai.status = { ...fake.ai.status, ...patch };
+        return ok(fake.ai.status);
+      }),
+      saveKey: vi.fn((provider: ProviderId, _key: string) => {
+        fake.ai.status.providers[provider] = { configured: true, lastTestOk: 'T0' };
+        return ok(fake.ai.status);
+      }),
+      removeKey: vi.fn((provider: ProviderId) => {
+        fake.ai.status.providers[provider] = { configured: false, lastTestOk: null };
+        if (!Object.values(fake.ai.status.providers).some(p => p.configured)) fake.ai.status.enabled = false;
+        return ok(fake.ai.status);
+      }),
+      testKey: vi.fn((_provider: ProviderId) => ok(fake.ai.status)),
+      listModels: vi.fn((provider: ProviderId, _options?: { refresh?: boolean }) => ok(fake.ai.models[provider] ?? [])),
+      startChat: vi.fn((requestId: string, request: ChatRequest) => {
+        fake.ai.startedChats.push({ requestId, request });
+        return ok(requestId);
+      }),
+      cancelChat: vi.fn((requestId: string) => {
+        fake.ai.cancelledChats.push(requestId);
+        return ok(undefined);
+      }),
+      cancelAll: vi.fn(() => ok(undefined)),
+      onChatEvent: vi.fn((cb: (payload: ChatEvent) => void) => {
+        chatListeners.add(cb);
+        return () => chatListeners.delete(cb);
       }),
     },
   } satisfies VrsApi;

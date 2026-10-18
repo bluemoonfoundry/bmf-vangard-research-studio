@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, session, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, safeStorage, session, shell } from 'electron';
 import path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import { logger } from './lib/logger.main.js';
@@ -11,6 +11,12 @@ import { atomicWriteFile } from './lib/atomicFileWrite.js';
 import { validateExternalUrl } from './lib/ipcSecurity.js';
 import { dialogFilters, mediaKind } from './lib/media.js';
 import { TEXT_IMPORT_EXTENSIONS } from './lib/textImport.js';
+import { createAppSettings } from './lib/appSettings.js';
+import { createApiKeyStore } from './lib/apiKeys.js';
+import { createLlmService } from './lib/llm/llmService.js';
+import { createGeminiAdapter } from './lib/llm/providers/gemini.js';
+import { createAnthropicAdapter } from './lib/llm/providers/anthropic.js';
+import { createOpenAiAdapter } from './lib/llm/providers/openai.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const INDEX_HTML = path.join(__dirname, '..', 'dist', 'index.html');
@@ -24,6 +30,7 @@ if (process.env.VRS_USER_DATA_DIR) {
 let mainWindow = null;
 let recents = null;
 let projectSession = null;
+let llm = null;
 let projectName = null;
 let projectDirty = false;
 let closeConfirmed = false;
@@ -56,6 +63,7 @@ function createMainWindow() {
         }).catch(err => logger.error('Close confirmation failed', err));
     });
     win.on('closed', () => {
+        llm.abortAll();
         projectSession.close().catch(err => logger.warn('Closing project failed', err));
         mainWindow = null;
         closeConfirmed = false;
@@ -138,6 +146,7 @@ function registerIpcHandlers() {
     handle('project:list-recent', () => recents.list());
     handle('project:remove-recent', (root) => recents.remove(String(root)));
     handle('project:close', async (options) => {
+        llm.abortAll();
         await projectSession.close({ discardRecovery: options?.discardRecovery === true });
         projectName = null;
         projectDirty = false;
@@ -190,6 +199,34 @@ function registerIpcHandlers() {
         mainWindow?.setDocumentEdited(projectDirty);
     });
     handle('project:confirm-unsaved', () => confirmUnsaved(mainWindow));
+
+    // AI layer. Every llm:* channel except the key-management ones is refused while AI is off (see llmService).
+    handle('settings:get-ai', () => llm.getStatus());
+    handle('settings:set-ai', (patch) => llm.setSettings(patch));
+    handle('llm:save-key', (provider, key) => llm.saveKey(provider, key));
+    handle('llm:remove-key', (provider) => llm.removeKey(provider));
+    handle('llm:test', (provider) => llm.testKey(provider));
+    handle('llm:list-models', (provider, options) => llm.listModels(provider, { refresh: options?.refresh === true }));
+    handle('llm:chat-start', (requestId, request) => llm.startChat(requestId, request));
+    handle('llm:chat-cancel', (requestId) => llm.cancel(requestId));
+    handle('llm:cancel-all', () => llm.cancelAll());
+}
+
+function createLlm(userData) {
+    // Test-only override so e2e runs talk to a local fake provider instead of the real APIs.
+    const baseUrl = process.env.VRS_LLM_BASE_URL || undefined;
+    return createLlmService({
+        settings: createAppSettings(path.join(userData, 'settings.json')),
+        keys: createApiKeyStore(path.join(userData, 'ai-keys.json'), safeStorage),
+        adapters: {
+            gemini: createGeminiAdapter({ baseUrl }),
+            anthropic: createAnthropicAdapter({ baseUrl }),
+            openai: createOpenAiAdapter({ baseUrl }),
+        },
+        emit: (requestId, event) => {
+            if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('llm:chat-event', { requestId, event });
+        },
+    });
 }
 
 app.whenReady().then(() => {
@@ -205,6 +242,7 @@ app.whenReady().then(() => {
         onExternalChange: (changes) => mainWindow?.webContents.send('project:external-change', changes),
         onWatchError: (err) => logger.warn('Project watcher error', err),
     });
+    llm = createLlm(userData);
 
     registerIpcHandlers();
     mainWindow = createMainWindow();

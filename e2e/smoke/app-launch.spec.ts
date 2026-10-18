@@ -37,6 +37,7 @@ test('the preload bridge exposes only the intended API', async ({ window }) => {
     return Object.fromEntries(Object.entries(vrs).map(([ns, fns]) => [ns, Object.keys(fns).sort()]));
   });
   expect(surface).toEqual({
+    ai: ['cancelAll', 'cancelChat', 'getSettings', 'listModels', 'onChatEvent', 'removeKey', 'saveKey', 'setSettings', 'startChat', 'testKey'],
     app: ['closeConfirmed', 'getVersion', 'onSaveBeforeClose', 'openExternal'],
     project: [
       'close', 'confirmUnsaved', 'create', 'discardRecovery', 'exportDossier', 'importMedia', 'importText',
