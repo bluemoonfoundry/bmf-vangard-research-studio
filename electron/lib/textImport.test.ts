@@ -32,6 +32,26 @@ describe('readTextImport', () => {
         await expect(readTextImport(p)).resolves.toMatchObject({ title: 'Among the Clouds', fileName: 'Among the Clouds' });
     });
 
+    it('treats a dot inside a name as part of the name, not an extension', async () => {
+        for (const name of ['Scene 2.1 draft', 'Chapter 3.2', 'Abaddon v1.5b']) {
+            const p = path.join(dir, name);
+            await fs.writeFile(p, 'Odile keeps the log.');
+            await expect(readTextImport(p)).resolves.toMatchObject({ title: name, fileName: name, text: 'Odile keeps the log.' });
+        }
+    });
+
+    it('still refuses a real unsupported extension, whatever the case', async () => {
+        const p = path.join(dir, 'Draft 2.DOCX');
+        await fs.writeFile(p, 'x');
+        await expect(readTextImport(p)).rejects.toMatchObject({ code: 'UNSUPPORTED', message: 'Draft 2.DOCX is not a supported text file.' });
+    });
+
+    it('sniffs a dotted extensionless name like any other', async () => {
+        const p = path.join(dir, 'Scene 2.1 art');
+        await fs.writeFile(p, Buffer.from([0x89, 0x50, 0x00]));
+        await expect(readTextImport(p)).rejects.toMatchObject({ code: 'UNSUPPORTED', message: 'Scene 2.1 art is not a text file.' });
+    });
+
     it('refuses an extensionless binary file', async () => {
         const p = path.join(dir, 'picture');
         await fs.writeFile(p, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x01]));

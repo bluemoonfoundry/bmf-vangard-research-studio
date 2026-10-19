@@ -191,12 +191,16 @@ describe('normalizeBible', () => {
         expect(createEmptyBible()).toEqual({ facts: [], dependencies: [], decisions: [] });
     });
 
-    it('keeps a valid sourceOrder and rejects a malformed one', () => {
+    it('keeps a valid sourceOrder, dropping bad and repeated ids instead of refusing the file', () => {
         const base = { facts: [], dependencies: [], decisions: [] };
         expect(normalizeBible({ ...base, sourceOrder: ['ok-id'] }).sourceOrder).toEqual(['ok-id']);
-        expect(() => normalizeBible({ ...base, sourceOrder: 'x' })).toThrow(corrupt);
-        expect(() => normalizeBible({ ...base, sourceOrder: [42] })).toThrow(/sourceOrder/);
+        expect(normalizeBible({ ...base, sourceOrder: ['a', 42, '../x', 'b', 'a', null] }).sourceOrder).toEqual(['a', 'b']);
         expect(normalizeBible(base)).not.toHaveProperty('sourceOrder');
+    });
+
+    it('drops a sourceOrder that is not a list: sources then count as oldest, as before it existed', () => {
+        const base = { facts: [], dependencies: [], decisions: [] };
+        expect(normalizeBible({ ...base, sourceOrder: 'x' })).not.toHaveProperty('sourceOrder');
     });
 
     it('rejects a malformed file, naming bible.json', () => {

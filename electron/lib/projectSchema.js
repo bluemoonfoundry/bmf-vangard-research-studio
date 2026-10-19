@@ -218,11 +218,11 @@ export function normalizeBible(raw) {
             return entry;
         });
     }
-    if (raw.sourceOrder !== undefined
-        && (!Array.isArray(raw.sourceOrder) || !raw.sourceOrder.every(id => isValidItemId(id)))) {
-        throw new ProjectFormatError('CORRUPT', 'bible.json "sourceOrder" must be a list of item ids.');
-    }
-    return { ...raw, ...lists };
+    // The source order only ranks sources, so a damaged one never stops the project opening: bad and
+    // repeated ids are dropped, and a non-list is dropped whole (unlisted sources count as oldest).
+    const { sourceOrder, ...rest } = raw;
+    if (!Array.isArray(sourceOrder)) return { ...rest, ...lists };
+    return { ...rest, ...lists, sourceOrder: [...new Set(sourceOrder.filter(id => isValidItemId(id)))] };
 }
 
 export function createEmptyExtraction() {
