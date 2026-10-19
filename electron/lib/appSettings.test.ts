@@ -2,12 +2,13 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
-import { createAppSettings, PROVIDER_IDS } from './appSettings.js';
+import { createAppSettings, PROVIDER_IDS, THEMES } from './appSettings.js';
 
 let tmp: string;
 let file: string;
 
 const DEFAULTS = {
+    theme: 'system',
     ai: {
         enabled: false,
         defaultProvider: null,
@@ -28,6 +29,15 @@ afterEach(async () => {
 describe('appSettings', () => {
     it('lists the provider ids', () => {
         expect(PROVIDER_IDS).toEqual(['gemini', 'anthropic', 'openai']);
+    });
+
+    it('lists the themes', () => {
+        expect(THEMES).toEqual(['system', 'light', 'dark']);
+    });
+
+    it('reads an unknown theme as system', async () => {
+        await fs.writeFile(file, JSON.stringify({ theme: 'sepia' }), 'utf-8');
+        expect((await createAppSettings(file).read()).theme).toBe('system');
     });
 
     it('defaults when the file is missing', async () => {

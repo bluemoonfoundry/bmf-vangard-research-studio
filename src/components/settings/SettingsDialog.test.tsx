@@ -4,13 +4,15 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { SettingsDialog } from '@/components/settings/SettingsDialog';
 import { useAi } from '@/ai/useAi';
 import { createAiApi } from '@/ai/aiApi';
+import { useTheme } from '@/settings/theme';
 import { createFakeBridge, makeAiStatus } from '@/test/fakeBridge';
 
 type Made = ReturnType<typeof createFakeBridge>;
 
 function Harness({ bridge }: { bridge: Made['bridge'] }) {
   const ai = useAi(useMemo(() => createAiApi(bridge), [bridge]));
-  return <SettingsDialog ai={ai} onClose={() => {}} />;
+  const theme = useTheme(bridge.app);
+  return <SettingsDialog ai={ai} theme={theme} onClose={() => {}} />;
 }
 
 async function setup(configure?: (f: Made['fake']) => void) {
@@ -25,6 +27,24 @@ const keyBox = (name: string) => screen.getByLabelText(`${name} API key`) as HTM
 const saveButton = (name: string) => within(keyBox(name).closest('li')!).getByRole('button', { name: 'Save & test' });
 
 describe('SettingsDialog', () => {
+  it('shows the stored theme and changes it', async () => {
+    const { bridge, fake } = await setup(f => { f.theme = 'dark'; });
+    const group = screen.getByRole('group', { name: 'Theme' });
+    await waitFor(() => expect(within(group).getByRole('button', { name: 'Dark' })).toHaveAttribute('aria-pressed', 'true'));
+    fireEvent.click(within(group).getByRole('button', { name: 'Light' }));
+    await waitFor(() => expect(bridge.app.setTheme).toHaveBeenCalledWith('light'));
+    expect(fake.theme).toBe('light');
+    await waitFor(() => expect(within(group).getByRole('button', { name: 'Light' })).toHaveAttribute('aria-pressed', 'true'));
+  });
+
+  it('theme choice does not depend on AI', async () => {
+    await setup();
+    expect(screen.getByRole('checkbox', { name: 'Enable AI features' })).not.toBeChecked();
+    for (const name of ['System', 'Light', 'Dark']) {
+      expect(within(screen.getByRole('group', { name: 'Theme' })).getByRole('button', { name })).toBeEnabled();
+    }
+  });
+
   it('enable switch is disabled until a provider is tested', async () => {
     await setup();
     expect(screen.getByRole('checkbox', { name: 'Enable AI features' })).toBeDisabled();
@@ -88,10 +108,11 @@ describe('SettingsDialog', () => {
 
   it('says AI is desktop-only when there is no bridge api', () => {
     function NoApi() {
-      return <SettingsDialog ai={useAi(null)} onClose={() => {}} />;
+      return <SettingsDialog ai={useAi(null)} theme={useTheme(null)} onClose={() => {}} />;
     }
     render(<NoApi />);
     expect(screen.getByText('AI settings are only available in the desktop app.')).toBeInTheDocument();
+    expect(screen.getByText('The theme follows your system in the browser preview.')).toBeInTheDocument();
   });
 
   it('Escape in the remove confirmation closes only the confirmation', async () => {

@@ -9,6 +9,9 @@ interface VrsApi {
     onSaveBeforeClose(callback: () => void): () => void;
     closeConfirmed(): Promise<VrsIpcResult<void>>;
     openExternal(url: string): Promise<VrsIpcResult<void>>;
+    getTheme(): Promise<VrsIpcResult<import('@/settings/theme').Theme>>;
+    /** Stores and applies the theme; the main process sets nativeTheme, so CSS follows `prefers-color-scheme`. */
+    setTheme(theme: import('@/settings/theme').Theme): Promise<VrsIpcResult<import('@/settings/theme').Theme>>;
   };
   project: {
     create(): Promise<VrsIpcResult<import('@/project/types').OpenedProject | null>>;

@@ -174,8 +174,11 @@ version field; the project's `schemaVersion` in `vrs.json` (now 2) covers it.
 
 Strictly opt-in (see Project Overview). Main-process code in `electron/lib/`, renderer in `src/ai/`, `src/chat/`.
 
-- **Settings** live in `userData/settings.json` (`appSettings.js`: `ai.{enabled, defaultProvider, defaultModel, providers[id].lastTestOk}`;
-  unknown fields kept; missing/corrupt reads as defaults). **Keys** live in `userData/ai-keys.json` (`apiKeys.js`), each value
+- **Settings** live in `userData/settings.json` (`appSettings.js`: `theme`, `ai.{enabled, defaultProvider, defaultModel, providers[id].lastTestOk}`;
+  unknown fields kept; missing/corrupt reads as defaults; one instance in `main.js`, shared so writes queue together).
+  `theme` (`system`/`light`/`dark`, `themeSetting.js`, `settings:get-theme`/`settings:set-theme`, `src/settings/theme.ts`) is
+  not AI: main applies it as `nativeTheme.themeSource` before the window opens, so the CSS only follows `prefers-color-scheme`
+  (e2e must call `emulateMedia({ colorScheme: null })` to see it). **Keys** live in `userData/ai-keys.json` (`apiKeys.js`), each value
   `safeStorage`-encrypted; `set` refuses (`UNAVAILABLE`) when encryption is unavailable, never plaintext. An unreadable or corrupt
   store throws instead of being overwritten and surfaces as `AiStatus.keyStoreProblem`; Settings then offers "Reset stored keys"
   (`llm:reset-keys`), which renames it to `ai-keys.json.corrupt-<ts>`, turns AI off and clears every `lastTestOk` (refused while

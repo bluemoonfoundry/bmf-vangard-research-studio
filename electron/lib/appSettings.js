@@ -3,13 +3,16 @@ import path from 'path';
 import { atomicWriteFile } from './atomicFileWrite.js';
 
 /** @typedef {'gemini' | 'anthropic' | 'openai'} ProviderId */
+/** @typedef {'system' | 'light' | 'dark'} Theme */
 /**
  * @typedef {object} AppSettings
+ * @property {Theme} theme
  * @property {{ enabled: boolean, defaultProvider: ProviderId | null, defaultModel: string | null,
  *   providers: Record<ProviderId, { lastTestOk: string | null }> } & Record<string, unknown>} ai
  */
 
 export const PROVIDER_IDS = ['gemini', 'anthropic', 'openai'];
+export const THEMES = ['system', 'light', 'dark'];
 
 function isObject(value) {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -27,6 +30,7 @@ function normalize(raw) {
     }
     return {
         ...base,
+        theme: THEMES.includes(base.theme) ? base.theme : 'system',
         ai: {
             ...ai,
             enabled: ai.enabled === true,

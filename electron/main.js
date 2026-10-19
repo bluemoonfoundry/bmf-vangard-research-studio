@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, safeStorage, session, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, nativeTheme, safeStorage, session, shell } from 'electron';
 import path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import { logger } from './lib/logger.main.js';
@@ -12,6 +12,7 @@ import { validateExternalUrl } from './lib/ipcSecurity.js';
 import { dialogFilters, mediaKind } from './lib/media.js';
 import { TEXT_IMPORT_EXTENSIONS } from './lib/textImport.js';
 import { createAppSettings } from './lib/appSettings.js';
+import { createThemeSetting } from './lib/themeSetting.js';
 import { createApiKeyStore } from './lib/apiKeys.js';
 import { createLlmService } from './lib/llm/llmService.js';
 import { createGeminiAdapter } from './lib/llm/providers/gemini.js';
@@ -32,6 +33,7 @@ let mainWindow = null;
 let recents = null;
 let projectSession = null;
 let llm = null;
+let theme = null;
 let projectName = null;
 let projectDirty = false;
 let closeConfirmed = false;
@@ -121,6 +123,9 @@ function registerIpcHandlers() {
         closeConfirmed = true;
         mainWindow?.close();
     });
+
+    handle('settings:get-theme', () => theme.get());
+    handle('settings:set-theme', (value) => theme.set(value));
 
     handle('project:create', async () => {
         const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
@@ -220,13 +225,13 @@ function registerIpcHandlers() {
     handle('llm:conflict-check-cancel', (requestId) => llm.cancelConflictCheck(requestId));
 }
 
-function createLlm(userData) {
+function createLlm(userData, settings) {
     // Test-only override so e2e runs talk to a local fake provider instead of the real APIs.
     // Honoured only unpackaged and for a loopback origin, since it would receive decrypted keys.
     const { baseUrl, warning } = resolveTestBaseUrl(process.env.VRS_LLM_BASE_URL, { isPackaged: app.isPackaged });
     if (warning) logger.warn(warning);
     return createLlmService({
-        settings: createAppSettings(path.join(userData, 'settings.json')),
+        settings,
         keys: createApiKeyStore(path.join(userData, 'ai-keys.json'), safeStorage),
         adapters: {
             gemini: createGeminiAdapter({ baseUrl }),
@@ -245,7 +250,7 @@ function createLlm(userData) {
     });
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
     applyContentSecurityPolicy(session.defaultSession);
     // The renderer never needs camera, microphone, notifications, etc.
     session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
@@ -258,7 +263,12 @@ app.whenReady().then(() => {
         onExternalChange: (changes) => mainWindow?.webContents.send('project:external-change', changes),
         onWatchError: (err) => logger.warn('Project watcher error', err),
     });
-    llm = createLlm(userData);
+    // One store for settings.json, so the AI layer and the theme share its write queue.
+    const settings = createAppSettings(path.join(userData, 'settings.json'));
+    llm = createLlm(userData, settings);
+    theme = createThemeSetting({ settings, nativeTheme, warn: (message, err) => logger.warn(message, err) });
+    // Before the window exists, so it never opens in the wrong theme.
+    await theme.apply();
 
     registerIpcHandlers();
     mainWindow = createMainWindow();

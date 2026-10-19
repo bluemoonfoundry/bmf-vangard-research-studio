@@ -7,6 +7,7 @@ import { ProjectNotices } from '@/components/ProjectNotices';
 import { SettingsDialog } from '@/components/settings/SettingsDialog';
 import { createAiApi } from '@/ai/aiApi';
 import { useAi } from '@/ai/useAi';
+import { useTheme } from '@/settings/theme';
 import { Settings } from 'lucide-react';
 
 const APP_NAME = 'Vangard Research Studio';
@@ -18,6 +19,7 @@ export default function App() {
   const api = useMemo(() => (bridge ? createProjectApi(bridge) : null), [bridge]);
   const aiApi = useMemo(() => (bridge?.ai ? createAiApi(bridge) : null), [bridge]);
   const ai = useAi(aiApi);
+  const theme = useTheme(bridge?.app ?? null);
   // New AI chats start from Settings' default provider and model (read when a chat needs them).
   const project = useProject(api, bridge?.app ?? null, {
     chatDefaults: () => ({ provider: ai.status?.defaultProvider ?? null, model: ai.status?.defaultModel ?? null }),
@@ -92,7 +94,7 @@ export default function App() {
           />
         )}
       </main>
-      {settingsOpen && <SettingsDialog ai={ai} onClose={() => setSettingsOpen(false)} />}
+      {settingsOpen && <SettingsDialog ai={ai} theme={theme} onClose={() => setSettingsOpen(false)} />}
     </div>
   );
 }
