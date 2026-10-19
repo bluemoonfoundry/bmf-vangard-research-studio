@@ -1,0 +1,66 @@
+{
+  "runSettings": {
+    "temperature": 1,
+    "model": "models/gemini-3.5-flash-lite",
+    "topP": 0.95,
+    "topK": 64,
+    "maxOutputTokens": 65536,
+    "enableSearchAsATool": true,
+    "googleSearch": {},
+    "thinkingLevel": "THINKING_MINIMAL"
+  },
+  "systemInstruction": {},
+  "chunkedPrompt": {
+    "chunks": [
+      {
+        "driveDocument": { "id": "1AbCdEfGhIjKlMnOpQrStUvWxYz012345" },
+        "role": "user",
+        "tokenCount": 1443,
+        "createTime": "2026-10-13T02:38:55.432Z"
+      },
+      {
+        "text": "Here is the story bible for Sky Harbour.\n\n",
+        "role": "user",
+        "tokenCount": 15,
+        "createTime": "2026-10-13T02:38:55.432Z"
+      },
+      {
+        "text": "**Reading the bible**\n\nI'm noting the harbour setting first.",
+        "role": "model",
+        "tokenCount": 40,
+        "isThought": true,
+        "thinkingBudget": -1,
+        "parts": [
+          { "text": "**Reading the bible**\n\n", "thought": true },
+          { "text": "I'm noting the harbour setting first.", "thought": true }
+        ],
+        "createTime": "2026-10-13T02:38:55.432Z"
+      },
+      {
+        "text": "A strong start. The **harbour** works as a hub.\n\n### Open questions\n\nWho runs it?",
+        "role": "model",
+        "finishReason": "STOP",
+        "tokenCount": 745,
+        "parts": [
+          { "text": "A strong start. The **harbour** works" },
+          { "text": " as a hub.\n\n### Open questions\n\nWho runs it?", "thoughtSignature": "c2lnbmF0dXJl" }
+        ],
+        "createTime": "2026-10-13T02:38:55.432Z"
+      },
+      {
+        "text": "Make the harbour master a retired pilot named Odile.",
+        "role": "user",
+        "tokenCount": 26,
+        "createTime": "2026-10-13T02:39:48.268Z"
+      },
+      {
+        "text": "Odile fits well: a retired pilot who still reads the wind.",
+        "role": "model",
+        "finishReason": "STOP",
+        "parts": [{ "text": "Odile fits well: a retired pilot who still reads the wind." }],
+        "createTime": "2026-10-13T02:39:48.268Z"
+      }
+    ],
+    "pendingInputs": [{ "text": "", "role": "user" }]
+  }
+}

@@ -16,7 +16,7 @@ import { normalizeChatText } from '@/bible/entities';
  * plain text with no turns.
  */
 
-export type ImportedFormat = 'aistudio-exporter-md' | 'text';
+export type ImportedFormat = 'aistudio-exporter-md' | 'aistudio-drive' | 'text';
 export type TurnRole = 'user' | 'model';
 
 export interface ParsedTurn { role: TurnRole; label: string; text: string }
@@ -41,7 +41,8 @@ export const USER_LABEL = 'You';
  * Whether an item's stored body is in the canonical layout. Only a recognised import is: in a
  * plain-text chat or a document, a `=== Scene 2 ===` line is just text.
  */
-export const hasTurnLayout = (item: { importedFormat?: string }): boolean => item.importedFormat === 'aistudio-exporter-md';
+export const hasTurnLayout = (item: { importedFormat?: string }): boolean =>
+  item.importedFormat === 'aistudio-exporter-md' || item.importedFormat === 'aistudio-drive';
 
 const HEADING = /^=== (.+) ===$/;
 const roleOf = (label: string): TurnRole => (label === USER_LABEL ? 'user' : 'model');
@@ -136,20 +137,76 @@ export function exporterTurnSpans(body: string): TurnSpan[] | null {
 
 const plain = (body: string, warnings: string[] = []): ParsedTranscript => ({ format: 'text', turns: [], body, warnings });
 
-function isDriveJson(text: string): boolean {
-  if (!text.trimStart().startsWith('{')) return false;
+const MODEL_LABEL = 'Gemini';
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
+/** Placeholder for a chunk that only references media, named by its key (`driveImage`, `driveDocument`, ...). */
+function attachmentPlaceholder(chunk: Record<string, unknown>): string {
+  const keys = Object.keys(chunk);
+  if (keys.some(k => /image/i.test(k))) return '[image not imported]';
+  if (keys.some(k => /document/i.test(k))) return '[Drive document not imported]';
+  return '[attachment not imported]';
+}
+
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/**
+ * The turns of an AI Studio Drive file: JSON (no file extension) with `chunkedPrompt.chunks[]`, each
+ * `{ role: 'user' | 'model', text?, isThought?, parts?: [{ text, thought? }] }` or a media reference
+ * (`driveDocument`, `driveImage`, ...) with no text. The schema is unofficial, so anything odd is
+ * skipped rather than trusted. Thinking is dropped; consecutive chunks of one role (a document then
+ * the message about it) make one turn. Null when the text isn't such a file.
+ */
+function parseDriveJson(text: string): ParsedTranscript | null {
+  if (!text.trimStart().startsWith('{')) return null;
+  let file: unknown;
   try {
-    const v: unknown = JSON.parse(text);
-    return typeof v === 'object' && v !== null && 'chunkedPrompt' in v;
+    file = JSON.parse(text);
   } catch {
-    return false;
+    return null;
   }
+  if (!isObject(file) || !isObject(file.chunkedPrompt)) return null;
+
+  const chunks = Array.isArray(file.chunkedPrompt.chunks) ? file.chunkedPrompt.chunks : [];
+  const turns: ParsedTurn[] = [];
+  let unreadable = 0;
+  let attachments = 0;
+  for (const chunk of chunks) {
+    if (!isObject(chunk) || (chunk.role !== 'user' && chunk.role !== 'model')) {
+      unreadable++;
+      continue;
+    }
+    if (chunk.isThought === true) continue;
+    let piece: string;
+    if (Array.isArray(chunk.parts) && chunk.parts.some(p => isObject(p) && p.thought === true)) {
+      piece = chunk.parts.filter(p => isObject(p) && p.thought !== true && typeof p.text === 'string').map(p => (p as { text: string }).text).join('');
+    } else if (typeof chunk.text === 'string') {
+      piece = chunk.text;
+    } else {
+      piece = attachmentPlaceholder(chunk);
+      attachments++;
+    }
+    piece = normalizeChatText(piece).trim();
+    if (!piece) continue;
+    const role: TurnRole = chunk.role;
+    const last = turns[turns.length - 1];
+    if (last?.role === role) last.text += `\n\n${piece}`;
+    else turns.push({ role, label: role === 'user' ? USER_LABEL : MODEL_LABEL, text: piece });
+  }
+  if (!turns.length) return plain(text, ['This AI Studio file has no turns VRS could read; imported as plain text.']);
+
+  const warnings: string[] = [];
+  if (attachments) warnings.push(`${plural(attachments, 'attachment', 'attachments')} not imported (shown as ${attachments === 1 ? 'a placeholder' : 'placeholders'}).`);
+  if (unreadable) warnings.push(`${plural(unreadable, 'unreadable chunk', 'unreadable chunks')} skipped.`);
+  if (isObject(file.systemInstruction) && Object.keys(file.systemInstruction).length) warnings.push("System instructions weren't imported.");
+  return { format: 'aistudio-drive', turns, body: formatTurns(turns), warnings };
 }
 
 /** Recognises an import's format and returns what to store. Never throws. */
 export function parseTranscript(raw: string): ParsedTranscript {
   const text = normalizeChatText(raw);
-  if (isDriveJson(text)) return plain(text, ["AI Studio Drive files aren't supported yet; imported as plain text."]);
+  const drive = parseDriveJson(text);
+  if (drive) return drive;
 
   const lines = text.split('\n');
   const conv = lines.indexOf(CONVERSATION);
