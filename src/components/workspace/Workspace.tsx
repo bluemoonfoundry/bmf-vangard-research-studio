@@ -112,6 +112,7 @@ export function Workspace({ project, ai, aiApi }: WorkspaceProps) {
   const [orderingSources, setOrderingSources] = useState(false);
   /** The extraction dialog, with the sources it opened with. */
   const [extracting, setExtracting] = useState<{ ids: string[] } | null>(null);
+  const extractFrom = useCallback((id: string) => setExtracting({ ids: [id] }), []);
   /** The semantic conflict check dialog and its scope (one card, or one kind on the card wall). */
   const [checkingConflicts, setCheckingConflicts] = useState<{ entityIds: string[]; label: string } | null>(null);
   /** A fact's passage to show once its source opens; cleared by any other navigation. */
@@ -543,6 +544,7 @@ export function Workspace({ project, ai, aiApi }: WorkspaceProps) {
           onDuplicate={(id) => void duplicate(id)}
           onQuickRef={setQuickRefId}
           onMove={moveItem}
+          onExtract={aiEnabled ? extractFrom : undefined}
         />
         <main className="flex min-h-0 min-w-0 flex-1 flex-col bg-surface">
           {mode === 'cards' ? (

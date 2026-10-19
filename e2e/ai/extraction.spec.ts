@@ -55,6 +55,10 @@ test('no extraction UI while AI is off', async ({ electronApp, window, workDir }
   await addNotes(window);
   await expect(window.getByRole('button', { name: 'Extract', exact: true })).toHaveCount(0);
   await expect(window.getByRole('button', { name: /^Review/ })).toHaveCount(0);
+  await window.getByRole('tree', { name: 'Binder items' }).getByRole('treeitem', { name: 'Harbour notes' }).click({ button: 'right' });
+  const menu = window.getByRole('menu', { name: 'Actions for Harbour notes' });
+  await expect(menu.getByRole('menuitem', { name: 'Duplicate' })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: 'Extract facts…' })).toHaveCount(0);
 });
 
 test('extracts a new card from notes, reviews it into canon, and reuses the cache', async ({ electronApp, window, workDir, fakeProvider }) => {
@@ -98,8 +102,10 @@ test('extracts a new card from notes, reviews it into canon, and reuses the cach
   await expect(window.getByRole('list', { name: 'Cards' }).getByRole('button', { name: /^Ivo/ })).toContainText('harbour master');
 
   // Same source, same model: the cached results are applied again, no request, nothing comes back.
-  await window.getByRole('button', { name: 'Extract', exact: true }).click();
-  await window.getByRole('dialog', { name: 'Extract facts' }).getByRole('checkbox', { name: 'Harbour notes', exact: true }).check();
+  // This time it starts from the source's binder menu, which chooses it.
+  await window.getByRole('tree', { name: 'Binder items' }).getByRole('treeitem', { name: 'Harbour notes' }).click({ button: 'right' });
+  await window.getByRole('menu', { name: 'Actions for Harbour notes' }).getByRole('menuitem', { name: 'Extract facts…' }).click();
+  await expect(dialog.getByRole('checkbox', { name: 'Harbour notes', exact: true })).toBeChecked();
   await expect(dialog.getByText(/1 cached/)).toBeVisible();
   await dialog.getByRole('button', { name: 'Start' }).click();
   await expect(dialog.getByText(/From the last run/)).toBeVisible();

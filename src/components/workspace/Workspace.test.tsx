@@ -49,6 +49,47 @@ async function save() {
 const folder = (id: string, title: string, extra: Partial<TreeItem> = {}) => item(id, title, { type: 'folder', ...extra });
 
 describe('binder', () => {
+  const menu = () => screen.getByRole('menu', { name: /^Actions for / });
+  const menuItems = () => within(menu()).getAllByRole('menuitem').map(el => el.textContent);
+
+  it('a right-click opens the row menu, whose actions act on that row', async () => {
+    await open([folder('f1', 'People'), item('d1', 'Notes')]);
+    fireEvent.contextMenu(treeItem('People'));
+    expect(screen.getByRole('menu', { name: 'Actions for People' })).toBeInTheDocument();
+    expect(menuItems()).toEqual(['Quick reference', 'New document here', 'Duplicate', 'Delete…']);
+    expect(within(menu()).getAllByRole('menuitem')[0]).toHaveFocus();
+    fireEvent.click(within(menu()).getByRole('menuitem', { name: 'New document here' }));
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(treeItem('Untitled document')).toHaveAttribute('aria-level', '2');
+
+    fireEvent.contextMenu(treeItem('Notes'));
+    expect(menuItems()).toEqual(['Quick reference', 'Duplicate', 'Delete…']);
+    fireEvent.click(within(menu()).getByRole('menuitem', { name: 'Delete…' }));
+    expect(screen.getByRole('dialog', { name: 'Delete item' })).toBeInTheDocument();
+  });
+
+  it('the menu opens from the keyboard, moves with the arrows, and Escape returns focus to the row', async () => {
+    await open([item('d1', 'Notes')]);
+    const row = treeItem('Notes');
+    row.focus();
+    fireEvent.keyDown(row, { key: 'F10', shiftKey: true });
+    const entries = within(menu()).getAllByRole('menuitem');
+    fireEvent.keyDown(entries[0], { key: 'ArrowDown' });
+    expect(entries[1]).toHaveFocus();
+    fireEvent.keyDown(entries[1], { key: 'End' });
+    expect(entries[2]).toHaveFocus();
+    fireEvent.keyDown(entries[2], { key: 'ArrowDown' });
+    expect(entries[0]).toHaveFocus();
+    fireEvent.keyDown(entries[0], { key: 'Escape' });
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(row).toHaveFocus();
+
+    fireEvent.keyDown(row, { key: 'ContextMenu' });
+    expect(menu()).toBeInTheDocument();
+    fireEvent.pointerDown(document.body);
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
+
   it('creates a folder and shows it as an empty corkboard', async () => {
     await open();
     fireEvent.click(screen.getByRole('button', { name: 'New folder' }));
@@ -707,6 +748,27 @@ describe('AI extraction surfaces', () => {
     const dialog = screen.getByRole('dialog', { name: 'Extract facts' });
     expect(within(dialog).getByRole('checkbox', { name: 'Pasted notes' })).toBeChecked();
     expect(await within(dialog).findByText(/1 source · ~\d[\d,]* tokens · 0 cached · Gemini X/)).toBeInTheDocument();
+  });
+
+  it('the binder menu offers Extract facts only for sources, and only with AI on', async () => {
+    await open([notes, item('e1', 'Mara', { type: 'entity', entityKind: 'character' })], { d1: 'Mara has green eyes.' });
+    fireEvent.contextMenu(treeItem('Pasted notes'));
+    expect(within(screen.getByRole('menu')).queryByRole('menuitem', { name: 'Extract facts…' })).toBeNull();
+  });
+
+  it('Extract facts in the binder menu opens the dialog with that source chosen, not the open one', async () => {
+    enableAi();
+    await open([notes, item('d2', 'Other notes'), item('e1', 'Mara', { type: 'entity', entityKind: 'character' })], { d1: 'Mara has green eyes.', d2: 'Ivo.' });
+    fireEvent.contextMenu(treeItem('Mara'));
+    expect(within(screen.getByRole('menu')).queryByRole('menuitem', { name: 'Extract facts…' })).toBeNull();
+    fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
+
+    fireEvent.click(treeItem('Pasted notes'));
+    fireEvent.contextMenu(treeItem('Other notes'));
+    fireEvent.click(await within(screen.getByRole('menu')).findByRole('menuitem', { name: 'Extract facts…' }));
+    const dialog = screen.getByRole('dialog', { name: 'Extract facts' });
+    expect(within(dialog).getByRole('checkbox', { name: 'Other notes' })).toBeChecked();
+    expect(within(dialog).getByRole('checkbox', { name: 'Pasted notes' })).not.toBeChecked();
   });
 
   it('Review is offered only with AI on, with a count, and approves a proposed card', async () => {

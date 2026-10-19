@@ -209,7 +209,7 @@ Strictly opt-in (see Project Overview). Main-process code in `electron/lib/`, re
 ## AI Extraction
 
 On demand, AI reads chosen sources (imported chats, AI Chats, documents) and proposes facts and new cards. AI-only:
-the Extract button, the Review mode, "This is my own writing" and the card's Rejected list are hidden while AI is off.
+the Extract button (and "Extract facts…" in a source's binder row menu, `ContextMenu`), the Review mode, "This is my own writing" and the card's Rejected list are hidden while AI is off.
 
 - **`llm:extract`** (`llmService.extract`, cancelled by `llm:extract-cancel` and `abortAll()`, respects `abortEpoch`)
   streams one request with the provider's JSON-schema output on (`request.jsonSchema`: Gemini `responseJsonSchema`,
