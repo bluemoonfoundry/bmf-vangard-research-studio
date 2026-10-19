@@ -26,8 +26,10 @@ interface FileRow { key: number; fileName: string; text: string; title: string; 
 
 const DEFAULT_TITLE = 'Imported chat';
 
+const FORMAT_NAMES: Record<ImportedFormat, string> = { 'aistudio-exporter-md': 'AI Studio export', 'aistudio-drive': 'AI Studio Drive file', text: 'Plain text' };
+
 const formatLine = (p: ParsedTranscript) =>
-  (p.format === 'aistudio-exporter-md' ? `AI Studio export · ${p.turns.length} turn${p.turns.length === 1 ? '' : 's'}` : 'Plain text');
+  (p.format === 'text' ? FORMAT_NAMES.text : `${FORMAT_NAMES[p.format]} · ${p.turns.length} turn${p.turns.length === 1 ? '' : 's'}`);
 
 function toEntry(title: string, parsed: ParsedTranscript, importedFrom?: string): ImportEntry {
   const entry: ImportEntry = { title: title.trim() || DEFAULT_TITLE, body: parsed.body, importedFormat: parsed.format };

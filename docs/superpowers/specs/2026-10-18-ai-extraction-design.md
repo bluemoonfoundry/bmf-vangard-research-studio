@@ -90,7 +90,11 @@ The importer recognises the format from the content, not the extension. It's a p
    `runSettings`, `systemInstruction`, `chunkedPrompt.chunks[]` with `role`, `text`, `isThought`).
    Thinking chunks (`isThought`) are dropped. Chunks that only reference Drive media become a
    placeholder line such as `[image not imported]`. The schema is unofficial, so parsing is defensive.
-   **No real sample has been reviewed yet; get one before implementing this format.**
+   A real sample was reviewed (369 chunks, ~3.4 MB): user chunks carry `text` only; model chunks add
+   `parts[]` (whose texts join to `text`) and `finishReason`; thinking chunks have `isThought` and
+   `thought: true` parts; a `driveDocument` chunk is followed by the user's message about it (same
+   role, so they merge into one turn). No title or prompt link is in the content, so the file name
+   is the title and there is no `sourceUrl`.
 3. **Plain text fallback**: anything else imports as today, as one body with no turn structure.
 
 An unrecognised structure is never an error. It falls back to plain text. A recognised format that's

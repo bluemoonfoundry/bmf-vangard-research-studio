@@ -4,6 +4,7 @@ import { fileURLToPath } from 'url';
 import { test, expect, launchApp, quitApp, stubFolderDialogs, stubOpenFiles } from '../electron-launch';
 
 const FIXTURE = fileURLToPath(new URL('../fixtures/aistudio-exporter-sample.md', import.meta.url));
+const DRIVE_FIXTURE = fileURLToPath(new URL('../fixtures/aistudio-drive-sample.json', import.meta.url));
 
 test('imports an AI Studio export and an extensionless file, and keeps their source order across a restart', async ({ electronApp, window, userDataDir, workDir }) => {
   const root = path.join(workDir, 'Clouds.vrs');
@@ -56,4 +57,33 @@ test('imports an AI Studio export and an extensionless file, and keeps their sou
   } finally {
     await quitApp(relaunched.app);
   }
+});
+
+test('imports an AI Studio Drive file (extensionless JSON) turn by turn', async ({ electronApp, window, workDir }) => {
+  const root = path.join(workDir, 'Drive.vrs');
+  const driveFile = path.join(workDir, 'Sky Harbour');
+  await fs.copyFile(DRIVE_FIXTURE, driveFile);
+
+  await stubFolderDialogs(electronApp, root);
+  await window.getByRole('button', { name: 'New project…' }).click();
+  await expect(window.getByRole('textbox', { name: 'Project name' })).toBeVisible();
+
+  await stubOpenFiles(electronApp, [driveFile]);
+  await window.getByRole('button', { name: 'Import chat' }).click();
+  const dialog = window.getByRole('dialog', { name: 'Import chat' });
+  await dialog.getByRole('button', { name: 'Choose files…' }).click();
+  await expect(dialog.getByRole('textbox', { name: 'Title for Sky Harbour' })).toHaveValue('Sky Harbour');
+  await expect(dialog.getByText('AI Studio Drive file · 4 turns')).toBeVisible();
+  await dialog.getByRole('button', { name: 'Import' }).click();
+
+  await window.getByRole('tree', { name: 'Binder items' }).getByRole('treeitem', { name: 'Sky Harbour', exact: true }).click();
+  const transcript = window.getByLabel('Chat transcript');
+  await expect(transcript).toContainText('=== Gemini ===');
+  await expect(transcript).toContainText('[Drive document not imported]');
+  await expect(transcript).not.toContainText('Reading the bible');
+
+  await window.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(window.getByText('Saved', { exact: true })).toBeVisible();
+  const tree = JSON.parse(await fs.readFile(path.join(root, 'tree.json'), 'utf-8'));
+  expect(tree.items.find((i: { title: string }) => i.title === 'Sky Harbour')).toMatchObject({ type: 'chat', importedFormat: 'aistudio-drive' });
 });

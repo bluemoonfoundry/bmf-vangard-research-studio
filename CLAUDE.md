@@ -122,8 +122,9 @@ A project is a folder (`Name.vrs/`) of plain files: `vrs.json` (manifest + `sche
   `readDoc` (`src/project/api.ts`) strips a BOM and turns CRLF/CR into LF, matching the editor textarea, so fact offsets
   captured there resolve against the stored body.
 - **Imported chats** (`type: 'chat'`) come from `project:import-texts` (multi-select; extensionless files only if UTF-8
-  text) or paste. `src/chat/importFormats.ts` recognises AI Chat Exporter Markdown (AI Studio) and stores it in the
-  canonical turn layout (`=== You ===` / `=== <Model> ===` heading lines; `turnSpans()` finds turns in a stored body),
+  text) or paste. `src/chat/importFormats.ts` recognises AI Chat Exporter Markdown (AI Studio) and AI Studio's own Drive
+  files (extensionless JSON, `chunkedPrompt.chunks[]`; thinking dropped, media chunks become `[... not imported]`
+  placeholders, consecutive same-role chunks merge) and stores both in the canonical turn layout (`=== You ===` / `=== <Model> ===` heading lines; `turnSpans()` finds turns in a stored body),
   with `importedFormat` and `sourceUrl` on the item. Anything else is stored as plain text. Only an item with that
   `importedFormat` has turns (`hasTurnLayout`): a `=== Scene 2 ===` line in a plain chat or document is just text. `ChatView`
   styles the headings (its `turns` prop) without changing the text, so fact offsets stay offsets into the stored body.

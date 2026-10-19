@@ -5,6 +5,7 @@ import type { TextImportBatch } from '@/project/types';
 import { normalizeChatText } from '@/bible/entities';
 import { ImportChatModal, type ImportChatModalProps } from '@/components/bible/ImportChatModal';
 import raw from '@/chat/fixtures/aistudio-exporter-sample.md?raw';
+import driveRaw from '@/chat/fixtures/aistudio-drive-sample.json?raw';
 
 const sample = normalizeChatText(raw);
 
@@ -34,6 +35,17 @@ describe('ImportChatModal', () => {
       title: 'Sky Harbour Test Chat', importedFormat: 'aistudio-exporter-md', sourceUrl: 'https://aistudio.google.com/prompts/abc123',
     });
     expect(entries[0].body.startsWith('=== You ===\n\n')).toBe(true);
+  });
+
+  it('recognises a pasted AI Studio Drive file and says what it left out', () => {
+    const { props, dialog } = setup();
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Chat text' }), { target: { value: driveRaw } });
+    expect(within(dialog).getByText('AI Studio Drive file · 4 turns')).toBeInTheDocument();
+    expect(within(dialog).getByText('1 attachment not imported (shown as a placeholder).')).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Import' }));
+    const [entries] = vi.mocked(props.onImport).mock.calls[0];
+    expect(entries[0]).toMatchObject({ title: 'Imported chat', importedFormat: 'aistudio-drive' });
+    expect(entries[0].body.startsWith('=== You ===\n\n[Drive document not imported]')).toBe(true);
   });
 
   it('imports pasted plain text unchanged', () => {
