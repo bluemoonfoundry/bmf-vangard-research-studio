@@ -132,6 +132,17 @@ describe('EntityCard', () => {
     expect(screen.queryByRole('region', { name: 'Images' })).toBeNull();
   });
 
+  it('offers importing a new image or audio file onto the card only when it can', () => {
+    const onImportMedia = vi.fn();
+    const { unmount } = render(<Harness />);
+    expect(screen.queryByRole('button', { name: 'Import image…' })).toBeNull();
+    unmount();
+    render(<Harness onImportMedia={onImportMedia} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Import image…' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Import audio…' }));
+    expect(onImportMedia.mock.calls).toEqual([['image'], ['audio']]);
+  });
+
   it('adds a kept manual fact', () => {
     render(<Harness />);
     fireEvent.click(screen.getByRole('button', { name: 'Add fact' }));

@@ -261,6 +261,24 @@ export function useProject(
     return (await run(() => api.importMedia(kind))) ?? null;
   }, [api, run]);
 
+  /**
+   * Imports a media file as a new item beside an entity and links it to the entity's card.
+   * Returns the new item's id; null if the user cancels or the entity is gone by then.
+   */
+  const importMediaOnto = useCallback(async (entityId: string, kind: MediaKind) => {
+    const picked = await importMedia(kind);
+    if (!picked) return null;
+    // Read the entity after the dialog closes, so references added meanwhile aren't lost.
+    const entity = stateRef.current?.tree.items.find(i => i.id === entityId);
+    if (!entity) {
+      discardAsset(picked.asset);
+      return null;
+    }
+    const id = addItem({ type: kind, title: picked.originalName, parentId: entity.parentId, asset: picked.asset });
+    updateItem(entityId, { references: [...(entity.references ?? []), { id: crypto.randomUUID(), targetId: id }] });
+    return id;
+  }, [importMedia, discardAsset, addItem, updateItem]);
+
   /** Lets the user pick text files to import; null if they cancel or it fails. */
   const importTexts = useCallback(async () => {
     if (!api) return null;
@@ -430,7 +448,7 @@ export function useProject(
     state, dirty, saving, error, recents, recovery, migratedFrom, conflicts, assets,
     createProject, openProject, openRecent, removeRecent, closeProject, save,
     loadDoc, loadAllDocs, loadAllChats, updateChat, addDocument, addItem, updateItem, moveItem, duplicateItem, editDoc, renameItem, deleteItem,
-    renameProject, discardAsset, importMedia, importTexts, updateBible, updateExtraction, updateCanon, exportDossier,
+    renameProject, discardAsset, importMedia, importMediaOnto, importTexts, updateBible, updateExtraction, updateCanon, exportDossier,
     restoreRecovery, discardRecovery, reloadFromDisk, keepMine, reportError,
     dismissError: () => setError(null),
     dismissMigration: () => setMigratedFrom(null),
@@ -438,7 +456,7 @@ export function useProject(
     state, dirty, saving, error, recents, recovery, migratedFrom, conflicts, assets,
     createProject, openProject, openRecent, removeRecent, closeProject, save,
     loadDoc, loadAllDocs, loadAllChats, updateChat, addDocument, addItem, updateItem, moveItem, duplicateItem, editDoc, renameItem, deleteItem,
-    renameProject, discardAsset, importMedia, importTexts, updateBible, updateExtraction, updateCanon, exportDossier,
+    renameProject, discardAsset, importMedia, importMediaOnto, importTexts, updateBible, updateExtraction, updateCanon, exportDossier,
     restoreRecovery, discardRecovery, reloadFromDisk, keepMine, reportError,
   ]);
 }

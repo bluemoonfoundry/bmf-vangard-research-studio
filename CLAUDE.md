@@ -166,7 +166,8 @@ version field; the project's `schemaVersion` in `vrs.json` (now 2) covers it.
 - **Card wall** (Workspace "Cards" mode; logic in `src/bible/cards.ts`, UI `CardWall` + `EntityCard`): a tab per kind (plus
   "Other"), cards show kept facts only. Pins are `cardFacts` (attribute keys) on the entity item; with none, a per-kind
   `DEFAULT_CARD_ORDER` applies. The portrait is `portraitId`, else the first linked image. Media and related entities are
-  plain `references`. `EntityPanel` (in the editor) stays the place for full fact editing, set-aside facts and unreviewing.
+  plain `references`; "Import image/audio…" on the full card (`importMediaOnto` in `useProject`) creates the item beside the
+  entity and links it. `EntityPanel` (in the editor) stays the place for full fact editing, set-aside facts and unreviewing.
 
 ## AI Layer and AI Chat
 
