@@ -7,6 +7,7 @@ import type {
 import { emptyExtraction, type ExtractionState } from '@/extraction/types';
 import type { AiSettingsPatch, AiStatus, ChatEvent, ChatRequest, ConflictCheckResult, ExtractRequest, ExtractResult, ModelInfo, ProviderId, StreamEvent } from '@/ai/types';
 import type { ChatTranscript } from '@/chat/types';
+import type { Theme } from '@/settings/theme';
 
 const ok = <T,>(value: T): Promise<IpcResult<T>> => Promise.resolve({ ok: true, value });
 
@@ -68,6 +69,9 @@ export function createFakeBridge() {
     nextExportPath: null as string | null,
     exports: [] as string[],
     openedLinks: [] as string[],
+    theme: 'system' as Theme,
+    /** When set, setTheme fails with this message. */
+    themeError: null as string | null,
     saves: [] as SavePayload[],
     recoveryWrites: [] as SavePayload[],
     saveError: null as string | null,
@@ -120,6 +124,12 @@ export function createFakeBridge() {
       openExternal: vi.fn((url: string) => {
         fake.openedLinks.push(url);
         return ok(undefined);
+      }),
+      getTheme: vi.fn(() => ok(fake.theme)),
+      setTheme: vi.fn((theme: Theme): Promise<IpcResult<Theme>> => {
+        if (fake.themeError) return Promise.resolve({ ok: false, error: { code: 'IO', message: fake.themeError } });
+        fake.theme = theme;
+        return ok(theme);
       }),
     },
     project: {

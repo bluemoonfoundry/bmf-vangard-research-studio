@@ -17,6 +17,9 @@ contextBridge.exposeInMainWorld('vrs', {
     closeConfirmed: () => ipcRenderer.invoke('app:close-confirmed'),
     // Only http(s) URLs; the main process validates and hands them to the system browser.
     openExternal: (url) => ipcRenderer.invoke('app:open-external', url),
+    // 'system' | 'light' | 'dark', kept in userData/settings.json and applied by the main process.
+    getTheme: () => ipcRenderer.invoke('settings:get-theme'),
+    setTheme: (theme) => ipcRenderer.invoke('settings:set-theme', theme),
   },
   // Project roots only ever come from native dialogs or the recent list (see
   // electron/lib/projectSession.js); the renderer can't name an arbitrary folder.

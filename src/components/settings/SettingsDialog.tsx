@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { Modal } from '@/components/workspace/Modal';
 import { ConfirmDialog } from '@/components/workspace/ConfirmDialog';
-import { btn, btnPrimary, fieldLabel, input } from '@/components/workspace/ui';
+import { btn, btnPrimary, fieldLabel, input, segment, segmentGroup } from '@/components/workspace/ui';
 import type { AiController } from '@/ai/useAi';
 import { PROVIDERS, type ProviderId } from '@/ai/types';
+import { THEME_OPTIONS, type ThemeController } from '@/settings/theme';
 
 interface SettingsDialogProps {
   ai: AiController;
+  theme: ThemeController;
   onClose(): void;
 }
 
@@ -94,8 +96,39 @@ function ProviderRow({ id, name, ai }: { id: ProviderId; name: string; ai: AiCon
   );
 }
 
-/** App-level AI settings (spec §1): master switch, provider keys, default provider and model. */
-export function SettingsDialog({ ai, onClose }: SettingsDialogProps) {
+const sectionHeading = 'mb-2 text-sm font-semibold';
+
+function AppearanceSection({ theme }: { theme: ThemeController }) {
+  return (
+    <section aria-labelledby="settings-appearance">
+      <h2 id="settings-appearance" className={sectionHeading}>Appearance</h2>
+      {!theme.available ? (
+        <p className="text-sm text-content-muted">The theme follows your system in the browser preview.</p>
+      ) : (
+        <>
+          <span className={`${fieldLabel} mb-1 block`}>Theme</span>
+          <div className={segmentGroup} role="group" aria-label="Theme">
+            {THEME_OPTIONS.map(o => (
+              <button
+                key={o.id}
+                type="button"
+                className={segment(theme.theme === o.id)}
+                aria-pressed={theme.theme === o.id}
+                onClick={() => void theme.setTheme(o.id)}
+              >
+                {o.name}
+              </button>
+            ))}
+          </div>
+          {theme.error && <p role="alert" className="mt-2 text-sm text-danger">{theme.error}</p>}
+        </>
+      )}
+    </section>
+  );
+}
+
+/** App-level settings: appearance, then AI (spec §1: master switch, provider keys, default provider and model). */
+export function SettingsDialog({ ai, theme, onClose }: SettingsDialogProps) {
   const { status, loadModels } = ai;
   const [confirmReset, setConfirmReset] = useState(false);
   const defaultProvider = status?.defaultProvider ?? null;
@@ -112,99 +145,105 @@ export function SettingsDialog({ ai, onClose }: SettingsDialogProps) {
   return (
     <Modal
       title="Settings"
-      description="Optional AI features. Nothing is sent anywhere until you turn them on."
+      description="Appearance and optional AI features. Nothing is sent anywhere until you turn AI on."
       onClose={onClose}
       width="max-w-2xl"
       footer={<button type="button" className={btn} onClick={onClose}>Close</button>}
     >
-      {!ai.available ? (
-        <p className="text-sm text-content-muted">AI settings are only available in the desktop app.</p>
-      ) : !status ? (
-        ai.error ? (
-          <div role="alert" className="flex items-center gap-3 rounded border border-danger bg-surface-sunken p-3 text-sm text-danger">
-            <span className="flex-1">{ai.error}</span>
-            <button type="button" className={btn} onClick={() => void ai.refresh()}>Retry</button>
-          </div>
-        ) : (
-          <p className="text-sm text-content-muted">Loading…</p>
-        )
-      ) : (
-        <div className="space-y-4">
-          {status.keyStoreProblem && (
-            <div role="alert" className="flex items-center gap-3 rounded border border-danger bg-surface-sunken p-3 text-sm font-medium text-danger">
-              <span className="flex-1">{status.keyStoreProblem}</span>
-              <button type="button" className={btn} onClick={() => setConfirmReset(true)}>Reset stored keys</button>
+      <div className="space-y-6">
+        <AppearanceSection theme={theme} />
+        <section aria-labelledby="settings-ai">
+          <h2 id="settings-ai" className={sectionHeading}>AI</h2>
+          {!ai.available ? (
+            <p className="text-sm text-content-muted">AI settings are only available in the desktop app.</p>
+          ) : !status ? (
+            ai.error ? (
+              <div role="alert" className="flex items-center gap-3 rounded border border-danger bg-surface-sunken p-3 text-sm text-danger">
+                <span className="flex-1">{ai.error}</span>
+                <button type="button" className={btn} onClick={() => void ai.refresh()}>Retry</button>
+              </div>
+            ) : (
+              <p className="text-sm text-content-muted">Loading…</p>
+            )
+          ) : (
+            <div className="space-y-4">
+              {status.keyStoreProblem && (
+                <div role="alert" className="flex items-center gap-3 rounded border border-danger bg-surface-sunken p-3 text-sm font-medium text-danger">
+                  <span className="flex-1">{status.keyStoreProblem}</span>
+                  <button type="button" className={btn} onClick={() => setConfirmReset(true)}>Reset stored keys</button>
+                </div>
+              )}
+              {confirmReset && (
+                <ConfirmDialog
+                  title="Reset stored keys"
+                  message="Start over with no saved API keys? The unreadable key file is kept as a backup next to it, and AI is turned off until you add a key again."
+                  confirmLabel="Reset stored keys"
+                  onCancel={() => setConfirmReset(false)}
+                  onConfirm={() => {
+                    setConfirmReset(false);
+                    void ai.resetKeys();
+                  }}
+                />
+              )}
+              {ai.error && <p role="alert" className="rounded border border-danger bg-surface-sunken p-3 text-sm text-danger">{ai.error}</p>}
+
+              <div>
+                <label className="flex items-center gap-2 text-sm font-medium">
+                  <input
+                    type="checkbox"
+                    checked={status.enabled}
+                    disabled={switchDisabled}
+                    onChange={(e) => void ai.setSettings({ enabled: e.target.checked })}
+                  />
+                  Enable AI features
+                </label>
+                {switchDisabled && <p className="mt-1 text-xs text-content-muted">Add and test an API key first</p>}
+              </div>
+
+              {!status.encryptionAvailable && (
+                <p className="text-sm text-content-muted">This system has no secure key storage, so VRS can't store API keys.</p>
+              )}
+
+              <ul className="space-y-2" aria-label="Providers">
+                {PROVIDERS.map(p => <ProviderRow key={p.id} id={p.id} name={p.name} ai={ai} />)}
+              </ul>
+
+              <div className="grid grid-cols-2 gap-3">
+                <label className="block">
+                  <span className={fieldLabel}>Default provider</span>
+                  <select
+                    className={select}
+                    value={defaultProvider ?? ''}
+                    disabled={configured.length === 0}
+                    onChange={(e) => void ai.setSettings({
+                      defaultProvider: (e.target.value || null) as ProviderId | null,
+                      defaultModel: null,
+                    })}
+                  >
+                    <option value="">None</option>
+                    {configured.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                </label>
+                <label className="block">
+                  <span className={fieldLabel}>Default model</span>
+                  <select
+                    className={select}
+                    value={status.defaultModel ?? ''}
+                    disabled={!defaultProvider}
+                    onChange={(e) => void ai.setSettings({ defaultModel: e.target.value || null })}
+                  >
+                    <option value="">None</option>
+                    {status.defaultModel && !models?.some(m => m.id === status.defaultModel) && (
+                      <option value={status.defaultModel}>{status.defaultModel}</option>
+                    )}
+                    {models?.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                  </select>
+                </label>
+              </div>
             </div>
           )}
-          {confirmReset && (
-            <ConfirmDialog
-              title="Reset stored keys"
-              message="Start over with no saved API keys? The unreadable key file is kept as a backup next to it, and AI is turned off until you add a key again."
-              confirmLabel="Reset stored keys"
-              onCancel={() => setConfirmReset(false)}
-              onConfirm={() => {
-                setConfirmReset(false);
-                void ai.resetKeys();
-              }}
-            />
-          )}
-          {ai.error && <p role="alert" className="rounded border border-danger bg-surface-sunken p-3 text-sm text-danger">{ai.error}</p>}
-
-          <div>
-            <label className="flex items-center gap-2 text-sm font-medium">
-              <input
-                type="checkbox"
-                checked={status.enabled}
-                disabled={switchDisabled}
-                onChange={(e) => void ai.setSettings({ enabled: e.target.checked })}
-              />
-              Enable AI features
-            </label>
-            {switchDisabled && <p className="mt-1 text-xs text-content-muted">Add and test an API key first</p>}
-          </div>
-
-          {!status.encryptionAvailable && (
-            <p className="text-sm text-content-muted">This system has no secure key storage, so VRS can't store API keys.</p>
-          )}
-
-          <ul className="space-y-2" aria-label="Providers">
-            {PROVIDERS.map(p => <ProviderRow key={p.id} id={p.id} name={p.name} ai={ai} />)}
-          </ul>
-
-          <div className="grid grid-cols-2 gap-3">
-            <label className="block">
-              <span className={fieldLabel}>Default provider</span>
-              <select
-                className={select}
-                value={defaultProvider ?? ''}
-                disabled={configured.length === 0}
-                onChange={(e) => void ai.setSettings({
-                  defaultProvider: (e.target.value || null) as ProviderId | null,
-                  defaultModel: null,
-                })}
-              >
-                <option value="">None</option>
-                {configured.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-            </label>
-            <label className="block">
-              <span className={fieldLabel}>Default model</span>
-              <select
-                className={select}
-                value={status.defaultModel ?? ''}
-                disabled={!defaultProvider}
-                onChange={(e) => void ai.setSettings({ defaultModel: e.target.value || null })}
-              >
-                <option value="">None</option>
-                {status.defaultModel && !models?.some(m => m.id === status.defaultModel) && (
-                  <option value={status.defaultModel}>{status.defaultModel}</option>
-                )}
-                {models?.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-              </select>
-            </label>
-          </div>
-        </div>
-      )}
+        </section>
+      </div>
     </Modal>
   );
 }
