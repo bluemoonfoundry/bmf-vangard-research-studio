@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
-import { ArrowLeft, ExternalLink, Pin, PinOff, Plus, RotateCcw, ScanSearch, Star, X } from 'lucide-react';
-import type { Bible, EntityKind, Fact, FactSource, TreeItem } from '@/project/types';
+import { ArrowLeft, ExternalLink, ImagePlus, Music, Pin, PinOff, Plus, RotateCcw, ScanSearch, Star, X } from 'lucide-react';
+import type { Bible, EntityKind, Fact, FactSource, MediaKind, TreeItem } from '@/project/types';
 import type { ChatOf } from '@/chat/types';
 import type { AssetCache } from '@/workspace/assetCache';
 import { useAssetUrl } from '@/workspace/useAssetUrl';
@@ -40,6 +40,8 @@ export interface EntityCardProps {
   onOpenItem(id: string): void;
   /** Opens another entity's full card. */
   onOpenCard(id: string): void;
+  /** Imports a new media file as an item linked to this card; the import buttons show only when given. */
+  onImportMedia?(kind: MediaKind): void;
   onBack(): void;
   /** Source item ids, oldest first, for the "Keep the newer" suggestion. */
   sourceOrder?: readonly string[];
@@ -307,6 +309,16 @@ export function EntityCard(props: EntityCardProps) {
                 {linkable.map(i => <option key={i.id} value={i.id}>{titleOf(i)}</option>)}
               </select>
             </label>
+            {props.onImportMedia && (
+              <div className="flex flex-wrap gap-1.5">
+                <button type="button" className={btn} title="Add a new image to the binder and link it here" onClick={() => props.onImportMedia?.('image')}>
+                  <ImagePlus className="h-3.5 w-3.5" /> Import image…
+                </button>
+                <button type="button" className={btn} title="Add a new audio file to the binder and link it here" onClick={() => props.onImportMedia?.('audio')}>
+                  <Music className="h-3.5 w-3.5" /> Import audio…
+                </button>
+              </div>
+            )}
 
             {linked.images.length > 0 && (
               <Side label="Images">

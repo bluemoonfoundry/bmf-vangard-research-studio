@@ -80,7 +80,7 @@ export function Workspace({ project, ai, aiApi }: WorkspaceProps) {
   const sourceRows = orderedSources(state.bible, items)
     .map(i => ({ id: i.id, title: i.title, ...(i.importedFrom && { detail: i.importedFrom }) }));
   const {
-    addItem, updateItem, editDoc, moveItem, deleteItem, duplicateItem, loadAllDocs, importMedia, importTexts, discardAsset,
+    addItem, updateItem, editDoc, moveItem, deleteItem, duplicateItem, loadAllDocs, importMedia, importMediaOnto, importTexts, discardAsset,
     renameProject, exportDossier, reportError, assets, updateBible, updateChat, updateCanon,
   } = project;
   const aiEnabled = ai.enabled;
@@ -561,6 +561,7 @@ export function Workspace({ project, ai, aiApi }: WorkspaceProps) {
                 onOpenSource={openSource}
                 onOpenItem={navigate}
                 onOpenCard={openCard}
+                onImportMedia={(kind) => void importMediaOnto(card.id, kind)}
                 onBack={() => setCardId(null)}
                 sourceOrder={sourceOrderIds}
                 aiEnabled={aiEnabled}

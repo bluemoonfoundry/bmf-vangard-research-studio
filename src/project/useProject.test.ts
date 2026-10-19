@@ -252,3 +252,44 @@ describe('useProject: extraction', () => {
     await waitFor(() => expect(ctx.hook.result.current.state?.extraction.cards).toEqual([card]));
   });
 });
+
+describe('useProject: importing media onto a card', () => {
+  const entity: TreeItem = { id: 'e1', parentId: 'f1', type: 'entity', entityKind: 'character', title: 'Mara', order: 0, keywords: [], references: [{ id: 'r1', targetId: 'x' }] };
+
+  async function openWithEntity(ctx: ReturnType<typeof setup>) {
+    ctx.fake.nextDialogResult = makeOpened({ tree: { items: [entity] } });
+    await act(() => ctx.hook.result.current.openProject());
+  }
+
+  it('creates the media item next to the entity and links it', async () => {
+    const ctx = setup();
+    await openWithEntity(ctx);
+    ctx.fake.nextImport = { asset: 'a1.png', originalName: 'Mara sketch', bytes: 3 };
+    let id: string | null = null;
+    await act(async () => { id = await ctx.hook.result.current.importMediaOnto('e1', 'image'); });
+    const items = ctx.hook.result.current.state!.tree.items;
+    const added = items.find(i => i.id === id)!;
+    expect(added).toMatchObject({ type: 'image', title: 'Mara sketch', asset: 'a1.png', parentId: 'f1' });
+    expect(items.find(i => i.id === 'e1')!.references!.map(r => r.targetId)).toEqual(['x', id]);
+  });
+
+  it('does nothing when the user cancels', async () => {
+    const ctx = setup();
+    await openWithEntity(ctx);
+    let id: string | null = 'unset';
+    await act(async () => { id = await ctx.hook.result.current.importMediaOnto('e1', 'audio'); });
+    expect(id).toBeNull();
+    expect(ctx.hook.result.current.state!.tree.items).toHaveLength(1);
+  });
+
+  it('discards the file when the entity is gone by the time the import finishes', async () => {
+    const ctx = setup();
+    await openWithEntity(ctx);
+    ctx.fake.nextImport = { asset: 'a2.png', originalName: 'Lost', bytes: 3 };
+    let id: string | null = 'unset';
+    await act(async () => { id = await ctx.hook.result.current.importMediaOnto('missing', 'image'); });
+    expect(id).toBeNull();
+    expect(ctx.hook.result.current.state!.tree.items).toHaveLength(1);
+    expect(ctx.hook.result.current.state!.deletedAssets).toContain('a2.png');
+  });
+});
