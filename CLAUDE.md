@@ -121,7 +121,7 @@ A project is a folder (`Name.vrs/`) of plain files: `vrs.json` (manifest + `sche
   every item's body is `docs/<id>.md`. All bodies are loaded on open (search, word counts and export need them).
   `readDoc` (`src/project/api.ts`) strips a BOM and turns CRLF/CR into LF, matching the editor textarea, so fact offsets
   captured there resolve against the stored body.
-- **Imported chats** (`type: 'chat'`) come from `project:import-texts` (multi-select; extensionless files only if UTF-8
+- **Imported chats** (`type: 'chat'`) come from `project:import-texts` (multi-select; extensionless files, dotted names like `Scene 2.1 draft` included, only if UTF-8
   text) or paste. `src/chat/importFormats.ts` recognises AI Chat Exporter Markdown (AI Studio) and AI Studio's own Drive
   files (extensionless JSON, `chunkedPrompt.chunks[]`; thinking dropped, media chunks become `[... not imported]`
   placeholders, consecutive same-role chunks merge) and stores both in the canonical turn layout (`=== You ===` / `=== <Model> ===` heading lines; `turnSpans()` finds turns in a stored body),
@@ -141,7 +141,7 @@ A project is a folder (`Name.vrs/`) of plain files: `vrs.json` (manifest + `sche
 
 Structured canon lives in `bible/bible.json`: `{ facts, dependencies, decisions, sourceOrder? }`. Unknown fields are kept.
 `sourceOrder` lists chat, AI chat and document ids oldest first (`src/bible/sourceOrder.ts`; new ones join as newest,
-deleted ones are pruned on save; unlisted ones count as oldest). The file has no
+deleted ones are pruned on save; unlisted ones count as oldest; bad or repeated ids are dropped on read, never refused). The file has no
 version field; the project's `schemaVersion` in `vrs.json` (now 2) covers it.
 
 - **Facts** are `{ id, entityId, attribute, value, status, source?, origin, note?, createdAt, updatedAt }`. `status` is

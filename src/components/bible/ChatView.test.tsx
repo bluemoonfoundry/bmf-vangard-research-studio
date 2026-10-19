@@ -40,6 +40,20 @@ describe('ChatView turns', () => {
     expect(headings[1].textContent).toBe('=== Gemini ===');
   });
 
+  it('labels every heading of a long transcript, with a highlight spanning several turns', () => {
+    const long = formatTurns(Array.from({ length: 300 }, (_, i) => (
+      i % 2 ? { role: 'model' as const, label: 'Gemini', text: `Reply ${i}` } : { role: 'user' as const, label: 'You', text: `Question ${i}` }
+    )));
+    const start = long.indexOf('Question 100');
+    const end = long.indexOf('Reply 105');
+    render(<ChatView text={long} turns highlight={{ start, end }} />);
+    expect(pre().textContent).toBe(long);
+    const headings = [...pre().querySelectorAll('[data-turn-heading]')];
+    expect(headings).toHaveLength(300);
+    expect(headings.every((h, i) => h.textContent === (i % 2 ? '=== Gemini ===' : '=== You ==='))).toBe(true);
+    expect([...pre().querySelectorAll('mark')].map(m => m.textContent).join('')).toBe(long.slice(start, end));
+  });
+
   it('leaves turn-like lines unstyled unless the text is in the turn layout', () => {
     render(<ChatView text={BODY} />);
     expect(pre().textContent).toBe(BODY);

@@ -135,6 +135,9 @@ export function exporterTurnSpans(body: string): TurnSpan[] | null {
   return spans.length ? spans : null;
 }
 
+/** Drops blank lines before a turn and whitespace after it; the first line keeps its indentation. */
+const trimTurn = (text: string) => text.replace(/^(?:[ \t]*\n)+/, '').trimEnd();
+
 const plain = (body: string, warnings: string[] = []): ParsedTranscript => ({ format: 'text', turns: [], body, warnings });
 
 const MODEL_LABEL = 'Gemini';
@@ -186,7 +189,7 @@ function parseDriveJson(text: string): ParsedTranscript | null {
       piece = attachmentPlaceholder(chunk);
       attachments++;
     }
-    piece = normalizeChatText(piece).trim();
+    piece = trimTurn(normalizeChatText(piece));
     if (!piece) continue;
     const role: TurnRole = chunk.role;
     const last = turns[turns.length - 1];
@@ -237,7 +240,7 @@ export function parseTranscript(raw: string): ParsedTranscript {
     trimEnd();
     while (body.length && !body[0].trim()) body.shift();
     if (t.role === 'model' && body[0] === 'Model') body.shift();
-    const turnText = body.join('\n').trim();
+    const turnText = trimTurn(body.join('\n'));
     if (turnText) parsed.push({ role: t.role, label: t.label, text: turnText });
     else empty++;
   }

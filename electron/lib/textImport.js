@@ -8,6 +8,12 @@ export const TEXT_IMPORT_EXTENSIONS = ['txt', 'md', 'markdown'];
 /** Transcripts larger than this are refused: they are read whole into the renderer. */
 export const MAX_TEXT_IMPORT_BYTES = 5 * 1024 * 1024;
 
+/**
+ * What counts as a file extension: a short run of letters and digits starting with a letter. Anything
+ * else after the last dot ("Scene 2.1 draft", "Chapter 3.2") is part of an extensionless name.
+ */
+const EXTENSION = /^[a-z][a-z0-9]{0,9}$/i;
+
 /** How much of an extensionless file is checked for NUL bytes before it's decoded. */
 const SNIFF_BYTES = 8192;
 
@@ -19,7 +25,8 @@ const SNIFF_BYTES = 8192;
  */
 export async function readTextImport(filePath, { maxBytes = MAX_TEXT_IMPORT_BYTES } = {}) {
     const fileName = path.basename(String(filePath));
-    const ext = path.extname(fileName).slice(1).toLowerCase();
+    const dotted = path.extname(fileName).slice(1);
+    const ext = EXTENSION.test(dotted) ? dotted.toLowerCase() : '';
     if (ext && !TEXT_IMPORT_EXTENSIONS.includes(ext)) {
         throw new ProjectFormatError('UNSUPPORTED', `${fileName} is not a supported text file.`);
     }

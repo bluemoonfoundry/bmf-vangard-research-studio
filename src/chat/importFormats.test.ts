@@ -39,6 +39,13 @@ describe('parseTranscript: AI Chat Exporter markdown', () => {
     expect(p.warnings).toEqual(['1 empty turn skipped.']);
   });
 
+  it("keeps a turn's first-line indentation", () => {
+    const p = parseTranscript(sample.replace('Make the harbour master', '    Make the harbour master'));
+    expect(p.turns[2].text).toBe('    Make the harbour master a retired pilot named Odile.');
+    const indented = sample.replace('Make the harbour master', '    Make the harbour master');
+    expect(exporterTurnSpans(indented)!.map(s => indented.slice(s.start, s.end))).toEqual(p.turns.map(t => t.text));
+  });
+
   it('ignores a Source link that is not AI Studio', () => {
     expect(parseTranscript(sample.replace('https://aistudio.google.com/prompts/abc123', 'https://evil.example/x')).sourceUrl).toBeUndefined();
   });
@@ -88,6 +95,11 @@ describe('parseTranscript: AI Studio Drive file', () => {
   it('drops thought parts that appear inside an answer chunk', () => {
     const p = parseTranscript(drive([{ role: 'model', text: 'thinking...answer', parts: [{ text: 'thinking...', thought: true }, { text: 'answer' }] }]));
     expect(p.turns).toEqual([{ role: 'model', label: 'Gemini', text: 'answer' }]);
+  });
+
+  it("keeps a chunk's first-line indentation, dropping only blank lines around it", () => {
+    const p = parseTranscript(drive([{ role: 'model', text: '\n\n  Odile,\n  pilot.\n\n' }]));
+    expect(p.turns[0].text).toBe('  Odile,\n  pilot.');
   });
 
   it('names each kind of attachment in its placeholder', () => {

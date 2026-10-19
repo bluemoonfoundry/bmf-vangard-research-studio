@@ -27,11 +27,15 @@ function renderSegments(text: string, turns: boolean, highlight: { start: number
   const points = [...cuts].sort((a, b) => a - b);
   const out: ReactNode[] = [];
   let marked = false;
+  // Segments and headings are both in text order, so one pass walks them together.
+  let next = 0;
   for (let i = 0; i + 1 < points.length; i++) {
     const [from, to] = [points[i], points[i + 1]];
     if (from === to) continue;
     let node: ReactNode = text.slice(from, to);
-    const heading = headings.find(h => from >= h.headingStart && to <= h.headingEnd);
+    while (next < headings.length && headings[next].headingEnd <= from) next++;
+    const candidate = headings[next];
+    const heading = candidate && from >= candidate.headingStart && to <= candidate.headingEnd ? candidate : undefined;
     if (heading) node = <span data-turn-heading={heading.role} className={HEADING_CLASS[heading.role]}>{node}</span>;
     if (highlight && from >= highlight.start && to <= highlight.end) {
       // The first piece of the highlight carries the ref, so scrolling lands on its start.
