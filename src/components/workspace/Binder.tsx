@@ -1,11 +1,13 @@
-import { memo, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   ChevronDown, ChevronRight, Copy, ExternalLink, FilePlus, FolderPlus, GripVertical, HelpCircle, ListFilter, Plus, Search,
-  Trash2,
+  Sparkles, Trash2,
 } from 'lucide-react';
 import type { LabelId, TreeItem } from '@/project/types';
 import type { DocEntry } from '@/project/projectState';
 import { ItemIcon } from '@/components/workspace/ItemIcon';
+import { ContextMenu, type ContextMenuEntry } from '@/components/workspace/ContextMenu';
+import { isSourceItem } from '@/bible/sourceOrder';
 import { btnGhost, input, segment, segmentGroup } from '@/components/workspace/ui';
 import { LABEL_LIST, labelOf } from '@/workspace/research';
 import { ALL_SCOPES, findMatches, searchItems, type SearchMode, type SearchScopes, type Snippet } from '@/workspace/search';
@@ -38,6 +40,8 @@ export interface BinderProps {
   onDuplicate(id: string): void;
   onQuickRef(id: string): void;
   onMove(id: string, targetId: string | null, position: DropPosition): void;
+  /** Extract facts from a source item (offered in its row menu); undefined while AI is off. */
+  onExtract?(id: string): void;
 }
 
 /** Text with every match of `regex` wrapped in <mark>. */
@@ -75,7 +79,7 @@ const SEARCH_EXAMPLES: { mode: SearchMode; query: string; hint: string }[] = [
 export const Binder = memo(function Binder(props: BinderProps) {
   const {
     projectName, onRenameProject, items, docs, textOf, streamingIds, activeId, collapsed, onToggleFolder, onSelect, newItemParentId,
-    onNewDocument, onNewFolder, onAddItem, onDelete, onDuplicate, onQuickRef, onMove,
+    onNewDocument, onNewFolder, onAddItem, onDelete, onDuplicate, onQuickRef, onMove, onExtract,
   } = props;
 
   const [query, setQuery] = useState('');
@@ -323,6 +327,7 @@ export const Binder = memo(function Binder(props: BinderProps) {
             onDuplicate={onDuplicate}
             onQuickRef={onQuickRef}
             onMove={onMove}
+            onExtract={onExtract}
           />
         )}
       </div>
@@ -347,6 +352,7 @@ interface TreeProps {
   onDuplicate(id: string): void;
   onQuickRef(id: string): void;
   onMove(id: string, targetId: string | null, position: DropPosition): void;
+  onExtract?(id: string): void;
 }
 
 interface VisibleRow {
@@ -357,8 +363,11 @@ interface VisibleRow {
   setSize: number;
 }
 
-function BinderTree({ items, streamingIds, activeId, collapsed, onToggleFolder, onSelect, onNewDocument, onDelete, onDuplicate, onQuickRef, onMove }: TreeProps) {
+function BinderTree({
+  items, streamingIds, activeId, collapsed, onToggleFolder, onSelect, onNewDocument, onDelete, onDuplicate, onQuickRef, onMove, onExtract,
+}: TreeProps) {
   const [dragged, setDragged] = useState<string | null>(null);
+  const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const [drop, setDrop] = useState<{ id: string | null; position: DropPosition } | null>(null);
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const rowRefs = useRef(new Map<string, HTMLLIElement>());
@@ -398,8 +407,33 @@ function BinderTree({ items, streamingIds, activeId, collapsed, onToggleFolder, 
     rowRefs.current.get(id)?.focus();
   };
 
+  const menuItem = menu ? items.find(i => i.id === menu.id) : undefined;
+  const closeMenu = useCallback(() => {
+    // Back to the row, unless the menu lost focus to something else (a click elsewhere).
+    const row = menu ? rowRefs.current.get(menu.id) : undefined;
+    if (row && (document.activeElement === document.body || document.activeElement?.closest('[role="menu"]'))) row.focus();
+    setMenu(null);
+  }, [menu]);
+
+  const menuEntries = (item: TreeItem): ContextMenuEntry[] => {
+    const icon = 'h-3.5 w-3.5';
+    return [
+      ...(onExtract && isSourceItem(item) ? [{ label: 'Extract facts…', icon: <Sparkles className={icon} />, onSelect: () => onExtract(item.id) }] : []),
+      { label: 'Quick reference', icon: <ExternalLink className={icon} />, onSelect: () => onQuickRef(item.id) },
+      ...(isFolder(item) ? [{ label: 'New document here', icon: <Plus className={icon} />, onSelect: () => onNewDocument(item.id) }] : []),
+      { label: 'Duplicate', icon: <Copy className={icon} />, onSelect: () => onDuplicate(item.id) },
+      { label: 'Delete…', icon: <Trash2 className={icon} />, danger: true, onSelect: () => onDelete(item.id) },
+    ];
+  };
+
   const onRowKeyDown = (e: React.KeyboardEvent, row: VisibleRow, index: number) => {
     const { item } = row;
+    if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
+      e.preventDefault();
+      const rect = e.currentTarget.getBoundingClientRect();
+      setMenu({ id: item.id, x: rect.left + 24, y: rect.bottom });
+      return;
+    }
     if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
       e.preventDefault();
       const siblings = childrenOf(items, item.parentId);
@@ -486,6 +520,10 @@ function BinderTree({ items, streamingIds, activeId, collapsed, onToggleFolder, 
         draggable
         onFocus={() => setFocusedId(item.id)}
         onClick={() => onSelect(item.id)}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          setMenu({ id: item.id, x: e.clientX, y: e.clientY });
+        }}
         onKeyDown={(e) => {
           if (e.target === e.currentTarget) onRowKeyDown(e, row, index);
         }}
@@ -559,6 +597,15 @@ function BinderTree({ items, streamingIds, activeId, collapsed, onToggleFolder, 
       <ul role="tree" aria-label="Binder items" className="flex flex-col">
         {rows.map(renderRow)}
       </ul>
+      {menu && menuItem && (
+        <ContextMenu
+          label={`Actions for ${menuItem.title || 'Untitled'}`}
+          x={menu.x}
+          y={menu.y}
+          entries={menuEntries(menuItem)}
+          onClose={closeMenu}
+        />
+      )}
       {dragged && (
         <div
           onDragOver={(e) => {
