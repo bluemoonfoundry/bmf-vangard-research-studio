@@ -6,6 +6,7 @@
  * in the main process, so API keys never reach renderer memory and an XSS in
  * user/LLM-authored content can't exfiltrate data. Images, fonts and media are
  * likewise local-only; remote assets are imported into the project instead.
+ * Imported assets are streamed over the vrs-asset: scheme (assetProtocol.js).
  */
 export function buildContentSecurityPolicy() {
     return [
@@ -13,8 +14,8 @@ export function buildContentSecurityPolicy() {
         "script-src 'self'",
         // React and Tailwind emit inline style attributes.
         "style-src 'self' 'unsafe-inline'",
-        "img-src 'self' data: blob:",
-        "media-src 'self' blob:",
+        "img-src 'self' data: blob: vrs-asset:",
+        "media-src 'self' blob: vrs-asset:",
         "font-src 'self' data:",
         "connect-src 'self'",
         "worker-src 'self' blob:",

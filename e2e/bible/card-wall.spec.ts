@@ -53,7 +53,7 @@ test('imports a new image straight onto a card and links it', async ({ electronA
   await stubOpenFile(electronApp, picked);
   await window.getByRole('button', { name: 'Import image…' }).click();
   const images = window.getByRole('region', { name: 'Images' });
-  await expect(images.getByRole('img', { name: 'Mara sketch' })).toHaveAttribute('src', /^blob:/);
+  await expect(images.getByRole('img', { name: 'Mara sketch' })).toHaveAttribute('src', /^vrs-asset:\/\/project\//);
 
   await window.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(window.getByText('Saved', { exact: true })).toBeVisible();

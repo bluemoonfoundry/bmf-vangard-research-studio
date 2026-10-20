@@ -40,8 +40,8 @@ test('the preload bridge exposes only the intended API', async ({ window }) => {
     ai: ['cancelAll', 'cancelChat', 'cancelConflictCheck', 'cancelExtract', 'conflictCheck', 'extract', 'getSettings', 'listModels', 'onChatEvent', 'removeKey', 'resetKeys', 'saveKey', 'setSettings', 'startChat', 'testKey'],
     app: ['closeConfirmed', 'getTheme', 'getVersion', 'onSaveBeforeClose', 'openExternal', 'setTheme'],
     project: [
-      'close', 'confirmUnsaved', 'create', 'discardRecovery', 'exportDossier', 'importMedia', 'importTexts',
-      'listRecent', 'onExternalChange', 'open', 'openRecent', 'readAsset', 'readChat', 'readDoc', 'readStructure', 'removeRecent', 'save',
+      'checkAsset', 'close', 'confirmUnsaved', 'create', 'discardRecovery', 'exportDossier', 'importMedia', 'importTexts',
+      'listRecent', 'onExternalChange', 'open', 'openRecent', 'readChat', 'readDoc', 'readStructure', 'removeRecent', 'save',
       'setDirty', 'writeRecovery',
     ],
   });

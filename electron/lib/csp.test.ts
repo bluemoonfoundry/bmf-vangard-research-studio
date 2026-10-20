@@ -33,6 +33,14 @@ describe('buildContentSecurityPolicy', () => {
         }
     });
 
+    it('allows project assets only as images and media', () => {
+        expect(csp.get('img-src')).toContain('vrs-asset:');
+        expect(csp.get('media-src')).toContain('vrs-asset:');
+        for (const [name, sources] of csp) {
+            if (name !== 'img-src' && name !== 'media-src') expect(sources).not.toContain('vrs-asset:');
+        }
+    });
+
     it('locks down plugins, framing, base URI, and form posts', () => {
         expect(csp.get('object-src')).toEqual(["'none'"]);
         expect(csp.get('frame-src')).toEqual(["'none'"]);

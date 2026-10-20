@@ -33,7 +33,8 @@ contextBridge.exposeInMainWorld('vrs', {
     readDoc: (id) => ipcRenderer.invoke('project:read-doc', id),
     readChat: (id) => ipcRenderer.invoke('project:read-chat', id),
     readStructure: () => ipcRenderer.invoke('project:read-structure'),
-    readAsset: (name) => ipcRenderer.invoke('project:read-asset', name),
+    // Assets stream over vrs-asset: (see electron/lib/assetProtocol.js); this only reports a missing one.
+    checkAsset: (name) => ipcRenderer.invoke('project:check-asset', name),
     // Shows a native open dialog; the main process copies the pick into assets/.
     importMedia: (kind) => ipcRenderer.invoke('project:import-media', kind),
     // Shows a native open dialog for chat transcripts (several at once); the main process reads them.

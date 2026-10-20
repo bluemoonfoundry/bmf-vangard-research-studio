@@ -28,7 +28,7 @@ interface VrsApi {
       bible: import('@/project/types').Bible;
       extraction?: import('@/extraction/types').ExtractionState;
     }>>;
-    readAsset(name: string): Promise<VrsIpcResult<Uint8Array>>;
+    checkAsset(name: string): Promise<VrsIpcResult<{ bytes: number }>>;
     importMedia(kind: import('@/project/types').MediaKind): Promise<VrsIpcResult<import('@/project/types').ImportedAsset | null>>;
     importTexts(): Promise<VrsIpcResult<import('@/project/types').TextImportBatch | null>>;
     exportDossier(markdown: string): Promise<VrsIpcResult<string | null>>;

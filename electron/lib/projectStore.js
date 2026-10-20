@@ -156,15 +156,23 @@ export async function readChat(root, id) {
     }
 }
 
-/** Reads an imported asset's bytes. */
-export async function readAsset(root, name) {
-    const full = await resolveInside(root, assetRelPath(name));
+/** The validated path of an imported asset, for streaming it (assetProtocol.js). */
+export async function assetPath(root, name) {
+    return resolveInside(root, assetRelPath(name));
+}
+
+/** Checks that an imported asset exists, so a missing file is reported before the renderer tries to show it. */
+export async function checkAsset(root, name) {
+    const missing = () => new ProjectFormatError('NOT_FOUND', `The file for ${name} is missing from assets/.`);
+    let stats;
     try {
-        return await fs.readFile(full);
+        stats = await fs.stat(await assetPath(root, name));
     } catch (err) {
-        if (err.code === 'ENOENT') throw new ProjectFormatError('NOT_FOUND', `The file for ${name} is missing from assets/.`);
+        if (err.code === 'ENOENT') throw missing();
         throw err;
     }
+    if (!stats.isFile()) throw missing();
+    return { bytes: stats.size };
 }
 
 /**

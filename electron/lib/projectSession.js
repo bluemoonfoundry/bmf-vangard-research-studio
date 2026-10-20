@@ -1,7 +1,7 @@
 import path from 'path';
 import crypto from 'crypto';
 import { ProjectFormatError } from './projectSchema.js';
-import { createProject, importAsset, openProject, readAsset, readChat, readDoc, readStructure, saveProject } from './projectStore.js';
+import { assetPath, checkAsset, createProject, importAsset, openProject, readChat, readDoc, readStructure, saveProject } from './projectStore.js';
 import { readTextImports } from './textImport.js';
 import { createProjectWatcher } from './projectWatcher.js';
 
@@ -90,8 +90,13 @@ export function createProjectSession({
             return readChat(requireRoot(), id);
         },
 
-        async readAsset(name) {
-            return readAsset(requireRoot(), name);
+        async checkAsset(name) {
+            return checkAsset(requireRoot(), name);
+        },
+
+        /** Resolved per request, so a stream never outlives a project switch with the old root. */
+        async assetPath(name) {
+            return assetPath(requireRoot(), name);
         },
 
         /** `sourcePath` must come from the open dialog; the destination is always inside the session root. */
