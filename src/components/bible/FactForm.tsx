@@ -1,7 +1,7 @@
 import { useId, useState } from 'react';
 import type { EntityKind, FactSource, FactValue, TreeItem } from '@/project/types';
 import { ENTITY_KINDS, entityKindOf } from '@/bible/entities';
-import { isPosition, isWhenAttribute } from '@/bible/normalize';
+import { isAgeAttribute, isDatedAge, isPosition, isWhenAttribute } from '@/bible/normalize';
 import { PositionFields, emptyPositionDraft, parsePositionDraft, type PositionDraft } from '@/components/bible/PositionFields';
 import { btn, btnPrimary, fieldLabel, input } from '@/components/workspace/ui';
 
@@ -25,6 +25,8 @@ export interface FactFormProps {
 
 const NEW = '__new__';
 
+const isWhole = (s: string): boolean => /^\d+$/.test(s.trim());
+
 const draftOf = (v: FactValue | undefined): PositionDraft =>
   (v !== undefined && isPosition(v)
     ? { season: String(v.season), episode: v.episode === undefined ? '' : String(v.episode), order: v.order === undefined ? '' : String(v.order) }
@@ -36,13 +38,18 @@ export function FactForm({ entities, fixedEntityId, source, initial, attributeSu
   const [newTitle, setNewTitle] = useState('');
   const [newKind, setNewKind] = useState<EntityKind>('character');
   const [attribute, setAttribute] = useState(initial?.attribute ?? '');
-  const [text, setText] = useState(typeof initial?.value === 'string' ? initial.value : '');
+  const [text, setText] = useState(
+    typeof initial?.value === 'string' ? initial.value : initial && isDatedAge(initial.value) ? String(initial.value.age) : '',
+  );
+  // Years since the story's start, for an age; blank keeps the age as plain text.
+  const [year, setYear] = useState(initial && isDatedAge(initial.value) ? String(initial.value.year) : '');
   const [position, setPosition] = useState(draftOf(initial?.value));
   const [error, setError] = useState('');
 
   const entity = entities.find(e => e.id === entityId);
   const kind = entityId === NEW ? newKind : entity ? entityKindOf(entity) : null;
   const when = isWhenAttribute(attribute);
+  const age = isAgeAttribute(attribute);
 
   const submit = () => {
     const attr = attribute.trim();
@@ -53,6 +60,10 @@ export function FactForm({ entities, fixedEntityId, source, initial, attributeSu
       const p = parsePositionDraft(position);
       if (!p) return setError('Season must be a whole number of 1 or more, episode likewise, and order a number.');
       value = p;
+    } else if (age && year.trim() !== '') {
+      if (!isWhole(year)) return setError('Years since start must be a whole number of 0 or more.');
+      if (!isWhole(text)) return setError('With a year, the age must be a whole number of 0 or more.');
+      value = { age: Number(text.trim()), year: Number(year.trim()) };
     } else {
       if (!text.trim()) return setError('Enter a value.');
       value = text.trim();
@@ -100,6 +111,20 @@ export function FactForm({ entities, fixedEntityId, source, initial, attributeSu
       </label>
       {when ? (
         <PositionFields value={position} onChange={setPosition} />
+      ) : age ? (
+        <div className="flex gap-2">
+          <label className="flex flex-1 flex-col gap-1">
+            <span className={fieldLabel}>Age</span>
+            <input aria-label="Age" className={input} value={text} onChange={(e) => setText(e.target.value)} />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className={fieldLabel}>Years since start</span>
+            <input
+              type="number" aria-label="Years since start" className={`${input} w-28`}
+              placeholder="Optional" value={year} onChange={(e) => setYear(e.target.value)}
+            />
+          </label>
+        </div>
       ) : (
         <label className="flex flex-col gap-1">
           <span className={fieldLabel}>Value</span>
