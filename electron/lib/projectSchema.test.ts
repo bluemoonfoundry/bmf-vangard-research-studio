@@ -168,8 +168,18 @@ describe('schema v2 migration', () => {
     it('upgrades a v1 project to v2', () => {
         const result = migrateProject({ manifest: v1Manifest({ schemaVersion: 1 }), tree: { items: [] } });
         expect(result.migratedFrom).toBe(1);
-        expect(result.project.manifest).toMatchObject({ schemaVersion: 2 });
-        expect(CURRENT_SCHEMA_VERSION).toBe(2);
+        expect(result.project.manifest).toMatchObject({ schemaVersion: 3 });
+    });
+});
+
+describe('schema v3 migration', () => {
+    it('upgrades a v2 project to v3 unchanged', () => {
+        const tree = { items: [{ id: 'a', parentId: null, type: 'document', title: 'A', order: 0, keywords: [] }] };
+        const result = migrateProject({ manifest: v1Manifest({ schemaVersion: 2 }), tree });
+        expect(CURRENT_SCHEMA_VERSION).toBe(3);
+        expect(result.migratedFrom).toBe(2);
+        expect(result.project.manifest).toMatchObject({ schemaVersion: 3 });
+        expect(result.project.tree).toEqual(tree);
     });
 });
 
@@ -185,6 +195,22 @@ const fact = (overrides = {}) => ({
 const corrupt = expect.objectContaining({ code: 'CORRUPT' });
 
 describe('normalizeBible', () => {
+    it('accepts plain and dated age values', () => {
+        expect(() => normalizeBible({ facts: [
+            fact({ attribute: 'Age', value: '6' }),
+            fact({ id: 'f2', attribute: 'age', value: { age: 18, year: 12 } }),
+            fact({ id: 'f3', attribute: 'age', value: { age: 0, year: 0, extra: 1 } }),
+        ] })).not.toThrow();
+    });
+
+    it.each([{ age: -1, year: 0 }, { age: 1.5, year: 0 }, { age: 6 }, { year: 0 }, { age: '6', year: 0 }, { season: 1 }])('rejects age value %j', (value) => {
+        expect(() => normalizeBible({ facts: [fact({ attribute: 'age', value })] })).toThrow(corrupt);
+    });
+
+    it('refuses a dated age on any other attribute', () => {
+        expect(() => normalizeBible({ facts: [fact({ attribute: 'height', value: { age: 1, year: 0 } })] })).toThrow(corrupt);
+    });
+
     it('defaults to an empty bible', () => {
         expect(BIBLE_FILE).toBe('bible/bible.json');
         expect(normalizeBible(undefined)).toEqual(createEmptyBible());
@@ -337,6 +363,11 @@ describe('normalizeExtraction', () => {
 
     it('fills missing lists', () => {
         expect(normalizeExtraction({ cards: [] })).toEqual(createEmptyExtraction());
+    });
+
+    it('accepts a dated age in a pending proposal', () => {
+        const dated = { ...full, pending: [{ ...pending, attribute: 'age', value: { age: 18, year: 12 } }] };
+        expect(normalizeExtraction(dated)).toEqual(dated);
     });
 
     it('refuses malformed files', () => {
