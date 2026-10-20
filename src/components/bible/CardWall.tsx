@@ -7,6 +7,7 @@ import { ENTITY_KINDS } from '@/bible/entities';
 import { cardLines, cardStats, portraitOf, wallTabs, type CardStats, type WallTabId } from '@/bible/cards';
 import { valueText } from '@/components/bible/FactRow';
 import { Portrait } from '@/components/bible/Portrait';
+import { sharedNames, sharedNamesText } from '@/bible/names';
 import { btn, btnPrimary, segment, segmentGroup } from '@/components/workspace/ui';
 
 export interface CardWallProps {
@@ -107,6 +108,9 @@ export function CardWall({ items, bible, assets, tab, onTab, onOpenCard, onNewEn
                       <span className="flex min-w-0 flex-col gap-0.5">
                         <span className="truncate font-serif text-sm font-semibold">{title}</span>
                         {e.synopsis && <span className="line-clamp-2 text-content-muted">{e.synopsis}</span>}
+                        {current.id === 'character' && sharedNamesText(sharedNames(e.title, items, e.id)).map(t => (
+                          <span key={t} className="truncate text-content-muted">{t}</span>
+                        ))}
                       </span>
                     </span>
                     {lines.length > 0 && (
