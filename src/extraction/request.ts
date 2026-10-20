@@ -1,7 +1,7 @@
 import type { ExtractRequest, ProviderId } from '@/ai/types';
 import type { Bible, Fact, TreeItem } from '@/project/types';
 import { ENTITY_KINDS, attributeSuggestions, entityKindOf } from '@/bible/entities';
-import { attributeKey, formatPosition, normalizeText } from '@/bible/normalize';
+import { attributeKey, formatValue, normalizeText } from '@/bible/normalize';
 import type { ExtractionState } from '@/extraction/types';
 import { rejectedFingerprints } from '@/extraction/apply';
 import { sourceTextFor, type ExtractionSource, type SourceTurn } from '@/extraction/sourceText';
@@ -11,7 +11,7 @@ import { sourceTextFor, type ExtractionSource, type SourceTurn } from '@/extract
  * EXTRACTION_PROMPT_VERSION whenever EXTRACTION_SYSTEM or the request layout changes meaningfully.
  */
 
-export const EXTRACTION_PROMPT_VERSION = 1;
+export const EXTRACTION_PROMPT_VERSION = 2;
 
 /** Above this the canon keeps only entities the source mentions by name. */
 export const CANON_CAP_CHARS = 40_000;
@@ -45,6 +45,8 @@ export const EXTRACTION_SYSTEM = [
   '  value in replaces.',
   '- Never propose a value or a card the canon lists as rejected.',
   '- For a "when" attribute (events), write the value as "season N", optionally followed by ", episode N" and ", order N".',
+  '- For an "age" attribute, write "N at year Y" when the source makes clear how many years after the start of the story',
+  '  that age holds (year 0 is the start); otherwise write the age alone.',
   '- summary: a compact list of the entities and adopted facts established so far, for reading the next part.',
 ].join('\n');
 
@@ -65,7 +67,7 @@ export function cacheKey(text: string, provider: ProviderId, model: string): str
 }
 
 const oneLine = (s: string): string => s.replace(/\s+/g, ' ').trim();
-const valueText = (v: Fact['value']): string => (typeof v === 'string' ? oneLine(v) : formatPosition(v));
+const valueText = (v: Fact['value']): string => (typeof v === 'string' ? oneLine(v) : formatValue(v));
 const kindName = (kind: string | null | undefined): string => (kind && ENTITY_KINDS.some(k => k.id === kind) ? kind : 'other');
 
 /** One canon block per entity: id, title, kind, then live values and rejected values per attribute. */

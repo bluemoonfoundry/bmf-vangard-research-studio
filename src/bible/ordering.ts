@@ -1,6 +1,6 @@
 import type { Bible, StoryPosition } from '@/project/types';
 import { groupVersions } from '@/bible/contradictions';
-import { isWhenAttribute } from '@/bible/normalize';
+import { isPosition, isWhenAttribute } from '@/bible/normalize';
 
 export type Check = 'ok' | 'violated' | 'unknown';
 
@@ -16,7 +16,7 @@ export function strictlyAfter(a: StoryPosition, b: StoryPosition): 'yes' | 'no' 
 /** One position per kept `when` version of the event; proposed facts do not count. */
 export function keptPositions(b: Bible, eventId: string): StoryPosition[] {
   const facts = b.facts.filter(f => f.entityId === eventId && f.status === 'kept' && isWhenAttribute(f.attribute)
-    && typeof f.value === 'object' && f.value !== null);
+    && isPosition(f.value));
   return groupVersions(facts).map(v => v.value as StoryPosition);
 }
 

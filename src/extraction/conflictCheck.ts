@@ -1,7 +1,7 @@
 import type { ExtractRequest, ProviderId, RawConflict } from '@/ai/types';
 import type { Bible, Fact, TreeItem } from '@/project/types';
 import { ENTITY_KINDS } from '@/bible/entities';
-import { attributeKey, formatPosition, normalizeText } from '@/bible/normalize';
+import { attributeKey, formatValue, normalizeText } from '@/bible/normalize';
 import type { ConflictFlag, ExtractionState } from '@/extraction/types';
 
 /**
@@ -26,12 +26,13 @@ export const CONFLICT_SYSTEM = [
   '- Only real contradictions. Not facts that merely differ, are vague, or could both be true with a little',
   '  explanation. When unsure, leave it out.',
   '- Skip pairs with the same entity and the same attribute name: those are already flagged.',
+  '- An age written "N at year Y" means age N, Y years after the story begins.',
   '- reason: one short sentence saying why the two cannot both be true.',
   '- If nothing conflicts, return an empty list.',
 ].join('\n');
 
 const oneLine = (s: string): string => s.replace(/\s+/g, ' ').trim();
-export const factValueText = (v: Fact['value']): string => (typeof v === 'string' ? oneLine(v) : formatPosition(v));
+export const factValueText = (v: Fact['value']): string => (typeof v === 'string' ? oneLine(v) : formatValue(v));
 const kindName = (kind: string | null | undefined): string => (kind && ENTITY_KINDS.some(k => k.id === kind) ? kind : 'other');
 
 /** Identifies a fact by what it says, so a dismissal holds across re-extraction and an edit lifts it. */

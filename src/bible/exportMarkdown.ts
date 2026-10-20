@@ -1,11 +1,12 @@
-import type { Bible, Fact, StoryPosition, TreeItem } from '@/project/types';
+import type { Bible, Fact, FactValue, TreeItem } from '@/project/types';
 import { ENTITY_KINDS, entityKindOf } from '@/bible/entities';
-import { attributeKey, formatPosition } from '@/bible/normalize';
+import { attributeKey, formatPosition, formatValue, isDatedAge } from '@/bible/normalize';
+import { versionText } from '@/bible/ages';
 import { contradictionKey, findContradictions, groupVersions, openContradictions } from '@/bible/contradictions';
 import { buildTimeline } from '@/bible/timeline';
 
 const oneLine = (s: string): string => s.replace(/\s+/g, ' ').trim();
-const valueText = (v: string | StoryPosition): string => (typeof v === 'string' ? oneLine(v) : formatPosition(v));
+const valueText = (v: FactValue): string => (typeof v === 'string' ? oneLine(v) : formatValue(v));
 const titleOf = (i: TreeItem): string => oneLine(i.title) || 'Untitled';
 
 /** The Story Bible section of the dossier: kept facts per entity, open conflicts and the timeline. */
@@ -45,8 +46,9 @@ export function storyBibleMarkdown(items: TreeItem[], bible: Bible): string {
           continue;
         }
         const versions = groupVersions(facts);
-        for (const v of versions) out.push(`- **${label}:** ${valueText(v.value)}`);
-        if (versions.length > 1) {
+        for (const v of versions) out.push(`- **${label}:** ${isDatedAge(v.value) ? versionText(v) : valueText(v.value)}`);
+        // Several values with no contradiction (plain-text ages) were never in question.
+        if (versions.length > 1 && c) {
           const note = oneLine(c?.acknowledgedBy?.note ?? '');
           out.push(note ? `  *(multiple versions kept: ${note})*` : '  *(multiple versions kept)*');
         }

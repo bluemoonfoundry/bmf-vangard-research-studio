@@ -142,17 +142,19 @@ A project is a folder (`Name.vrs/`) of plain files: `vrs.json` (manifest + `sche
 Structured canon lives in `bible/bible.json`: `{ facts, dependencies, decisions, sourceOrder? }`. Unknown fields are kept.
 `sourceOrder` lists chat, AI chat and document ids oldest first (`src/bible/sourceOrder.ts`; new ones join as newest,
 deleted ones are pruned on save; unlisted ones count as oldest; bad or repeated ids are dropped on read, never refused). The file has no
-version field; the project's `schemaVersion` in `vrs.json` (now 2) covers it.
+version field; the project's `schemaVersion` in `vrs.json` (now 3) covers it.
 
 - **Facts** are `{ id, entityId, attribute, value, status, source?, origin, note?, createdAt, updatedAt }`. `status` is
   `proposed` (unreviewed), `kept` or `set_aside`. Manual facts are created `kept` with origin "manual"; AI-extracted
   facts would be `proposed` (AI Chat only lets the user capture passages as manual facts). A `when` attribute holds a story position `{ season, episode?, order? }` instead of text.
+  An `age` attribute holds text or a dated age `{ age, year }` (whole numbers; year = years since the story's start).
 - **Dependencies** (`eventId` must come after `afterEventId`) order events; they are checked against kept `when` facts.
   A cycle or a violated order is flagged, never blocked.
 - **Decisions** (`kept_one`, `kept_all`) are stored with the `factIds` kept and `setAsideIds` changed, so Reopen undoes
   exactly one decision and nothing else.
 - **Contradictions** are derived (never stored): the same entity + attribute with 2+ distinct non-set-aside values
-  (proposed or kept; `when` compared as compatible positions). A `kept_all` decision covering exactly that live fact
+  (proposed or kept; `when` compared as compatible positions; `age` text is never compared, dated ages are grouped by implied
+  start age `age − year`, 2+ years apart conflict, `src/bible/ages.ts`). A `kept_all` decision covering exactly that live fact
   set acknowledges it; `kept_one` resolves it by setting the other versions aside; adding a new differing fact
   reopens an acknowledged one.
 - **Save order**: docs, chats, `tree.json`, `bible/bible.json`, `bible/extraction.json`, `vrs.json`, then deletions.

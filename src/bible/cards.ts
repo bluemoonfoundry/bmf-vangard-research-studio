@@ -2,7 +2,8 @@ import type { Bible, EntityKind, Fact, TreeItem } from '@/project/types';
 import type { Contradiction, Version } from '@/bible/contradictions';
 import { groupVersions } from '@/bible/contradictions';
 import { ENTITY_KINDS, entityKindOf } from '@/bible/entities';
-import { attributeKey } from '@/bible/normalize';
+import { attributeKey, isDatedAge } from '@/bible/normalize';
+import { startAgeText } from '@/bible/ages';
 
 /** Card wall logic: which facts a card shows, its counts, and what is linked to it. */
 
@@ -44,6 +45,8 @@ export const CARD_FACT_LIMIT = 5;
 export interface CanonVersion extends Version {
   /** Distinct source items among the facts that agree on this value. */
   sourceCount: number;
+  /** How a group of dated ages reads ("6 at the start"); absent for other values. */
+  label?: string;
 }
 
 export interface CanonLine {
@@ -85,7 +88,11 @@ export function canonLines(bible: Bible, entity: TreeItem): CanonLine[] {
       line: {
         attribute: facts[0].attribute.trim(),
         key,
-        versions: groupVersions(facts).map(v => ({ ...v, sourceCount: sourceCount(v.facts) })),
+        versions: groupVersions(facts).map(v => ({
+          ...v,
+          sourceCount: sourceCount(v.facts),
+          ...(isDatedAge(v.value) && { label: startAgeText(v.facts.map(f => f.value).filter(isDatedAge)) }),
+        })),
         pinned: pins.includes(key),
       },
       rank: rank(key, added),

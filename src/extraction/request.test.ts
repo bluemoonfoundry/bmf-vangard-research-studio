@@ -76,6 +76,13 @@ describe('buildExtractRequest', () => {
     expect(req.text).toContain('Mara: green eyes.');
   });
 
+  it('tells the model how to write ages and sends dated canon ages as "N at year Y"', () => {
+    expect(EXTRACTION_PROMPT_VERSION).toBe(2);
+    expect(EXTRACTION_SYSTEM).toContain('"N at year Y"');
+    const bible: Bible = { ...emptyBible(), facts: [{ ...fact('f1', 'e1', 'age', ''), value: { age: 18, year: 12 } }] };
+    expect(extractionCanon([ent('e1', 'Mara')], bible, emptyExtraction(), '')).toContain('- age: 18 at year 12 [kept]');
+  });
+
   it('tells the model how to judge strength and to reuse wording', () => {
     for (const phrase of ['said', 'built_on', 'suggested', 'exact wording', 'replaces', 'season']) expect(EXTRACTION_SYSTEM).toContain(phrase);
   });

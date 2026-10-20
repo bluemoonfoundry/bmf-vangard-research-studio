@@ -1,9 +1,10 @@
 import type { RawProposal, Strength } from '@/ai/types';
-import type { Bible, EntityKind, Evidence, Fact, FactSource, StoryPosition, TreeItem } from '@/project/types';
-import { attributeKey, isWhenAttribute, normalizeText, positionsCompatible } from '@/bible/normalize';
+import type { Bible, EntityKind, Evidence, Fact, FactSource, FactValue, StoryPosition, TreeItem } from '@/project/types';
+import { attributeKey, isAgeAttribute, isDatedAge, isPosition, isWhenAttribute, normalizeText, positionsCompatible } from '@/bible/normalize';
 import { ENTITY_KINDS, entityKindOf } from '@/bible/entities';
 import type { EntityRef, ExtractionState, PendingCard, PendingProposal } from '@/extraction/types';
 import { locateEvidence, type ExtractionSource } from '@/extraction/sourceText';
+import { parseDatedAge } from '@/bible/ages';
 
 /**
  * Turns validated extraction results into bible and extraction state. Results are matched against
@@ -22,11 +23,13 @@ export const AI_ORIGIN = 'ai';
 export const entityKeyOf = (ref: { entityId: string } | { kind: string; title: string }): string =>
   ('entityId' in ref ? ref.entityId : `new:${ref.kind}:${normalizeText(ref.title)}`);
 
-const valueKey = (v: string | StoryPosition): string =>
-  (typeof v === 'string' ? normalizeText(v) : `@${v.season}.${v.episode ?? ''}.${v.order ?? ''}`);
+function valueKey(v: FactValue): string {
+  if (typeof v === 'string') return normalizeText(v);
+  return isDatedAge(v) ? `#${v.age}@${v.year}` : `@${v.season}.${v.episode ?? ''}.${v.order ?? ''}`;
+}
 
 /** What a rejection remembers: the entity (or proposed card), the attribute and the value, normalized. */
-export const fingerprint = (entityKey: string, attribute: string, value: string | StoryPosition): string =>
+export const fingerprint = (entityKey: string, attribute: string, value: FactValue): string =>
   [entityKey, attributeKey(attribute), valueKey(value)].join('\u0000');
 
 /** A rejected new card: its kind and normalized title, with no attribute or value. */
@@ -57,10 +60,12 @@ export function parseWhen(text: string): StoryPosition | null {
   };
 }
 
-const agrees = (a: Fact['value'], b: Fact['value']): boolean =>
-  (typeof a === 'string' && typeof b === 'string'
-    ? normalizeText(a) === normalizeText(b)
-    : typeof a === 'object' && typeof b === 'object' && positionsCompatible(a, b));
+/** Equal text, compatible positions, or the same age at the same year. */
+function agrees(a: Fact['value'], b: Fact['value']): boolean {
+  if (typeof a === 'string' && typeof b === 'string') return normalizeText(a) === normalizeText(b);
+  if (isDatedAge(a) && isDatedAge(b)) return a.age === b.age && a.year === b.year;
+  return isPosition(a) && isPosition(b) && positionsCompatible(a, b);
+}
 
 const sourceKey = (s: FactSource) => `${s.itemId}|${s.messageId ?? ''}|${s.start}|${s.end}`;
 
@@ -148,7 +153,9 @@ export function applyResults(ctx: ApplyContext, proposals: RawProposal[]): { bib
     ('entityId' in a && 'entityId' in b && a.entityId === b.entityId) || ('cardId' in a && 'cardId' in b && a.cardId === b.cardId);
 
   for (const p of proposals) {
-    const value = isWhenAttribute(p.attribute) ? parseWhen(p.value) : p.value;
+    // An age stays plain text unless it is written as an age at a year.
+    const value = isWhenAttribute(p.attribute) ? parseWhen(p.value)
+      : isAgeAttribute(p.attribute) ? parseDatedAge(p.value) ?? p.value : p.value;
     const located = p.evidence.flatMap(e => locateEvidence(src, e.quote, e.turn) ?? []);
     if (value === null || !located.length) { summary.dropped++; continue; }
     const strength = strengthFor(p.strength, located, src);

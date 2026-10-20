@@ -53,6 +53,12 @@ describe('buildConflictRequest', () => {
     expect(refs).toEqual({ F1: 'f-age', F2: 'f-born', F3: 'f-ivo' });
   });
 
+  it('sends dated ages with their year and explains years', () => {
+    const dated = fact('f-dated', 'mara', 'age', { age: 18, year: 12 });
+    expect(buildConflictRequest({ provider: 'gemini', model: 'm', items, facts: [dated] }).request.text).toContain('age: 18 at year 12');
+    expect(CONFLICT_SYSTEM).toContain('"N at year Y"');
+  });
+
   it('writes a story position as text', () => {
     const when = fact('f-when', 'mara', 'when', { season: 2, episode: 3 });
     expect(buildConflictRequest({ provider: 'gemini', model: 'm', items, facts: [when] }).request.text).toContain('when: S2 · E3');

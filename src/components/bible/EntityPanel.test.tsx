@@ -45,6 +45,24 @@ function addFact(attribute: string, value: string) {
 }
 
 describe('EntityPanel', () => {
+  const keptAge = (id: string, age: number, year: number): Fact =>
+    proposed({ id, attribute: 'age', value: { age, year }, status: 'kept', source: undefined });
+
+  it('shows the implied age at the start', () => {
+    render(<Harness initial={{ ...emptyBible(), facts: [keptAge('a1', 6, 0), keptAge('a2', 18, 12)] }} />);
+    expect(screen.getByText('Age: 6 at the start')).toBeInTheDocument();
+  });
+
+  it('shows a birth after the start as a year', () => {
+    render(<Harness initial={{ ...emptyBible(), facts: [keptAge('a1', 3, 10)] }} />);
+    expect(screen.getByText('Age: born in year 7')).toBeInTheDocument();
+  });
+
+  it('shows no age line while kept ages conflict', () => {
+    render(<Harness initial={{ ...emptyBible(), facts: [keptAge('a1', 6, 0), keptAge('a2', 9, 0)] }} />);
+    expect(screen.queryByText(/^Age: /)).toBeNull();
+  });
+
   it('says the message was deleted for a source citing a removed AI chat message', () => {
     const chat = { version: 1, settings: {}, messages: [] } as unknown as ChatTranscript;
     const initial: Bible = { ...emptyBible(), facts: [proposed({ source: { itemId: 'chat', messageId: 'gone', quote: 'her green eyes', start: 0, end: 14 } })] };

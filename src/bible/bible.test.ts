@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { Bible, Decision, Fact, StoryPosition, TreeItem } from '@/project/types';
 import {
-  comparePositions, emptyBible, formatPosition, isWhenAttribute, normalizeText, positionsCompatible, specificity,
+  comparePositions, emptyBible, formatAge, formatPosition, formatValue, isAgeAttribute, isDatedAge, isPosition, isWhenAttribute,
+  normalizeText, positionsCompatible, specificity,
 } from '@/bible/normalize';
 import {
   addDependency, addFact, keepAll, keepOne, pruneOrphans, removeDependency, removeEntities, reopen, setFactStatus, updateFact,
@@ -46,9 +47,45 @@ describe('normalize', () => {
     expect(formatPosition({ season: 3, episode: 4 })).toBe('S3 · E4');
     expect(emptyBible()).toEqual({ facts: [], dependencies: [], decisions: [] });
   });
+  it('recognises and formats dated ages', () => {
+    expect(isAgeAttribute(' Age ')).toBe(true);
+    expect(isAgeAttribute('ages')).toBe(false);
+    expect(isDatedAge({ age: 18, year: 12 })).toBe(true);
+    expect(isDatedAge({ season: 1 })).toBe(false);
+    expect(isDatedAge('18')).toBe(false);
+    expect(isPosition({ age: 18, year: 12 })).toBe(false);
+    expect(isPosition({ season: 1 })).toBe(true);
+    expect(formatAge({ age: 18, year: 12 })).toBe('18 at year 12');
+    expect(formatValue({ age: 6, year: 0 })).toBe('6 at year 0');
+    expect(formatValue({ season: 2, episode: 3 })).toBe('S2 · E3');
+    expect(formatValue('green')).toBe('green');
+  });
 });
 
 describe('contradictions', () => {
+  const ids = new Set(['e1']);
+  const age = (value: Fact['value'], over: Partial<Fact> = {}) => fact({ attribute: 'Age', value, ...over });
+
+  it('never compares plain-text ages', () => {
+    expect(findContradictions(bibleOf([age('6'), age('18')]), ids)).toEqual([]);
+    expect(findContradictions(bibleOf([age('6'), age({ age: 20, year: 12 })]), ids)).toEqual([]);
+  });
+
+  it('flags dated ages 2+ years apart and accepts 1', () => {
+    expect(findContradictions(bibleOf([age({ age: 6, year: 0 }), age({ age: 17, year: 12 })]), ids)).toEqual([]);
+    const [c, ...rest] = findContradictions(bibleOf([age({ age: 6, year: 0 }), age({ age: 20, year: 12 })]), ids);
+    expect(rest).toEqual([]);
+    expect(c.versions.map(v => v.value)).toEqual([{ age: 6, year: 0 }, { age: 20, year: 12 }]);
+  });
+
+  it('a plain age beside an age conflict does not change its fact set', () => {
+    const facts = [age({ age: 6, year: 0 }), age({ age: 20, year: 12 })];
+    const [c] = findContradictions(bibleOf(facts), ids);
+    const acknowledged = keepAll(bibleOf(facts), c, { id: 'd1', now: 'T1' });
+    const withPlain = { ...acknowledged, facts: [...acknowledged.facts, age('about 20')] };
+    expect(openContradictions(findContradictions(withPlain, ids))).toEqual([]);
+  });
+
   it('groups text values by normalized value', () => {
     const vs = groupVersions([fact({ value: 'Season 3' }), fact({ value: 'season  3' })]);
     expect(vs).toHaveLength(1);
@@ -422,6 +459,20 @@ describe('storyBibleMarkdown', () => {
     fact({ entityId: 'dawn', attribute: 'when', value: pos(1) }),
     fact({ entityId: 'dawn', attribute: 'when', value: pos(2) }),
   ]);
+
+  it('exports every dated age in a group, and plain ages without a kept-versions note', () => {
+    const ages = bibleOf([
+      fact({ entityId: 'mira', attribute: 'age', value: { age: 6, year: 0 } }),
+      fact({ entityId: 'mira', attribute: 'age', value: { age: 18, year: 12 } }),
+      fact({ entityId: 'mira', attribute: 'Age', value: 'about 6' }),
+      fact({ entityId: 'mira', attribute: 'age', value: 'a child' }),
+    ]);
+    const md = storyBibleMarkdown(items, ages);
+    expect(md).toContain('- **age:** 6 at the start (6 at year 0; 18 at year 12)');
+    expect(md).toContain('- **age:** about 6');
+    expect(md).toContain('- **age:** a child');
+    expect(md).not.toContain('multiple versions kept');
+  });
 
   it('exports kinds, kept facts, unresolved and timeline', () => {
     const md = storyBibleMarkdown(items, b);

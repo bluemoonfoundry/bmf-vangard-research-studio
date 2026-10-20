@@ -5,6 +5,7 @@ import type { ChatOf } from '@/chat/types';
 import { attributeSuggestions, isEvent } from '@/bible/entities';
 import { attributeKey } from '@/bible/normalize';
 import { findContradictions, openContradictions, contradictionKey } from '@/bible/contradictions';
+import { ageAtStart } from '@/bible/ages';
 import { addFact, setFactStatus, updateFact } from '@/bible/ops';
 import { resolveSource, sourceText } from '@/bible/sources';
 import { EntityEvents, EventDetails } from '@/components/bible/EventLinks';
@@ -42,6 +43,7 @@ export function EntityPanel({ entity, items, bible, bodyOf, chatOf, updateBible,
     return findContradictions(bible, ids).filter(c => c.entityId === entity.id);
   }, [bible, items, entity.id]);
   const open = openContradictions(contradictions);
+  const startAgeLine = ageAtStart(bible, entity.id);
 
   const facts = bible.facts.filter(f => f.entityId === entity.id);
   const kept = facts.filter(f => f.status === 'kept');
@@ -105,6 +107,7 @@ export function EntityPanel({ entity, items, bible, bodyOf, chatOf, updateBible,
           )}
         </div>
       </div>
+      {startAgeLine && <p className="text-xs text-content-muted">Age: {startAgeLine}</p>}
 
       {adding && (
         <FactForm

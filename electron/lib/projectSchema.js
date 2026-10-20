@@ -7,7 +7,7 @@
  * Markdown and never need migrating.
  */
 
-export const CURRENT_SCHEMA_VERSION = 2;
+export const CURRENT_SCHEMA_VERSION = 3;
 
 export const MANIFEST_FILE = 'vrs.json';
 export const TREE_FILE = 'tree.json';
@@ -25,6 +25,9 @@ export const MIGRATIONS = {
     // v1 -> v2: the story bible arrives as bible/bible.json. A missing file reads as an empty bible,
     // so there is nothing to rewrite.
     1: (p) => p,
+    // v2 -> v3: an "age" fact may hold { age, year } (an age at a year since the story's start).
+    // Nothing to rewrite; the bump makes older builds refuse such projects instead of misreading them.
+    2: (p) => p,
 };
 
 export class ProjectFormatError extends Error {
@@ -168,6 +171,13 @@ function isValidEvidenceList(list) {
     return Array.isArray(list) && list.every(e => isPlainObject(e) && isValidSource(e.source) && typeof e.strength === 'string');
 }
 
+const isWholeNumber = (n) => Number.isInteger(n) && n >= 0;
+
+/** An age at a year since the story's start: `{ age, year }`, whole numbers of 0 or more. */
+function isValidDatedAge(value) {
+    return isPlainObject(value) && isWholeNumber(value.age) && isWholeNumber(value.year);
+}
+
 function checkFact(fact, where) {
     if (!isPlainObject(fact)) throw corruptBible(where, 'is not an object.');
     if (!isValidItemId(fact.id)) throw corruptBible(where, 'has an invalid id.');
@@ -176,6 +186,10 @@ function checkFact(fact, where) {
     if (!FACT_STATUSES.includes(fact.status)) throw corruptBible(where, `has an unknown status: ${JSON.stringify(fact.status)}.`);
     if (normalizeText(fact.attribute) === 'when') {
         if (!isValidPosition(fact.value)) throw corruptBible(where, 'needs a story position (season, optional episode and order) as its "when" value.');
+    } else if (normalizeText(fact.attribute) === 'age') {
+        if (typeof fact.value !== 'string' && !isValidDatedAge(fact.value)) {
+            throw corruptBible(where, 'needs text or an age at a year ({ age, year }) as its "age" value.');
+        }
     } else if (typeof fact.value !== 'string') {
         throw corruptBible(where, 'needs a string value.');
     }
@@ -239,7 +253,7 @@ const EXTRACTION_CHECKS = {
     pending: (p) => isValidItemId(p.id)
         && isPlainObject(p.ref) && (isValidItemId(p.ref.entityId) || isValidItemId(p.ref.cardId))
         && isText(p.attribute) && p.attribute.trim() !== ''
-        && (isText(p.value) || isValidPosition(p.value))
+        && (isText(p.value) || isValidPosition(p.value) || isValidDatedAge(p.value))
         && isText(p.strength) && isValidEvidenceList(p.evidence),
 };
 

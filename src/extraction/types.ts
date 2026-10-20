@@ -1,5 +1,5 @@
 import type { ProviderId, RawProposal, Strength } from '@/ai/types';
-import type { EntityKind, Evidence, StoryPosition } from '@/project/types';
+import type { EntityKind, Evidence, FactValue } from '@/project/types';
 
 /**
  * Shapes of bible/extraction.json (validated by normalizeExtraction in electron/lib/projectSchema.js).
@@ -15,7 +15,7 @@ export interface PendingProposal {
   id: string;
   ref: EntityRef;
   attribute: string;
-  value: string | StoryPosition;
+  value: FactValue;
   strength: Strength;
   evidence: Evidence[];
   /** The earlier value this replaces within the same source. */

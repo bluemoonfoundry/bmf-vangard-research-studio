@@ -75,6 +75,32 @@ describe('applyResults: placement', () => {
   });
 });
 
+describe('applyResults: ages', () => {
+  const BODY_AGE = formatTurns([{ role: 'user', label: 'You', text: 'Twelve years on, Mara is eighteen.' }]);
+  const ageProposal = (value: string) => proposal({ attribute: 'age', value, evidence: [{ quote: 'Mara is eighteen.', turn: 1 }] });
+  const run = (bible: Bible, value: string) => applyResults(ctx({ bible, source: source(chatItem(), BODY_AGE) }), [ageProposal(value)]);
+
+  it('turns "18 at year 12" into a dated age and keeps "18" as text', () => {
+    expect(run(emptyBible(), '18 at year 12').bible.facts[0].value).toEqual({ age: 18, year: 12 });
+    expect(run(emptyBible(), '18').bible.facts[0].value).toBe('18');
+  });
+
+  it('merges evidence only into a dated age with the same age and year', () => {
+    const live = (value: Fact['value']): Bible => ({
+      ...emptyBible(),
+      facts: [{ id: 'k1', entityId: 'e1', attribute: 'Age', value, status: 'kept', origin: 'manual', createdAt: 'T', updatedAt: 'T' }],
+    });
+    expect(run(live({ age: 18, year: 12 }), '18 at year 12').summary.merged).toBe(1);
+    expect(run(live({ age: 17, year: 12 }), '18 at year 12').summary).toMatchObject({ merged: 0, facts: 1 });
+    expect(run(live('18 at year 12'), '18 at year 12').summary).toMatchObject({ merged: 0, facts: 1 });
+  });
+
+  it('fingerprints dated ages by age and year', () => {
+    expect(fingerprint('e1', 'age', { age: 18, year: 12 })).toBe(fingerprint('e1', 'Age', { age: 18, year: 12 }));
+    expect(fingerprint('e1', 'age', { age: 18, year: 12 })).not.toBe(fingerprint('e1', 'age', { age: 18, year: 11 }));
+  });
+});
+
 describe('applyResults: matching entities and cards', () => {
   it('matches an unknown id by title, ignoring case and spacing', () => {
     const { bible } = applyResults(ctx(), [proposal({ entity: { id: 'zz', name: '  mara ', kind: 'character', reason: '' } })]);

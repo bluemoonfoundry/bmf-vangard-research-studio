@@ -100,14 +100,29 @@ describe('openProject', () => {
         expect(await readJson(path.join(root, `tree.json.v${from}.bak`))).toEqual({ items: [] });
     });
 
-    it('opens a v1 folder without bible.json as an empty bible and migrates it to v2', async () => {
+    it('opens a v1 folder without bible.json as an empty bible and migrates it', async () => {
         await createProject(root, { id: 'p1', name: 'X', now: NOW });
         const manifest = await readJson(path.join(root, 'vrs.json'));
         await fs.writeFile(path.join(root, 'vrs.json'), JSON.stringify({ ...manifest, schemaVersion: 1 }));
         const opened = await openProject(root);
         expect(opened.migratedFrom).toBe(1);
-        expect(opened.manifest.schemaVersion).toBe(2);
+        expect(opened.manifest.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
         expect(opened.bible).toEqual({ facts: [], dependencies: [], decisions: [] });
+    });
+
+    it('opens a v2 project with plain-text ages, keeping them and a v2 backup', async () => {
+        await createProject(root, { id: 'p1', name: 'X', now: NOW });
+        const manifest = await readJson(path.join(root, 'vrs.json'));
+        await fs.writeFile(path.join(root, 'vrs.json'), JSON.stringify({ ...manifest, schemaVersion: 2 }));
+        const ages = ['6', '18'].map((value, i) => ({
+            id: `f${i}`, entityId: 'e1', attribute: 'Age', value, status: 'kept', origin: 'manual', createdAt: NOW, updatedAt: NOW,
+        }));
+        await fs.writeFile(path.join(root, 'bible', 'bible.json'), JSON.stringify({ facts: ages, dependencies: [], decisions: [] }));
+        const opened = await openProject(root);
+        expect(opened.migratedFrom).toBe(2);
+        expect(opened.manifest.schemaVersion).toBe(3);
+        expect(opened.bible.facts.map((f: { value: unknown }) => f.value)).toEqual(['6', '18']);
+        expect(await readJson(path.join(root, 'vrs.json.v2.bak'))).toMatchObject({ schemaVersion: 2 });
     });
 
     it('rejects a corrupt bible.json', async () => {
