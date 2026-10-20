@@ -26,6 +26,7 @@ import { useConflictCheck } from '@/extraction/useConflictCheck';
 import { dismissFlag, estimateCheck, flagCounts, liveFlags } from '@/extraction/conflictCheck';
 import { ConflictCheckModal } from '@/components/extraction/ConflictCheck';
 import { setFactStatus } from '@/bible/ops';
+import { renameAttribute, renamedPins } from '@/bible/rename';
 import { ReviewQueue } from '@/components/extraction/ReviewQueue';
 import { reviewCount } from '@/extraction/review';
 import { SourceOrderModal } from '@/components/bible/SourceOrderModal';
@@ -290,6 +291,12 @@ export function Workspace({ project, ai, aiApi }: WorkspaceProps) {
     onOpenSource: openSource,
     onOpenEntity: navigate,
     onOpenCard: openCard,
+    onRenameAttribute: (entityId: string, from: string, to: string, everywhere: boolean) => {
+      const entityIds = everywhere ? null : new Set([entityId]);
+      updateCanon(c => renameAttribute(c, { from, to, entityIds }, new Date().toISOString()));
+      // Card pins live on the entities themselves, so they follow in the tree.
+      for (const p of renamedPins(items, from, to, entityIds)) updateItem(p.id, { cardFacts: p.cardFacts });
+    },
   };
   const addEntity = (entityKind: EntityKind, title: string, parentId: string | null) => addItem({ type: 'entity', entityKind, title, parentId });
 
