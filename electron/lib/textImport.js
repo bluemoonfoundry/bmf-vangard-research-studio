@@ -3,7 +3,7 @@ import path from 'path';
 import { TextDecoder } from 'util';
 import { ProjectFormatError } from './projectSchema.js';
 
-export const TEXT_IMPORT_EXTENSIONS = ['txt', 'md', 'markdown'];
+export const TEXT_IMPORT_EXTENSIONS = ['txt', 'md', 'markdown', 'json'];
 
 /** Transcripts larger than this are refused: they are read whole into the renderer. */
 export const MAX_TEXT_IMPORT_BYTES = 5 * 1024 * 1024;
@@ -43,7 +43,8 @@ export function detectEncoding(bytes) {
 /**
  * Reads a chat transcript picked in the native dialog. The text is returned with any BOM removed
  * and LF line endings. UTF-16 files are decoded as such (see `detectEncoding`). Files with no
- * extension (AI Studio's Drive files have none) are accepted only when they decode cleanly as text.
+ * extension (AI Studio's Drive files have none; downloaded ones end in .json) are accepted only when they
+ * decode cleanly as text.
  * @returns {Promise<{ title: string, text: string, fileName: string }>}
  */
 export async function readTextImport(filePath, { maxBytes = MAX_TEXT_IMPORT_BYTES } = {}) {
