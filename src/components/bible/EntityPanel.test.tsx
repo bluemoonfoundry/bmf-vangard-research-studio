@@ -45,6 +45,14 @@ function addFact(attribute: string, value: string) {
 }
 
 describe('EntityPanel', () => {
+  it('links to other characters sharing the name', () => {
+    const onOpenEntity = vi.fn();
+    const list = [...items, { ...items[0], id: 'm2', title: 'Mara Lind' }];
+    render(<Harness list={list} onOpenEntity={onOpenEntity} />);
+    fireEvent.click(within(screen.getByRole('list', { name: 'Shared names' })).getByRole('button', { name: 'Mara Lind' }));
+    expect(onOpenEntity).toHaveBeenCalledWith('m2');
+  });
+
   it('renames a kept attribute through onRenameAttribute', () => {
     const onRenameAttribute = vi.fn();
     const initial: Bible = { ...emptyBible(), facts: [proposed({ status: 'kept' })] };

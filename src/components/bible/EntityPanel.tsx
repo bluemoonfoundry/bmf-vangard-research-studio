@@ -12,6 +12,7 @@ import { EntityEvents, EventDetails } from '@/components/bible/EventLinks';
 import { FactForm } from '@/components/bible/FactForm';
 import { FactRow, type FactRowSection } from '@/components/bible/FactRow';
 import { RenameAttributeForm } from '@/components/bible/RenameAttribute';
+import { SharedNames } from '@/components/bible/SharedNames';
 import { btn, btnGhost, fieldLabel } from '@/components/workspace/ui';
 
 export interface EntityPanelProps {
@@ -114,6 +115,7 @@ export function EntityPanel({
           )}
         </div>
       </div>
+      <SharedNames entity={entity} items={items} onOpen={onOpenEntity} />
       {startAgeLine && <p className="text-xs text-content-muted">Age: {startAgeLine}</p>}
 
       {adding && (

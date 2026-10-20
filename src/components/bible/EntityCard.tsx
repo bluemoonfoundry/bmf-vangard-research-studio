@@ -22,6 +22,7 @@ import { FactRow, valueText } from '@/components/bible/FactRow';
 import { Portrait } from '@/components/bible/Portrait';
 import { VersionCard } from '@/components/bible/VersionCard';
 import { AudioPlayer } from '@/components/workspace/MediaViews';
+import { SharedNames } from '@/components/bible/SharedNames';
 import { btn, btnGhost, btnPrimary, fieldLabel, input } from '@/components/workspace/ui';
 
 export interface EntityCardProps {
@@ -154,6 +155,7 @@ export function EntityCard(props: EntityCardProps) {
             <p className="text-xs text-content-muted">
               {kindName} · in {plural(stats.sources, 'source')} · {plural(stats.kept + stats.proposed, 'fact')}
             </p>
+            <SharedNames entity={entity} items={items} onOpen={onOpenCard} />
             <CardBadges stats={stats} flagged={flags.length} />
             <input
               aria-label="Summary"

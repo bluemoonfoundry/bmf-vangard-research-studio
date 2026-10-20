@@ -161,6 +161,9 @@ version field; the project's `schemaVersion` in `vrs.json` (now 3) covers it.
 - **Renaming an attribute** (`src/bible/rename.ts`, the pencil on a kept attribute in `EntityPanel`) works on one entity or
   all; a name already in use merges the two. Decisions, pending proposals, stored rejections, conflict-check flags and
   dismissals (their fingerprints) and `cardFacts` pins follow. `when` can't be renamed, and dated ages stay under `age`.
+- **Shared names** (`src/bible/names.ts`, `SharedNames`): characters sharing a name word (honorifics, particles and the
+  "New character" placeholder ignored, case-insensitive) are noted on the wall card, full card and entity panel, and
+  "Add to binder" warns without blocking.
 - **Pure logic in `src/bible/`**, state changes as `Bible -> Bible` functions applied through `updateBible`. No React or IPC there.
 - **No routes.** Canon is global; route-scoped canon is out of scope for this phase.
 - **Sources**: a fact's `source` is `{ itemId, messageId?, quote, start, end }`. Offsets are taken from the plain text shown (the

@@ -10,6 +10,7 @@ import { useAssetUrl } from '@/workspace/useAssetUrl';
 import { ItemIcon } from '@/components/workspace/ItemIcon';
 import { Modal } from '@/components/workspace/Modal';
 import { btn, btnPrimary, fieldLabel, input } from '@/components/workspace/ui';
+import { sharedNames } from '@/bible/names';
 
 export interface AddItemModalProps {
   initialType: ItemType;
@@ -139,6 +140,12 @@ export function AddItemModal(props: AddItemModalProps) {
           <span className={fieldLabel}>Title</span>
           <input data-autofocus className={input} value={title} onChange={(e) => setTitle(e.target.value)} required placeholder="e.g. Harbour regulations of 1684" />
         </label>
+        {type === 'entity' && entityKind === 'character' && sharedNames(title, items).map(s => (
+          // A warning only: reusing a name can be deliberate (a family), so creating stays allowed.
+          <p key={s.part} className="text-xs text-warning">
+            {`Another character is also called "${s.part}": ${s.others.map(o => o.title || 'Untitled').join(', ')}.`}
+          </p>
+        ))}
 
         <label className="flex flex-col gap-1">
           <span className={fieldLabel}>Folder</span>

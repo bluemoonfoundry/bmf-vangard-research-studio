@@ -38,6 +38,12 @@ function renderWall(over: Partial<React.ComponentProps<typeof CardWall>> = {}) {
 const card = (name: string) => within(screen.getByRole('list', { name: 'Cards' })).getByRole('button', { name: new RegExp(`^${name}`) });
 
 describe('CardWall', () => {
+  it('notes on a card when another character shares its name', () => {
+    renderWall({ items: [...items, entity('e3', 'Mara Lind', 'character')] });
+    expect(within(card('Mara(?! Lind)')).getByText('Shares "Mara" with Mara Lind')).toBeInTheDocument();
+    expect(within(card('Bryn')).queryByText(/^Shares/)).toBeNull();
+  });
+
   it('shows a tab per kind with counts and switches tabs', () => {
     const props = renderWall();
     expect(screen.getByRole('button', { name: 'Characters 2' })).toHaveAttribute('aria-pressed', 'true');

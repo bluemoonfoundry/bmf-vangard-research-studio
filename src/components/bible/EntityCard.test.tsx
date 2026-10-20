@@ -67,6 +67,13 @@ function Harness({ startBible = initialBible, startExtraction = emptyExtraction(
 const region = (name: string) => screen.getByRole('region', { name });
 
 describe('EntityCard', () => {
+  it('links to other characters sharing the name', () => {
+    const onOpenCard = vi.fn();
+    render(<Harness items={[...initialItems, base('m2', 'Mara Lind', { type: 'entity', entityKind: 'character' })]} onOpenCard={onOpenCard} />);
+    fireEvent.click(within(screen.getByRole('list', { name: 'Shared names' })).getByRole('button', { name: 'Mara Lind' }));
+    expect(onOpenCard).toHaveBeenCalledWith('m2');
+  });
+
   it('shows the header with counts, badges and an editable summary', () => {
     render(<Harness />);
     expect(screen.getByLabelText('Title')).toHaveValue('Mara');
