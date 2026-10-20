@@ -40,7 +40,7 @@ describe('FactForm ages', () => {
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
-  it.each(['-1', '2.5'])('refuses year %s', (year) => {
+  it.each(['-1', '2.5', '-', '1e'])('refuses year %s', (year) => {
     const onSubmit = setup();
     fillAge('18', year);
     expect(screen.getByRole('alert')).toHaveTextContent('Years since start must be a whole number of 0 or more.');
@@ -50,7 +50,7 @@ describe('FactForm ages', () => {
   it('prefills both fields when editing a dated age', () => {
     setup({ attribute: 'age', value: { age: 6, year: 0 } });
     expect(screen.getByLabelText('Age')).toHaveValue('6');
-    expect(screen.getByLabelText('Years since start')).toHaveValue(0);
+    expect(screen.getByLabelText('Years since start')).toHaveValue('0');
   });
 
   it('keeps the plain value field for other attributes', () => {

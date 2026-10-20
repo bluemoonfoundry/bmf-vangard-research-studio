@@ -75,6 +75,16 @@ describe('buildCanonText', () => {
     ].join('\n'));
   });
 
+  it('canon lists plain ages as kept values, never unresolved', () => {
+    const bible = bibleOf([fact({ attribute: 'age', value: '6' }), fact({ attribute: 'age', value: '18' })]);
+    expect(buildCanonText(entities, bible)).toBe('### Mara (Character)\n- age: 6\n- age: 18');
+  });
+
+  it('canon shows every dated age in an agreeing group', () => {
+    const bible = bibleOf([fact({ attribute: 'age', value: { age: 6, year: 0 } }), fact({ attribute: 'age', value: { age: 18, year: 12 } })]);
+    expect(buildCanonText(entities, bible)).toBe('### Mara (Character)\n- age: 6 at the start (6 at year 0; 18 at year 12)');
+  });
+
   it('canon marks unresolved kept conflicts', () => {
     const bible = bibleOf([
       fact({ attribute: 'Eyes', value: 'green' }),

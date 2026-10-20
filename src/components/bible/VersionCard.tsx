@@ -2,7 +2,8 @@ import type { Bible, FactSource, TreeItem } from '@/project/types';
 import type { Version } from '@/bible/contradictions';
 import type { ChatOf } from '@/chat/types';
 import { checkPosition } from '@/bible/ordering';
-import { formatValue, isPosition } from '@/bible/normalize';
+import { isPosition } from '@/bible/normalize';
+import { versionText } from '@/bible/ages';
 import { resolveSource, sourceText } from '@/bible/sources';
 import { SourceLink } from '@/components/bible/SourceLink';
 import { btnPrimary } from '@/components/workspace/ui';
@@ -23,7 +24,7 @@ const MARK = { ok: '✓', violated: '✗ must come', unknown: '?' } as const;
 
 export function VersionCard({ version, checkEventId, bible, byId, contentOf, chatOf, onKeep, onOpenSource }: VersionCardProps) {
   const { value } = version;
-  const text = formatValue(value);
+  const text = versionText(version);
   const checks = checkEventId && isPosition(value)
     ? checkPosition(bible, checkEventId, value)
     : [];

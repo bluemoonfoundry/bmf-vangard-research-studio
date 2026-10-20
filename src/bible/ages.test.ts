@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Bible, DatedAge, Fact } from '@/project/types';
-import { ageAtStart, groupDatedAges, parseDatedAge, startAge, startAgeText } from '@/bible/ages';
+import { ageAtStart, groupDatedAges, parseDatedAge, startAge, startAgeText, versionText } from '@/bible/ages';
 
 let n = 0;
 const age = (value: Fact['value'], status: Fact['status'] = 'kept', entityId = 'e1'): Fact => ({
@@ -19,6 +19,11 @@ describe('ages', () => {
 
   it.each(['18', 'eighteen', '18 at year twelve', 'about 18 at year 12', '-1 at year 2', '18 at year 1.5'])('leaves %s as text', (text) => {
     expect(parseDatedAge(text)).toBeNull();
+  });
+
+  it('reads a version of dated ages with every member', () => {
+    expect(versionText({ value: at(6, 0), facts: [age(at(6, 0)), age(at(19, 12))] })).toBe('6–7 at the start (6 at year 0; 19 at year 12)');
+    expect(versionText({ value: 'about 40', facts: [age('about 40')] })).toBe('about 40');
   });
 
   it('computes the implied start age', () => {
@@ -49,7 +54,9 @@ describe('ages', () => {
   });
 
   it('ageAtStart uses kept dated ages only and gives up on a conflict', () => {
-    expect(ageAtStart(bibleOf([age(at(6, 0)), age(at(18, 12)), age(at(9, 0), 'proposed')]), 'e1')).toBe('6 at the start');
+    expect(ageAtStart(bibleOf([age(at(6, 0)), age(at(18, 12)), age(at(7, 0), 'proposed')]), 'e1')).toBe('6 at the start');
+    // A proposed age that conflicts leaves the contradiction open: nothing derived until it is decided.
+    expect(ageAtStart(bibleOf([age(at(6, 0)), age(at(18, 12)), age(at(9, 0), 'proposed')]), 'e1')).toBeNull();
     expect(ageAtStart(bibleOf([age(at(6, 0)), age(at(9, 0))]), 'e1')).toBeNull();
     expect(ageAtStart(bibleOf([age('6')]), 'e1')).toBeNull();
     expect(ageAtStart(bibleOf([age(at(6, 0), 'kept', 'other')]), 'e1')).toBeNull();

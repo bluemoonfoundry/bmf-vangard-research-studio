@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
-import type { Bible, Fact, StoryPosition, TreeItem } from '@/project/types';
+import type { Bible, Fact, TreeItem } from '@/project/types';
 import { emptyBible } from '@/bible/normalize';
 import { ConflictQueue } from '@/components/bible/ConflictQueue';
 import { EntityPanel } from '@/components/bible/EntityPanel';
@@ -17,7 +17,7 @@ const items: TreeItem[] = [
 ];
 
 let n = 0;
-const fact = (entityId: string, attribute: string, value: string | StoryPosition, over: Partial<Fact> = {}): Fact => ({
+const fact = (entityId: string, attribute: string, value: Fact['value'], over: Partial<Fact> = {}): Fact => ({
   id: `f${++n}`, entityId, attribute, value, status: 'kept', origin: 'manual', createdAt: 'T0', updatedAt: 'T0', ...over,
 });
 
@@ -52,6 +52,15 @@ const death = (): Bible => ({
 const cards = () => screen.getAllByRole('article');
 
 describe('ConflictQueue', () => {
+  it('names a dated-age version by its start age and every member', () => {
+    const ages: Bible = { ...emptyBible(), facts: [
+      fact('e1', 'age', { age: 6, year: 0 }), fact('e1', 'age', { age: 19, year: 12 }), fact('e1', 'age', { age: 9, year: 0 }),
+    ] };
+    render(<Harness initial={ages} />);
+    expect(screen.getByText('6–7 at the start (6 at year 0; 19 at year 12)')).toBeInTheDocument();
+    expect(screen.getByText('9 at the start (9 at year 0)')).toBeInTheDocument();
+  });
+
   it('lists the open contradiction with one card per version', () => {
     render(<Harness initial={death()} />);
     expect(within(screen.getByRole('complementary', { name: 'Contradictions' })).getByText('Mara · death')).toBeInTheDocument();

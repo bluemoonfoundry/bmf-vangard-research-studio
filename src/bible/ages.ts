@@ -1,5 +1,5 @@
-import type { Bible, DatedAge } from '@/project/types';
-import { isAgeAttribute, isDatedAge, normalizeText } from '@/bible/normalize';
+import type { Bible, DatedAge, Fact, FactValue } from '@/project/types';
+import { formatAge, formatValue, isAgeAttribute, isDatedAge, normalizeText } from '@/bible/normalize';
 
 /**
  * Ages over story time. A dated age ("18 at year 12") implies an age at the story's start
@@ -46,12 +46,21 @@ export function startAgeText(ages: DatedAge[]): string {
   return `${span(lo, hi)} at the start`;
 }
 
-/** The entity's kept dated ages read as a start age, or null when there are none or they conflict. */
+/** A version as text; a group of dated ages reads as its start age and every member, so none is hidden. */
+export function versionText(version: { value: FactValue; facts: Fact[] }): string {
+  if (!isDatedAge(version.value)) return formatValue(version.value);
+  const ages = version.facts.map(f => f.value).filter(isDatedAge);
+  return `${startAgeText(ages)} (${ages.map(formatAge).join('; ')})`;
+}
+
+/**
+ * The entity's kept dated ages read as a start age, or null when there are none or any live dated
+ * ages (kept or proposed) disagree: nothing is derived while a conflict is open or kept unresolved.
+ */
 export function ageAtStart(bible: Bible, entityId: string): string | null {
-  const ages: DatedAge[] = [];
-  for (const f of bible.facts) {
-    if (f.entityId === entityId && f.status === 'kept' && isAgeAttribute(f.attribute) && isDatedAge(f.value)) ages.push(f.value);
-  }
-  const groups = groupDatedAges(ages, a => a);
-  return groups.length === 1 ? startAgeText(groups[0]) : null;
+  const live = bible.facts.filter(f => f.entityId === entityId && f.status !== 'set_aside' && isAgeAttribute(f.attribute));
+  const dated = (facts: Fact[]) => facts.map(f => f.value).filter(isDatedAge);
+  if (groupDatedAges(dated(live), a => a).length > 1) return null;
+  const kept = dated(live.filter(f => f.status === 'kept'));
+  return kept.length ? startAgeText(kept) : null;
 }

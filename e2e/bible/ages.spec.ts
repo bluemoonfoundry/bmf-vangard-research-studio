@@ -10,7 +10,7 @@ async function addAge(window: Page, age: number, year: number) {
   await panel.getByRole('button', { name: 'Add fact' }).click();
   await panel.getByLabel('Attribute', { exact: true }).fill('age');
   await panel.getByRole('textbox', { name: 'Age' }).fill(String(age));
-  await panel.getByRole('spinbutton', { name: 'Years since start' }).fill(String(year));
+  await panel.getByRole('textbox', { name: 'Years since start' }).fill(String(year));
   await panel.getByRole('button', { name: 'Save fact' }).click();
 }
 

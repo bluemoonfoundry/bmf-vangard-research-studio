@@ -460,6 +460,20 @@ describe('storyBibleMarkdown', () => {
     fact({ entityId: 'dawn', attribute: 'when', value: pos(2) }),
   ]);
 
+  it('exports every dated age in a group, and plain ages without a kept-versions note', () => {
+    const ages = bibleOf([
+      fact({ entityId: 'mira', attribute: 'age', value: { age: 6, year: 0 } }),
+      fact({ entityId: 'mira', attribute: 'age', value: { age: 18, year: 12 } }),
+      fact({ entityId: 'mira', attribute: 'Age', value: 'about 6' }),
+      fact({ entityId: 'mira', attribute: 'age', value: 'a child' }),
+    ]);
+    const md = storyBibleMarkdown(items, ages);
+    expect(md).toContain('- **age:** 6 at the start (6 at year 0; 18 at year 12)');
+    expect(md).toContain('- **age:** about 6');
+    expect(md).toContain('- **age:** a child');
+    expect(md).not.toContain('multiple versions kept');
+  });
+
   it('exports kinds, kept facts, unresolved and timeline', () => {
     const md = storyBibleMarkdown(items, b);
     expect(md).toContain('## Story Bible');

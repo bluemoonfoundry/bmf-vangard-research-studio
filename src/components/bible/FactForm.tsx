@@ -120,7 +120,8 @@ export function FactForm({ entities, fixedEntityId, source, initial, attributeSu
           <label className="flex flex-col gap-1">
             <span className={fieldLabel}>Years since start</span>
             <input
-              type="number" aria-label="Years since start" className={`${input} w-28`}
+              // Text, not number: a number input reads "-" or "1e" as blank, which would save the age as plain text.
+              inputMode="numeric" aria-label="Years since start" className={`${input} w-28`}
               placeholder="Optional" value={year} onChange={(e) => setYear(e.target.value)}
             />
           </label>

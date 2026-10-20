@@ -3,6 +3,7 @@ import type { Bible, Fact, StoryPosition, TreeItem } from '@/project/types';
 import { contradictionKey, findContradictions, groupVersions } from '@/bible/contradictions';
 import { ENTITY_KINDS, entityKindOf } from '@/bible/entities';
 import { attributeKey, formatAge, isDatedAge } from '@/bible/normalize';
+import { versionText } from '@/bible/ages';
 import { AI_CHAT_TYPE } from '@/project/projectState';
 import { transcriptPlainText } from '@/chat/transcript';
 import type { ChatOf, ChatTranscript } from '@/chat/types';
@@ -62,13 +63,15 @@ export function buildCanonText(items: TreeItem[], bible: Bible): string {
     for (const key of [...groups.keys()].sort(compareText)) {
       const facts = groups.get(key) as Fact[];
       const label = oneLine(facts[0].attribute);
-      const values = groupVersions(facts).map(v => valueText(v.value));
-      if (values.length === 1) {
-        lines.push(`- ${label}: ${values[0]}`);
+      const values = groupVersions(facts).map(v => (isDatedAge(v.value) ? versionText(v) : valueText(v.value)));
+      const contradiction = contradictions.get(contradictionKey(entity.id, facts[0].attribute));
+      // Several values with no contradiction (plain-text ages are never compared): all simply kept.
+      if (values.length === 1 || !contradiction) {
+        for (const v of values) lines.push(`- ${label}: ${v}`);
         continue;
       }
       // Kept versions that disagree: open unless the writer chose to keep them all (as the dossier shows them).
-      const acknowledged = contradictions.get(contradictionKey(entity.id, facts[0].attribute))?.acknowledgedBy;
+      const acknowledged = contradiction.acknowledgedBy;
       if (!acknowledged) {
         lines.push(`- ${label}: unresolved: ${values.join(' or ')}`);
         continue;
