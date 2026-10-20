@@ -158,6 +158,9 @@ version field; the project's `schemaVersion` in `vrs.json` (now 3) covers it.
   set acknowledges it; `kept_one` resolves it by setting the other versions aside; adding a new differing fact
   reopens an acknowledged one.
 - **Save order**: docs, chats, `tree.json`, `bible/bible.json`, `bible/extraction.json`, `vrs.json`, then deletions.
+- **Renaming an attribute** (`src/bible/rename.ts`, the pencil on a kept attribute in `EntityPanel`) works on one entity or
+  all; a name already in use merges the two. Decisions, pending proposals, stored rejections, conflict-check flags and
+  dismissals (their fingerprints) and `cardFacts` pins follow. `when` can't be renamed, and dated ages stay under `age`.
 - **Pure logic in `src/bible/`**, state changes as `Bible -> Bible` functions applied through `updateBible`. No React or IPC there.
 - **No routes.** Canon is global; route-scoped canon is out of scope for this phase.
 - **Sources**: a fact's `source` is `{ itemId, messageId?, quote, start, end }`. Offsets are taken from the plain text shown (the

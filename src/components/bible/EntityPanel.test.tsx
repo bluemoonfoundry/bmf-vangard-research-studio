@@ -45,6 +45,27 @@ function addFact(attribute: string, value: string) {
 }
 
 describe('EntityPanel', () => {
+  it('renames a kept attribute through onRenameAttribute', () => {
+    const onRenameAttribute = vi.fn();
+    const initial: Bible = { ...emptyBible(), facts: [proposed({ status: 'kept' })] };
+    render(
+      <EntityPanel
+        entity={items[0]} items={items} bible={initial} bodyOf={() => ''} chatOf={() => undefined}
+        updateBible={() => {}} onOpenSource={() => {}} onRenameAttribute={onRenameAttribute}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Rename Eyes' }));
+    fireEvent.change(screen.getByLabelText('New name'), { target: { value: 'Eye colour' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Rename' }));
+    expect(onRenameAttribute).toHaveBeenCalledWith('e1', 'Eyes', 'Eye colour', false);
+    expect(screen.queryByLabelText('New name')).toBeNull();
+  });
+
+  it('offers no rename without onRenameAttribute', () => {
+    render(<Harness initial={{ ...emptyBible(), facts: [proposed({ status: 'kept' })] }} />);
+    expect(screen.queryByRole('button', { name: 'Rename Eyes' })).toBeNull();
+  });
+
   const keptAge = (id: string, age: number, year: number): Fact =>
     proposed({ id, attribute: 'age', value: { age, year }, status: 'kept', source: undefined });
 

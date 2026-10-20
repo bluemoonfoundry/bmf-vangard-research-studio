@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react';
-import { AlertTriangle, ChevronDown, ChevronRight, Contact, Plus } from 'lucide-react';
+import { AlertTriangle, ChevronDown, ChevronRight, Contact, Pencil, Plus } from 'lucide-react';
 import type { Bible, EntityKind, Fact, FactSource, TreeItem } from '@/project/types';
 import type { ChatOf } from '@/chat/types';
-import { attributeSuggestions, isEvent } from '@/bible/entities';
+import { attributeSuggestions, entityKindOf, isEvent } from '@/bible/entities';
 import { attributeKey } from '@/bible/normalize';
 import { findContradictions, openContradictions, contradictionKey } from '@/bible/contradictions';
 import { ageAtStart } from '@/bible/ages';
@@ -11,7 +11,8 @@ import { resolveSource, sourceText } from '@/bible/sources';
 import { EntityEvents, EventDetails } from '@/components/bible/EventLinks';
 import { FactForm } from '@/components/bible/FactForm';
 import { FactRow, type FactRowSection } from '@/components/bible/FactRow';
-import { btn, fieldLabel } from '@/components/workspace/ui';
+import { RenameAttributeForm } from '@/components/bible/RenameAttribute';
+import { btn, btnGhost, fieldLabel } from '@/components/workspace/ui';
 
 export interface EntityPanelProps {
   entity: TreeItem;
@@ -29,12 +30,18 @@ export interface EntityPanelProps {
   onOpenEntity?(id: string): void;
   /** Opens this entity's full card in the card wall. */
   onOpenCard?(id: string): void;
+  /** Renames (or merges) an attribute on this entity, or on every entity; absent hides Rename. */
+  onRenameAttribute?(entityId: string, from: string, to: string, everywhere: boolean): void;
 }
 
 const now = () => new Date().toISOString();
 
-export function EntityPanel({ entity, items, bible, bodyOf, chatOf, updateBible, onShowConflict, onOpenSource, onOpenEntity, onOpenCard }: EntityPanelProps) {
+export function EntityPanel({
+  entity, items, bible, bodyOf, chatOf, updateBible, onShowConflict, onOpenSource, onOpenEntity, onOpenCard, onRenameAttribute,
+}: EntityPanelProps) {
   const [adding, setAdding] = useState(false);
+  /** The attribute key whose rename form is open. */
+  const [renaming, setRenaming] = useState<string | null>(null);
   const [showAside, setShowAside] = useState(false);
 
   const byId = useMemo(() => new Map(items.map(i => [i.id, i])), [items]);
@@ -145,7 +152,27 @@ export function EntityPanel({ entity, items, bible, bodyOf, chatOf, updateBible,
         const c = contradictions.find(x => x.key === contradictionKey(entity.id, key));
         return (
           <div key={key} className="flex flex-col gap-1">
-            <h4 className="text-xs font-semibold">{group[0].attribute}</h4>
+            <div className="flex items-center justify-between gap-2">
+              <h4 className="text-xs font-semibold">{group[0].attribute}</h4>
+              {onRenameAttribute && renaming !== key && (
+                <button
+                  type="button" className={btnGhost} aria-label={`Rename ${group[0].attribute}`} title="Rename or merge"
+                  onClick={() => setRenaming(key)}
+                >
+                  <Pencil className="h-3 w-3" />
+                </button>
+              )}
+            </div>
+            {onRenameAttribute && renaming === key && (
+              <RenameAttributeForm
+                attribute={group[0].attribute}
+                entityId={entity.id}
+                bible={bible}
+                suggestions={suggestions(entityKindOf(entity))}
+                onRename={(to, everywhere) => { onRenameAttribute(entity.id, group[0].attribute, to, everywhere); setRenaming(null); }}
+                onCancel={() => setRenaming(null)}
+              />
+            )}
             {c?.acknowledgedBy && (
               <p className="text-[11px] text-content-muted">
                 multiple versions kept{c.acknowledgedBy.note ? `: ${c.acknowledgedBy.note}` : ''}
