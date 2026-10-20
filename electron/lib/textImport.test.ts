@@ -15,6 +15,12 @@ describe('readTextImport', () => {
         await expect(readTextImport(p)).resolves.toEqual({ title: 'Chat one', text: 'a\nb\n', fileName: 'Chat one.txt' });
     });
 
+    it('accepts a .json file (an AI Studio file downloaded with an extension)', async () => {
+        const p = path.join(dir, 'Abaddon.json');
+        await fs.writeFile(p, '{"chunkedPrompt":{"chunks":[]}}');
+        await expect(readTextImport(p)).resolves.toEqual({ title: 'Abaddon', text: '{"chunkedPrompt":{"chunks":[]}}', fileName: 'Abaddon.json' });
+    });
+
     it('refuses unsupported extensions', async () => {
         const p = path.join(dir, 'x.pdf');
         await fs.writeFile(p, 'x');

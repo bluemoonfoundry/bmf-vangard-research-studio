@@ -123,7 +123,7 @@ A project is a folder (`Name.vrs/`) of plain files: `vrs.json` (manifest + `sche
   captured there resolve against the stored body.
 - **Imported chats** (`type: 'chat'`) come from `project:import-texts` (multi-select; extensionless files, dotted names like `Scene 2.1 draft` included, only if they
   decode cleanly as text; UTF-16 is detected by BOM or NUL pattern, `detectEncoding` in `electron/lib/textImport.js`) or paste. `src/chat/importFormats.ts` recognises AI Chat Exporter Markdown (AI Studio) and AI Studio's own Drive
-  files (extensionless JSON, `chunkedPrompt.chunks[]`; thinking dropped, media chunks become `[... not imported]`
+  files (JSON, extensionless or `.json`, `chunkedPrompt.chunks[]`; thinking dropped, media chunks become `[... not imported]`
   placeholders, consecutive same-role chunks merge) and stores both in the canonical turn layout (`=== You ===` / `=== <Model> ===` heading lines; `turnSpans()` finds turns in a stored body),
   with `importedFormat` and `sourceUrl` on the item. Anything else is stored as plain text. Only an item with that
   `importedFormat` has turns (`hasTurnLayout`): a `=== Scene 2 ===` line in a plain chat or document is just text. `ChatView`
