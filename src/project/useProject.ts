@@ -61,9 +61,9 @@ export function useProject(
 
   const dirty = isDirty(state);
 
-  // Blob URLs for imported media, scoped to the open project.
+  // vrs-asset: URLs for imported media, scoped to the open project.
   const root = state?.root ?? null;
-  const assets = useMemo(() => (api && root ? createAssetCache(name => api.readAsset(name)) : null), [api, root]);
+  const assets = useMemo(() => (api && root ? createAssetCache(name => api.checkAsset(name)) : null), [api, root]);
   useEffect(() => () => assets?.clear(), [assets]);
 
   const run = useCallback(async <T,>(action: () => Promise<T>): Promise<T | undefined> => {

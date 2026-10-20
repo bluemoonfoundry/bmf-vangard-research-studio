@@ -129,8 +129,11 @@ A project is a folder (`Name.vrs/`) of plain files: `vrs.json` (manifest + `sche
   `importedFormat` has turns (`hasTurnLayout`): a `=== Scene 2 ===` line in a plain chat or document is just text. `ChatView`
   styles the headings (its `turns` prop) without changing the text, so fact offsets stay offsets into the stored body.
 - **Media** is copied into `assets/<id>.<ext>` by `project:import-media` (native dialog; name chosen in main,
-  allowlist in `electron/lib/media.js`). The renderer reads bytes via `project:read-asset` and shows them through
-  `blob:` URLs (`src/workspace/assetCache.ts`), never by path. Unwanted assets ride along in a save's
+  allowlist in `electron/lib/media.js`, 4 GB cap). The main process streams them over the privileged `vrs-asset:` scheme
+  (`electron/lib/assetProtocol.js`: `vrs-asset://project/<asset>?v=<n>`, GET/HEAD with single byte ranges, resolved
+  against the open root through `validateProjectPath` on every request; CSP allows it for `img-src`/`media-src` only).
+  `src/workspace/assetCache.ts` checks the file exists (`project:check-asset`, so a missing one is reported) and bumps
+  `v` when it changes on disk. The renderer names assets, never paths, and never holds their bytes. Unwanted assets ride along in a save's
   `deletedAssets`; the main process keeps any the saved tree still references.
 - **Links** go through `app:open-external` (http/https only). Never navigate the app window; Markdown previews
   intercept link clicks.

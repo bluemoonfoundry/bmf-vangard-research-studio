@@ -145,10 +145,10 @@ export function createFakeBridge() {
       readDoc: vi.fn((id: string) => ok(fake.disk.docs[id] ?? '')),
       readChat: vi.fn((id: string) => ok<{ transcript: ChatTranscript | null; problem: string | null }>({ transcript: fake.disk.chats[id] ?? null, problem: null })),
       readStructure: vi.fn(() => ok({ manifest: fake.disk.manifest!, tree: fake.disk.tree, bible: fake.disk.bible, extraction: fake.disk.extraction })),
-      readAsset: vi.fn((name: string): Promise<IpcResult<Uint8Array>> => {
+      checkAsset: vi.fn((name: string): Promise<IpcResult<{ bytes: number }>> => {
         const bytes = fake.disk.assets[name];
         if (!bytes) return Promise.resolve({ ok: false, error: { code: 'NOT_FOUND', message: `${name} is missing` } });
-        return ok(bytes);
+        return ok({ bytes: bytes.length });
       }),
       importMedia: vi.fn((_kind: MediaKind) => {
         const picked = fake.nextImport;

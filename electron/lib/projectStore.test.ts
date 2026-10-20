@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
-import { createProject, importAsset, openProject, readAsset, readChat, readDoc, readStructure, saveProject } from './projectStore.js';
+import { assetPath, checkAsset, createProject, importAsset, openProject, readChat, readDoc, readStructure, saveProject } from './projectStore.js';
 import { CURRENT_SCHEMA_VERSION } from './projectSchema.js';
 
 const NOW = '2026-10-17T12:00:00.000Z';
@@ -217,7 +217,8 @@ describe('assets', () => {
     it('copies an imported file into assets/ under a name it picks', async () => {
         const imported = await importAsset(root, source, { kind: 'image', newId: 'abc' });
         expect(imported).toEqual({ asset: 'abc.png', originalName: 'Harbour Map', bytes: 7 });
-        expect(await readAsset(root, 'abc.png')).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 1, 2]));
+        expect(await fs.readFile(await assetPath(root, 'abc.png'))).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 1, 2]));
+        expect(await checkAsset(root, 'abc.png')).toEqual({ bytes: 7 });
     });
 
     it('refuses files of the wrong kind', async () => {
@@ -227,11 +228,17 @@ describe('assets', () => {
     });
 
     it('rejects asset names that could escape assets/', async () => {
-        await expect(readAsset(root, '../vrs.json')).rejects.toMatchObject({ code: 'INVALID' });
+        await expect(assetPath(root, '../vrs.json')).rejects.toMatchObject({ code: 'INVALID' });
+        await expect(checkAsset(root, '../vrs.json')).rejects.toMatchObject({ code: 'INVALID' });
     });
 
     it('reports a missing asset file', async () => {
-        await expect(readAsset(root, 'gone.png')).rejects.toMatchObject({ code: 'NOT_FOUND' });
+        await expect(checkAsset(root, 'gone.png')).rejects.toMatchObject({ code: 'NOT_FOUND', message: expect.stringContaining('gone.png') });
+    });
+
+    it('reports a folder in place of an asset as missing', async () => {
+        await fs.mkdir(path.join(root, 'assets', 'dir.png'), { recursive: true });
+        await expect(checkAsset(root, 'dir.png')).rejects.toMatchObject({ code: 'NOT_FOUND' });
     });
 
     it('deletes requested assets on save, after the tree, unless still referenced', async () => {

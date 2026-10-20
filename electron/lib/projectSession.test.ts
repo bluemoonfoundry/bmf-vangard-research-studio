@@ -160,12 +160,14 @@ describe('projectSession assets', () => {
 
         const imported = await session.importAsset(source, 'audio');
         expect(imported).toEqual({ asset: 'id1.wav', originalName: 'tape', bytes: 4 });
-        expect((await session.readAsset('id1.wav')).toString()).toBe('RIFF');
+        expect(await session.checkAsset('id1.wav')).toEqual({ bytes: 4 });
+        expect((await fs.readFile(await session.assetPath('id1.wav'))).toString()).toBe('RIFF');
     });
 
     it('refuses asset operations when nothing is open', async () => {
         const session = makeSession();
-        await expect(session.readAsset('a.png')).rejects.toMatchObject({ code: 'NO_PROJECT' });
+        await expect(session.checkAsset('a.png')).rejects.toMatchObject({ code: 'NO_PROJECT' });
+        await expect(session.assetPath('a.png')).rejects.toMatchObject({ code: 'NO_PROJECT' });
         await expect(session.importAsset('/x.png', 'image')).rejects.toMatchObject({ code: 'NO_PROJECT' });
     });
 });

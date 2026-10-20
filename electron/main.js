@@ -1,8 +1,9 @@
-import { app, BrowserWindow, dialog, ipcMain, nativeTheme, safeStorage, session, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, nativeTheme, protocol, safeStorage, session, shell } from 'electron';
 import path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import { logger } from './lib/logger.main.js';
 import { applyContentSecurityPolicy } from './lib/csp.js';
+import { ASSET_SCHEME, ASSET_SCHEME_PRIVILEGES, createAssetProtocolHandler } from './lib/assetProtocol.js';
 import { secureWebPreferences, applyNavigationGuards } from './lib/windowSecurity.js';
 import { createProjectSession, toIpcResult } from './lib/projectSession.js';
 import { createRecentProjects } from './lib/recentProjects.js';
@@ -28,6 +29,9 @@ const PRELOAD = path.join(__dirname, 'preload.js');
 if (process.env.VRS_USER_DATA_DIR) {
     app.setPath('userData', process.env.VRS_USER_DATA_DIR);
 }
+
+// Must happen before the app is ready.
+protocol.registerSchemesAsPrivileged([ASSET_SCHEME_PRIVILEGES]);
 
 let mainWindow = null;
 let recents = null;
@@ -160,7 +164,7 @@ function registerIpcHandlers() {
     handle('project:read-doc', (id) => projectSession.readDoc(id));
     handle('project:read-chat', (id) => projectSession.readChat(id));
     handle('project:read-structure', () => projectSession.readStructure());
-    handle('project:read-asset', (name) => projectSession.readAsset(name));
+    handle('project:check-asset', (name) => projectSession.checkAsset(name));
     handle('project:import-media', async (kind) => {
         const { label } = mediaKind(kind);
         const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
@@ -263,6 +267,8 @@ app.whenReady().then(async () => {
         onExternalChange: (changes) => mainWindow?.webContents.send('project:external-change', changes),
         onWatchError: (err) => logger.warn('Project watcher error', err),
     });
+    // Imported media streams from the open project (with range requests) instead of crossing IPC whole.
+    protocol.handle(ASSET_SCHEME, createAssetProtocolHandler({ resolveAsset: (name) => projectSession.assetPath(name) }));
     // One store for settings.json, so the AI layer and the theme share its write queue.
     const settings = createAppSettings(path.join(userData, 'settings.json'));
     llm = createLlm(userData, settings);

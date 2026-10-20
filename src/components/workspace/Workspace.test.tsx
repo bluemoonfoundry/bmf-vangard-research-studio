@@ -333,7 +333,7 @@ describe('add item dialog', () => {
     expect(bridge.project.importMedia).toHaveBeenCalledWith('image');
     fireEvent.click(within(dialog).getByRole('button', { name: 'Create' }));
 
-    expect(await screen.findByRole('img', { name: 'Harbour chart' })).toHaveAttribute('src', expect.stringMatching(/^blob:/));
+    expect(await screen.findByRole('img', { name: 'Harbour chart' })).toHaveAttribute('src', 'vrs-asset://project/img1.png?v=0');
     const saved = await save();
     expect(saved.tree!.items).toEqual([expect.objectContaining({ type: 'image', title: 'Harbour chart', asset: 'img1.png' })]);
   });
@@ -426,11 +426,13 @@ describe('media', () => {
     await open([item('a', 'Interview', { type: 'audio', asset: 'tape.mp3' })]);
     fireEvent.click(treeItem('Interview'));
     expect(await screen.findByRole('button', { name: 'Play' })).toBeInTheDocument();
-    expect(document.querySelector('audio')?.getAttribute('src')).toMatch(/^blob:/);
-    expect(bridge.project.readAsset).toHaveBeenCalledTimes(1);
+    // Streamed by the main process; the renderer only names the asset.
+    expect(document.querySelector('audio')?.getAttribute('src')).toBe('vrs-asset://project/tape.mp3?v=0');
+    expect(bridge.project.checkAsset).toHaveBeenCalledTimes(1);
 
     act(() => fake.emitExternalChange([{ path: 'assets/tape.mp3', deleted: false }]));
-    await waitFor(() => expect(bridge.project.readAsset).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(bridge.project.checkAsset).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(document.querySelector('audio')?.getAttribute('src')).toBe('vrs-asset://project/tape.mp3?v=1'));
   });
 
   it('reports a missing asset and replaces the file, discarding the old one', async () => {

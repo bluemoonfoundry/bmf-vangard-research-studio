@@ -1,55 +1,47 @@
 /**
- * Object URLs for project assets. Bytes come from the main process
- * (project:read-asset) and are shown through blob: URLs, which the CSP allows
- * for images and media; the renderer never loads files by path.
+ * URLs for project assets. The main process streams them over the vrs-asset:
+ * scheme (electron/lib/assetProtocol.js), with range requests, so long audio
+ * never crosses IPC whole; the CSP allows the scheme for images and media only.
+ * The URL names an asset, never a path. Before handing one out the cache asks
+ * main (project:check-asset) whether the file exists, so a missing file is
+ * reported with a message instead of a silently broken element.
  */
 
-const MIME_TYPES: Record<string, string> = {
-  png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp',
-  avif: 'image/avif', bmp: 'image/bmp',
-  mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', oga: 'audio/ogg', opus: 'audio/ogg',
-  m4a: 'audio/mp4', aac: 'audio/aac', flac: 'audio/flac',
-};
-
-export function mimeTypeOf(asset: string): string {
-  return MIME_TYPES[asset.split('.').pop()?.toLowerCase() ?? ''] ?? 'application/octet-stream';
+/** Must match ASSET_SCHEME and assetUrl() in electron/lib/assetProtocol.js. */
+export function assetUrl(asset: string, version: number): string {
+  return `vrs-asset://project/${encodeURIComponent(asset)}?v=${version}`;
 }
 
 export interface AssetCache {
-  /** Resolves to an object URL for the asset, reading it once and sharing it between callers. */
+  /** Resolves to a URL for the asset, checking it once and sharing it between callers. */
   url(asset: string): Promise<string>;
-  /** Forgets an asset (changed on disk), so the next url() re-reads it. */
+  /** Forgets an asset (changed on disk), so the next url() checks it again and gives a fresh URL. */
   invalidate(asset: string): void;
   /** Calls `listener` with the asset name whenever it is invalidated. */
   subscribe(listener: (asset: string) => void): () => void;
-  /** Revokes every URL (project closed). */
+  /** Forgets every asset (project closed). */
   clear(): void;
 }
 
-export function createAssetCache(
-  read: (asset: string) => Promise<Uint8Array>,
-  urls: Pick<typeof URL, 'createObjectURL' | 'revokeObjectURL'> = URL,
-): AssetCache {
+export function createAssetCache(check: (asset: string) => Promise<unknown>): AssetCache {
   const entries = new Map<string, Promise<string>>();
+  // Bumped per asset on every change, so <img>/<audio> elements reload instead of reusing what they had.
+  const versions = new Map<string, number>();
   const listeners = new Set<(asset: string) => void>();
-
-  const revoke = (pending: Promise<string> | undefined) => {
-    pending?.then(u => urls.revokeObjectURL(u), () => {});
-  };
 
   return {
     url(asset) {
       let pending = entries.get(asset);
       if (!pending) {
-        pending = read(asset).then(bytes => urls.createObjectURL(new Blob([bytes as BlobPart], { type: mimeTypeOf(asset) })));
-        // A failed read isn't cached: the file may appear later (e.g. a sync client catching up).
+        pending = check(asset).then(() => assetUrl(asset, versions.get(asset) ?? 0));
+        // A failed check isn't cached: the file may appear later (e.g. a sync client catching up).
         pending.catch(() => entries.delete(asset));
         entries.set(asset, pending);
       }
       return pending;
     },
     invalidate(asset) {
-      revoke(entries.get(asset));
+      versions.set(asset, (versions.get(asset) ?? 0) + 1);
       entries.delete(asset);
       listeners.forEach(l => l(asset));
     },
@@ -58,7 +50,6 @@ export function createAssetCache(
       return () => listeners.delete(listener);
     },
     clear() {
-      entries.forEach(revoke);
       entries.clear();
     },
   };

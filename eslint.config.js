@@ -13,6 +13,7 @@ const nodeGlobals = {
   module: 'readonly',
   Buffer: 'readonly',
   URL: 'readonly',
+  Response: 'readonly',
   structuredClone: 'readonly',
 };
 

@@ -10,8 +10,24 @@ export const MEDIA_KINDS = {
     audio: { label: 'Audio', extensions: ['mp3', 'wav', 'ogg', 'oga', 'opus', 'm4a', 'aac', 'flac'] },
 };
 
-/** Imports larger than this are refused: assets are read whole into the renderer to play them. */
-export const MAX_ASSET_BYTES = 512 * 1024 * 1024;
+/**
+ * Imports larger than this are refused. Assets are streamed to the renderer
+ * (assetProtocol.js), so this only bounds how much a project folder grows per import.
+ */
+export const MAX_ASSET_BYTES = 4 * 1024 * 1024 * 1024;
+
+const MIME_TYPES = {
+    png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp',
+    avif: 'image/avif', bmp: 'image/bmp',
+    mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', oga: 'audio/ogg', opus: 'audio/ogg',
+    m4a: 'audio/mp4', aac: 'audio/aac', flac: 'audio/flac',
+};
+
+/** The Content-Type served for an asset file name, by extension. */
+export function mediaMimeType(name) {
+    const ext = path.extname(String(name)).slice(1).toLowerCase();
+    return Object.hasOwn(MIME_TYPES, ext) ? MIME_TYPES[ext] : 'application/octet-stream';
+}
 
 /** @returns {{ label: string, extensions: string[] }} */
 export function mediaKind(kind) {

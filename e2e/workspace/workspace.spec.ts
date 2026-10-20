@@ -38,9 +38,9 @@ test('imports an image into assets/, shows it, and deletes the file with the ite
   await expect(dialog.getByRole('textbox', { name: 'Title' })).toHaveValue('Harbour chart');
   await dialog.getByRole('button', { name: 'Create' }).click();
 
-  // Rendered from a blob: URL that the CSP allows; the renderer never touches the file path.
+  // Streamed over vrs-asset:, which the CSP allows; the renderer never touches the file path.
   const image = window.getByRole('img', { name: 'Harbour chart' });
-  await expect(image).toHaveAttribute('src', /^blob:/);
+  await expect(image).toHaveAttribute('src', /^vrs-asset:\/\/project\//);
   await expect.poll(() => image.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(2);
   await expect(window.getByText('2 × 1 px')).toBeVisible();
 
@@ -53,6 +53,55 @@ test('imports an image into assets/, shows it, and deletes the file with the ite
   await window.getByRole('dialog', { name: 'Delete item' }).getByRole('button', { name: 'Delete' }).click();
   await save(window);
   expect(await fs.readdir(path.join(root, 'assets'))).toEqual([]);
+});
+
+/** `seconds` of 8 kHz, 8-bit mono silence. */
+function wav(seconds: number): Buffer {
+  const samples = 8000 * seconds;
+  const header = Buffer.alloc(44);
+  header.write('RIFF', 0);
+  header.writeUInt32LE(36 + samples, 4);
+  header.write('WAVEfmt ', 8);
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20); // PCM
+  header.writeUInt16LE(1, 22); // mono
+  header.writeUInt32LE(8000, 24);
+  header.writeUInt32LE(8000, 28);
+  header.writeUInt16LE(1, 32);
+  header.writeUInt16LE(8, 34);
+  header.write('data', 36);
+  header.writeUInt32LE(samples, 40);
+  return Buffer.concat([header, Buffer.alloc(samples, 0x80)]);
+}
+
+test('streams imported audio from the project with range requests', async ({ electronApp, window, workDir }) => {
+  const root = path.join(workDir, 'Audio.vrs');
+  await createProject(electronApp, window, root);
+  const picked = path.join(workDir, 'Interview.wav');
+  const bytes = wav(3);
+  await fs.writeFile(picked, bytes);
+
+  await window.getByRole('button', { name: 'New item' }).click();
+  const dialog = window.getByRole('dialog', { name: 'Add to binder' });
+  await dialog.getByRole('radio', { name: 'Audio' }).click();
+  await stubOpenFile(electronApp, picked);
+  await dialog.getByRole('button', { name: 'Choose file…' }).click();
+  await dialog.getByRole('button', { name: 'Create' }).click();
+
+  const player = window.getByRole('region', { name: 'Audio player' });
+  await expect(player.getByText('0:00 / 0:03')).toBeVisible();
+  const src = await player.locator('audio').getAttribute('src');
+  expect(src).toMatch(/^vrs-asset:\/\/project\/[^/]+\.wav\?v=0$/);
+
+  // The main process serves byte ranges of the file; the renderer never holds it whole.
+  const ranged = await electronApp.evaluate(async ({ net }, url) => {
+    const res = await net.fetch(url, { headers: { Range: 'bytes=0-3' } });
+    return { status: res.status, range: res.headers.get('content-range'), type: res.headers.get('content-type'), text: await res.text() };
+  }, src!);
+  expect(ranged).toEqual({ status: 206, range: `bytes 0-3/${bytes.length}`, type: 'audio/wav', text: 'RIFF' });
+
+  const outside = await electronApp.evaluate(async ({ net }) => (await net.fetch('vrs-asset://project/..%2Fvrs.json')).status);
+  expect(outside).toBe(404);
 });
 
 test('organises research in folders and exports a Markdown dossier', async ({ electronApp, window, workDir }) => {

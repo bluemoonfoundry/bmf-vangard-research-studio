@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { dialogFilters, mediaExtension, mediaKind } from './media.js';
+import { dialogFilters, MEDIA_KINDS, mediaExtension, mediaKind, mediaMimeType } from './media.js';
 
 describe('media kinds', () => {
     it('normalises allowed extensions to lower case', () => {
@@ -21,5 +21,19 @@ describe('media kinds', () => {
 
     it('builds native dialog filters', () => {
         expect(dialogFilters('image')).toEqual([{ name: 'Images', extensions: expect.arrayContaining(['png', 'webp']) }]);
+    });
+});
+
+describe('mediaMimeType', () => {
+    it('knows every importable extension', () => {
+        for (const { extensions } of Object.values(MEDIA_KINDS)) {
+            for (const ext of extensions) expect(mediaMimeType(`a.${ext}`)).not.toBe('application/octet-stream');
+        }
+        expect(mediaMimeType('A.MP3')).toBe('audio/mpeg');
+    });
+
+    it('falls back to a generic type', () => {
+        expect(mediaMimeType('a.svg')).toBe('application/octet-stream');
+        expect(mediaMimeType('toString')).toBe('application/octet-stream');
     });
 });

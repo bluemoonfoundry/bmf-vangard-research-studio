@@ -46,7 +46,7 @@ export function createProjectApi(bridge: VrsApi): ProjectApi {
     readDoc: (id) => unwrap(raw.readDoc(id)).then(normalizeChatText),
     readChat: (id) => unwrap(raw.readChat(id)),
     readStructure: () => unwrap(raw.readStructure()),
-    readAsset: (name) => unwrap(raw.readAsset(name)),
+    checkAsset: (name) => unwrap(raw.checkAsset(name)),
     importMedia: (kind) => unwrap(raw.importMedia(kind)),
     importTexts: () => unwrap(raw.importTexts()),
     exportDossier: (markdown) => unwrap(raw.exportDossier(markdown)),
