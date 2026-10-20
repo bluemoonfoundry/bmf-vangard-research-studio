@@ -10,7 +10,7 @@ import { deleteAfter, deleteBefore, deleteMessage, editMessageText, updateSettin
 import type { ChatFilterMode, ChatSettings, ChatTranscript } from '@/chat/types';
 import { ChatHeader } from '@/components/chat/ChatHeader';
 import { ChatMessageView } from '@/components/chat/ChatMessageView';
-import { PersonaDrawer } from '@/components/chat/PersonaDrawer';
+import { PersonaDrawer, type PersonaWiring } from '@/components/chat/PersonaDrawer';
 import { AttachmentsPanel } from '@/components/chat/AttachmentsPanel';
 import { CaptureHost, type CaptureSelection } from '@/components/bible/CapturePopover';
 import type { EntityPanelProps } from '@/components/bible/EntityPanel';
@@ -51,6 +51,8 @@ export interface ChatEditorProps {
   capture?: CaptureWiring;
   /** A cited range in one message (from a fact's source): that message opens raw with the range marked. */
   highlight?: { messageId: string; start: number; end: number } | null;
+  /** The writer's saved personas; without them the persona drawer offers only the built-ins. */
+  personas?: PersonaWiring;
 }
 
 /** The context indicator turns into a warning from this share of the model's input limit. */
@@ -63,7 +65,7 @@ const WARN_SHARE = 0.9;
 export function ChatEditor(props: ChatEditorProps) {
   const {
     item, entry, aiEnabled, configuredProviders, models, loadModels, modelsError, streaming, streamError,
-    onUpdate, onRename, onSend, onResubmit, onStop, items, bible, contentOf, chatOf, onOpenLink, capture, highlight,
+    onUpdate, onRename, onSend, onResubmit, onStop, items, bible, contentOf, chatOf, onOpenLink, capture, highlight, personas,
   } = props;
   const [composer, setComposer] = useState('');
   const [personaOpen, setPersonaOpen] = useState(false);
@@ -150,13 +152,20 @@ export function ChatEditor(props: ChatEditorProps) {
         modelsLoading={loadingModels}
         modelsError={loadError}
         onRefreshModels={() => provider && fetchModels(provider, true)}
+        presets={personas?.presets}
         personaOpen={personaOpen}
         onTogglePersona={() => setPersonaOpen(o => !o)}
         attachmentsOpen={attachmentsOpen}
         onToggleAttachments={() => setAttachmentsOpen(o => !o)}
       />
       {writable && personaOpen && (
-        <PersonaDrawer personaId={settings.personaId} systemPrompt={settings.systemPrompt} onChange={setSettings} onClose={() => setPersonaOpen(false)} />
+        <PersonaDrawer
+          personaId={settings.personaId}
+          systemPrompt={settings.systemPrompt}
+          onChange={setSettings}
+          onClose={() => setPersonaOpen(false)}
+          personas={personas}
+        />
       )}
       {writable && attachmentsOpen && (
         <AttachmentsPanel chatId={item.id} attachments={settings.attachments} items={items} onChange={(attachments) => setSettings({ attachments })} />

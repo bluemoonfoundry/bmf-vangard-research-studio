@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { useState } from 'react';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
-import type { Capabilities, ModelInfo, ProviderId } from '@/ai/types';
+import type { Capabilities, ModelInfo, PersonaPreset, PersonaPresetInput, ProviderId } from '@/ai/types';
 import type { TreeItem } from '@/project/types';
 import type { ChatEntry } from '@/project/projectState';
 import { emptyBible } from '@/bible/normalize';
@@ -34,17 +34,37 @@ const reply = (id: string, text: string, extra: Partial<ChatMessage> = {}): Chat
 const transcript = (messages: ChatMessage[] = [], model = 'claude-x'): ChatTranscript =>
   ({ ...newTranscript({ provider: 'anthropic', model }), messages });
 
-type Overrides = Partial<ChatEditorProps> & { initial?: ChatTranscript; problem?: string };
+type Overrides = Partial<ChatEditorProps> & { initial?: ChatTranscript; problem?: string; presets?: PersonaPreset[] };
 
 /** Holds the transcript like project state does, so edits show up. */
-function setup({ initial = transcript(), problem, ...overrides }: Overrides = {}) {
+function setup({ initial = transcript(), problem, presets: initialPresets, ...overrides }: Overrides = {}) {
   const updates: ChatTranscript[] = [];
   const spies = {
     onSend: vi.fn(), onResubmit: vi.fn(), onStop: vi.fn(), onRename: vi.fn(), onOpenLink: vi.fn(),
     loadModels: vi.fn((_p: ProviderId) => Promise.resolve(MODELS)),
+    savePersona: vi.fn<(input: PersonaPresetInput) => void>(),
+    deletePersona: vi.fn<(id: string) => void>(),
   };
   function Harness() {
     const [entry, setEntry] = useState<ChatEntry>(problem ? { saved: initial, current: initial, problem } : { saved: initial, current: initial });
+    const [presets, setPresets] = useState(initialPresets ?? []);
+    // Like useAi: names are unique, ignoring case.
+    const personas = initialPresets && {
+      presets,
+      save: async (input: PersonaPresetInput) => {
+        spies.savePersona(input);
+        if (presets.some(p => p.id !== input.id && p.name.toLowerCase() === input.name.trim().toLowerCase())) {
+          throw new Error(`A preset named "${input.name.trim()}" already exists.`);
+        }
+        const preset = { id: input.id ?? `preset-${presets.length + 1}`, name: input.name.trim(), systemPrompt: input.systemPrompt };
+        setPresets(list => (input.id ? list.map(p => (p.id === input.id ? preset : p)) : [...list, preset]));
+        return preset;
+      },
+      remove: async (id: string) => {
+        spies.deletePersona(id);
+        setPresets(list => list.filter(p => p.id !== id));
+      },
+    };
     return (
       <ChatEditor
         item={chatItem}
@@ -61,6 +81,7 @@ function setup({ initial = transcript(), problem, ...overrides }: Overrides = {}
         items={[chatItem]}
         bible={emptyBible()}
         contentOf={() => ''}
+        personas={personas || undefined}
         {...spies}
         {...overrides}
       />
@@ -205,6 +226,64 @@ describe('ChatEditor', () => {
     fireEvent.change(screen.getByRole('textbox', { name: 'System prompt' }), { target: { value: 'Be terse.' } });
     expect(last().settings).toMatchObject({ personaId: null, systemPrompt: 'Be terse.' });
     expect(screen.getByRole('button', { name: /Persona: Custom/ })).toBeInTheDocument();
+  });
+
+  it('saves the prompt as a preset, which the chat then uses', async () => {
+    const { last, savePersona } = setup({ presets: [] });
+    fireEvent.click(screen.getByRole('button', { name: /Persona/ }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'System prompt' }), { target: { value: 'Be hard-boiled.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save as preset…' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Preset name' }), { target: { value: 'Noir Editor' } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Save preset' }));
+    });
+    expect(savePersona).toHaveBeenCalledWith({ name: 'Noir Editor', systemPrompt: 'Be hard-boiled.' });
+    expect(last().settings).toMatchObject({ personaId: 'preset-1', systemPrompt: 'Be hard-boiled.' });
+    expect(screen.getByRole('button', { name: /Persona: Noir Editor/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Noir Editor' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('shows why a preset could not be saved', async () => {
+    setup({ presets: [{ id: 'preset-1', name: 'Noir', systemPrompt: 'x' }] });
+    fireEvent.click(screen.getByRole('button', { name: /Persona/ }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'System prompt' }), { target: { value: 'y' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save as preset…' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Preset name' }), { target: { value: 'noir' } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Save preset' }));
+    });
+    expect(screen.getByRole('alert')).toHaveTextContent('A preset named "noir" already exists.');
+  });
+
+  it('a saved preset fills the prompt; it can be renamed and deleted', async () => {
+    const { last, deletePersona } = setup({ presets: [{ id: 'preset-1', name: 'Noir', systemPrompt: 'Be hard-boiled.' }] });
+    fireEvent.click(screen.getByRole('button', { name: /Persona/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Noir' }));
+    expect(last().settings).toMatchObject({ personaId: 'preset-1', systemPrompt: 'Be hard-boiled.' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Rename preset Noir' }));
+    const name = screen.getByRole('textbox', { name: 'Preset name' });
+    fireEvent.change(name, { target: { value: 'Noir Editor' } });
+    await act(async () => {
+      fireEvent.submit(name);
+    });
+    expect(screen.getByRole('button', { name: /Persona: Noir Editor/ })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete preset Noir Editor' }));
+    await act(async () => {
+      fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete' }));
+    });
+    expect(deletePersona).toHaveBeenCalledWith('preset-1');
+    expect(screen.queryByRole('button', { name: 'Noir Editor' })).toBeNull();
+    // The chat keeps its prompt; without the preset it reads as Custom.
+    expect(screen.getByRole('button', { name: /Persona: Custom/ })).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'System prompt' })).toHaveValue('Be hard-boiled.');
+  });
+
+  it('without preset wiring the drawer offers no saving', () => {
+    setup();
+    fireEvent.click(screen.getByRole('button', { name: /Persona/ }));
+    expect(screen.queryByRole('button', { name: 'Save as preset…' })).toBeNull();
   });
 
   it('edit → save text only does not call the provider', () => {

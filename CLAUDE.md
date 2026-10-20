@@ -211,6 +211,10 @@ Strictly opt-in (see Project Overview). Main-process code in `electron/lib/`, re
   message as `cancelled`; a transcript still streaming is never written as streaming. A reply the provider stopped early
   ends with `done.truncated` (`max_tokens` | `pause_turn` | `other`, set by each adapter), stored on the message and shown as
   "Reply cut short"; a truncated extraction reply that isn't JSON says so.
+- **Persona presets** (`electron/lib/personaPresets.js`, `llm:list-personas` / `llm:save-persona` / `llm:delete-persona`, refused
+  while AI is off): the writer's own personas, app-wide in `settings.json` `ai.personas` (`{ id: 'preset-<uuid>', name, systemPrompt }`,
+  names unique ignoring case, at most 50). Loaded by `useAi` only while AI is on; the `PersonaDrawer` lists them under the built-ins.
+  A chat's `personaId` may name a preset; it still keeps its own copy of the prompt, so a deleted preset just reads as "Custom".
 - **Streaming is project-level**: `src/chat/useChatStreams.ts` is mounted in `Workspace`, so streams survive switching tabs
   and several chats can stream at once. The renderer generates each `requestId` and routes stream events by it to
   `{ chatId, assistantId }`; the stream registry in main keys on the same id.

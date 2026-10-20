@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AiApi } from '@/ai/aiApi';
-import type { AiSettingsPatch, AiStatus, ModelInfo, ProviderId } from '@/ai/types';
+import type { AiSettingsPatch, AiStatus, ModelInfo, PersonaPreset, PersonaPresetInput, ProviderId } from '@/ai/types';
 
 export interface AiController {
   /** False when there is no desktop bridge, so AI settings cannot be read or changed. */
@@ -20,6 +20,11 @@ export interface AiController {
   loadModels(provider: ProviderId, refresh?: boolean): Promise<ModelInfo[]>;
   /** Why the provider's last model-list load failed, or null. */
   modelsError(provider: ProviderId): string | null;
+  /** The writer's saved AI Chat personas; empty while AI is off. */
+  personas: PersonaPreset[];
+  /** Creates or updates a preset; throws (with the main process's message) when refused. */
+  savePersona(input: PersonaPresetInput): Promise<PersonaPreset>;
+  deletePersona(id: string): Promise<void>;
   error: string | null;
 }
 
@@ -30,6 +35,7 @@ export function useAi(api: AiApi | null): AiController {
   const [status, setStatus] = useState<AiStatus | null>(null);
   const [modelCache, setModelCache] = useState<Partial<Record<ProviderId, ModelInfo[]>>>({});
   const [modelErrors, setModelErrors] = useState<Partial<Record<ProviderId, string>>>({});
+  const [personas, setPersonas] = useState<PersonaPreset[]>([]);
   const [error, setError] = useState<string | null>(null);
   const alive = useRef(true);
 
@@ -62,6 +68,28 @@ export function useAi(api: AiApi | null): AiController {
     void refresh();
   }, [refresh]);
 
+  const enabled = status?.enabled === true;
+
+  // Presets are an AI feature: listed only while AI is on, forgotten when it turns off.
+  useEffect(() => {
+    if (!api || !enabled) {
+      setPersonas([]);
+      return;
+    }
+    let current = true;
+    api.listPersonas().then(
+      (list) => {
+        if (current) setPersonas(list);
+      },
+      (e: unknown) => {
+        if (current) setError(messageOf(e));
+      },
+    );
+    return () => {
+      current = false;
+    };
+  }, [api, enabled]);
+
   const loadModels = useCallback(async (provider: ProviderId, refreshList = false) => {
     if (!api) return [];
     try {
@@ -88,7 +116,7 @@ export function useAi(api: AiApi | null): AiController {
   return {
     available: api !== null,
     status,
-    enabled: status?.enabled === true,
+    enabled,
     refresh,
     setSettings: async (patch) => {
       if (api) await adopt(() => api.setSettings(patch));
@@ -113,6 +141,18 @@ export function useAi(api: AiApi | null): AiController {
     models,
     modelsError,
     loadModels,
+    personas,
+    savePersona: async (input) => {
+      if (!api) throw new Error('AI is not available.');
+      const { preset, presets } = await api.savePersona(input);
+      if (alive.current) setPersonas(presets);
+      return preset;
+    },
+    deletePersona: async (id) => {
+      if (!api) return;
+      const presets = await api.deletePersona(id);
+      if (alive.current) setPersonas(presets);
+    },
     error,
   };
 }

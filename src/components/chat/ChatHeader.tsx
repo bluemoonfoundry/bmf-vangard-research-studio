@@ -1,6 +1,6 @@
 import { useId } from 'react';
 import { Paperclip, RefreshCw, Sparkles } from 'lucide-react';
-import { PROVIDERS, type ModelInfo, type ProviderId } from '@/ai/types';
+import { PROVIDERS, type ModelInfo, type PersonaPreset, type ProviderId } from '@/ai/types';
 import type { ChatFilterMode, ChatSettings } from '@/chat/types';
 import { personaName } from '@/components/chat/PersonaDrawer';
 import { btn, btnGhost, input, segment, segmentGroup } from '@/components/workspace/ui';
@@ -28,6 +28,8 @@ interface ChatHeaderProps {
   modelsError: string | null;
   /** Reloads the provider's models (also the Retry after a failure). */
   onRefreshModels(): void;
+  /** Saved personas, so the persona button can name one. */
+  presets?: PersonaPreset[];
   personaOpen: boolean;
   onTogglePersona(): void;
   attachmentsOpen: boolean;
@@ -40,7 +42,7 @@ const providerName = (id: ProviderId) => PROVIDERS.find(p => p.id === id)?.name 
 export function ChatHeader(props: ChatHeaderProps) {
   const {
     title, onRename, settings, onSettings, editable, configuredProviders, models, model, modelsLoading, modelsError, onRefreshModels,
-    personaOpen, onTogglePersona, attachmentsOpen, onToggleAttachments,
+    presets, personaOpen, onTogglePersona, attachmentsOpen, onToggleAttachments,
   } = props;
   const { provider } = settings;
   const caps = model?.capabilities;
@@ -132,7 +134,7 @@ export function ChatHeader(props: ChatHeaderProps) {
           )}
           <div className="ml-auto flex items-center gap-2">
             <button type="button" className={btn} aria-pressed={personaOpen} onClick={onTogglePersona}>
-              <Sparkles className="h-3.5 w-3.5" /> Persona: {personaName(settings.personaId)}
+              <Sparkles className="h-3.5 w-3.5" /> Persona: {personaName(settings.personaId, presets)}
             </button>
             <button type="button" className={btn} aria-pressed={attachmentsOpen} onClick={onToggleAttachments}>
               <Paperclip className="h-3.5 w-3.5" /> Attachments ({settings.attachments.length})
