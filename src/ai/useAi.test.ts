@@ -59,4 +59,37 @@ describe('useAi', () => {
     expect(result.current.modelsError('gemini')).toBeNull();
     expect(result.current.models('gemini')?.[0].id).toBe('g1');
   });
+
+  it('loads saved personas once AI is on, and saves and deletes them', async () => {
+    const { bridge, fake } = createFakeBridge();
+    fake.ai.status.enabled = true;
+    fake.ai.personas = [{ id: 'preset-a', name: 'Noir', systemPrompt: 'Be hard-boiled.' }];
+    const api = createAiApi(bridge);
+    const { result } = renderHook(() => useAi(api));
+    await waitFor(() => expect(result.current.personas).toHaveLength(1));
+
+    let saved: { id: string } | undefined;
+    await act(async () => {
+      saved = await result.current.savePersona({ name: 'Gothic', systemPrompt: 'Dread.' });
+    });
+    expect(saved?.id).toBe('preset-2');
+    expect(result.current.personas.map(p => p.name)).toEqual(['Noir', 'Gothic']);
+
+    await act(async () => {
+      await result.current.deletePersona('preset-a');
+    });
+    expect(result.current.personas.map(p => p.name)).toEqual(['Gothic']);
+  });
+
+  it('does not ask for personas while AI is off, and a refused save throws', async () => {
+    const { bridge } = createFakeBridge();
+    const api = createAiApi(bridge);
+    const { result } = renderHook(() => useAi(api));
+    await waitFor(() => expect(result.current.status).not.toBeNull());
+    expect(bridge.ai.listPersonas).not.toHaveBeenCalled();
+    expect(result.current.personas).toEqual([]);
+
+    bridge.ai.savePersona.mockResolvedValueOnce({ ok: false, error: { code: 'INVALID', message: 'A preset named "Noir" already exists.' } });
+    await expect(result.current.savePersona({ name: 'Noir', systemPrompt: 'x' })).rejects.toMatchObject({ code: 'INVALID' });
+  });
 });

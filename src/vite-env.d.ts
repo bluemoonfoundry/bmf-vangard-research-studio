@@ -58,6 +58,11 @@ interface VrsApi {
     /** Semantic conflict check: the renderer builds the text; the main process adds the schema. */
     conflictCheck(requestId: string, request: import('@/ai/types').ExtractRequest): Promise<VrsIpcResult<import('@/ai/types').ConflictCheckResult>>;
     cancelConflictCheck(requestId: string): Promise<VrsIpcResult<void>>;
+    /** The writer's saved personas (app-wide). */
+    listPersonas(): Promise<VrsIpcResult<import('@/ai/types').PersonaPreset[]>>;
+    /** Creates a preset, or updates the one with `id`. */
+    savePersona(preset: import('@/ai/types').PersonaPresetInput): Promise<VrsIpcResult<import('@/ai/types').SavedPersona>>;
+    deletePersona(id: string): Promise<VrsIpcResult<import('@/ai/types').PersonaPreset[]>>;
   };
 }
 

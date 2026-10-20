@@ -144,6 +144,27 @@ test('chat round trip', async ({ electronApp, window, workDir, fakeProvider }) =
   await expect(aiMessage(window)).toContainText('Google Gemini · gemini-2.5-flash');
 });
 
+test('a saved persona preset is offered in every chat', async ({ electronApp, window, workDir, userDataDir }) => {
+  await setUpChat(electronApp, window, path.join(workDir, 'Presets.vrs'));
+  await window.getByRole('button', { name: /^Persona:/ }).click();
+  await window.getByRole('textbox', { name: 'System prompt' }).fill('Answer like a weary noir detective.');
+  await window.getByRole('button', { name: 'Save as preset…' }).click();
+  await window.getByRole('textbox', { name: 'Preset name' }).fill('Noir Editor');
+  await window.getByRole('button', { name: 'Save preset' }).click();
+  await expect(window.getByRole('button', { name: 'Persona: Noir Editor' })).toBeVisible();
+
+  const settings = await readJson(path.join(userDataDir, 'settings.json'));
+  expect(settings.ai.personas).toEqual([
+    { id: expect.stringMatching(/^preset-/), name: 'Noir Editor', systemPrompt: 'Answer like a weary noir detective.' },
+  ]);
+
+  await addAiChat(window, 'Second chat');
+  await window.getByRole('button', { name: /^Persona:/ }).click();
+  await window.getByRole('button', { name: 'Noir Editor', exact: true }).click();
+  await expect(window.getByRole('textbox', { name: 'System prompt' })).toHaveValue('Answer like a weary noir detective.');
+  await expect(window.getByRole('button', { name: 'Persona: Noir Editor' })).toBeVisible();
+});
+
 test('reply keeps streaming in the background', async ({ electronApp, window, workDir, fakeProvider }) => {
   await setUpChat(electronApp, window, path.join(workDir, 'Background.vrs'));
   fakeProvider.setReply(['The harbour ', 'closed in 1684.']);

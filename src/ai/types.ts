@@ -27,6 +27,25 @@ export interface AiStatus {
 
 export type AiSettingsPatch = Partial<Pick<AiStatus, 'enabled' | 'defaultProvider' | 'defaultModel'>>;
 
+/** A writer's own AI Chat persona, saved app-wide (electron/lib/personaPresets.js). */
+export interface PersonaPreset {
+  id: string;
+  name: string;
+  systemPrompt: string;
+}
+
+/** A new preset (no id) or an update to the one with `id`. */
+export interface PersonaPresetInput {
+  id?: string;
+  name: string;
+  systemPrompt: string;
+}
+
+export interface SavedPersona {
+  preset: PersonaPreset;
+  presets: PersonaPreset[];
+}
+
 export interface Capabilities {
   webSearch: boolean;
   readUrls: boolean;

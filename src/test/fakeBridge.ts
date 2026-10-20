@@ -5,7 +5,10 @@ import type {
   SavePayload, TextImportBatch, UnsavedChoice,
 } from '@/project/types';
 import { emptyExtraction, type ExtractionState } from '@/extraction/types';
-import type { AiSettingsPatch, AiStatus, ChatEvent, ChatRequest, ConflictCheckResult, ExtractRequest, ExtractResult, ModelInfo, ProviderId, StreamEvent } from '@/ai/types';
+import type {
+  AiSettingsPatch, AiStatus, ChatEvent, ChatRequest, ConflictCheckResult, ExtractRequest, ExtractResult, ModelInfo, PersonaPreset,
+  PersonaPresetInput, ProviderId, SavedPersona, StreamEvent,
+} from '@/ai/types';
 import type { ChatTranscript } from '@/chat/types';
 import type { Theme } from '@/settings/theme';
 
@@ -91,6 +94,7 @@ export function createFakeBridge() {
       /** What `conflictCheck` resolves with, like extractResult. */
       conflictResult: { conflicts: [], dropped: 0, model: 'fake-model' } as ConflictCheckResult
         | ((request: ExtractRequest, requestId: string) => ConflictCheckResult | Promise<ConflictCheckResult>),
+      personas: [] as PersonaPreset[],
       emitChatEvent(requestId: string, event: StreamEvent) {
         chatListeners.forEach(l => l({ requestId, event }));
       },
@@ -254,6 +258,16 @@ export function createFakeBridge() {
       cancelConflictCheck: vi.fn((requestId: string) => {
         fake.ai.cancelledConflictChecks.push(requestId);
         return ok(undefined);
+      }),
+      listPersonas: vi.fn(() => ok([...fake.ai.personas])),
+      savePersona: vi.fn((input: PersonaPresetInput): Promise<VrsIpcResult<SavedPersona>> => {
+        const preset = { id: input.id ?? `preset-${fake.ai.personas.length + 1}`, name: input.name.trim(), systemPrompt: input.systemPrompt };
+        fake.ai.personas = input.id ? fake.ai.personas.map(p => (p.id === input.id ? preset : p)) : [...fake.ai.personas, preset];
+        return ok({ preset, presets: [...fake.ai.personas] });
+      }),
+      deletePersona: vi.fn((id: string) => {
+        fake.ai.personas = fake.ai.personas.filter(p => p.id !== id);
+        return ok([...fake.ai.personas]);
       }),
     },
   } satisfies VrsApi;

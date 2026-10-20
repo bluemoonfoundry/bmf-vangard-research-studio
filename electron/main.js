@@ -14,6 +14,7 @@ import { dialogFilters, mediaKind } from './lib/media.js';
 import { TEXT_IMPORT_EXTENSIONS } from './lib/textImport.js';
 import { createAppSettings } from './lib/appSettings.js';
 import { createThemeSetting } from './lib/themeSetting.js';
+import { createPersonaPresets } from './lib/personaPresets.js';
 import { createApiKeyStore } from './lib/apiKeys.js';
 import { createLlmService } from './lib/llm/llmService.js';
 import { createGeminiAdapter } from './lib/llm/providers/gemini.js';
@@ -38,6 +39,7 @@ let recents = null;
 let projectSession = null;
 let llm = null;
 let theme = null;
+let personas = null;
 let projectName = null;
 let projectDirty = false;
 let closeConfirmed = false;
@@ -227,6 +229,10 @@ function registerIpcHandlers() {
     handle('llm:extract-cancel', (requestId) => llm.cancelExtract(requestId));
     handle('llm:conflict-check', (requestId, request) => llm.conflictCheck(requestId, request));
     handle('llm:conflict-check-cancel', (requestId) => llm.cancelConflictCheck(requestId));
+    // Saved AI Chat personas (app-wide); refused while AI is off, like the llm:* channels above.
+    handle('llm:list-personas', () => personas.list());
+    handle('llm:save-persona', (preset) => personas.save(preset));
+    handle('llm:delete-persona', (id) => personas.delete(id));
 }
 
 function createLlm(userData, settings) {
@@ -272,6 +278,7 @@ app.whenReady().then(async () => {
     // One store for settings.json, so the AI layer and the theme share its write queue.
     const settings = createAppSettings(path.join(userData, 'settings.json'));
     llm = createLlm(userData, settings);
+    personas = createPersonaPresets({ settings });
     theme = createThemeSetting({ settings, nativeTheme, warn: (message, err) => logger.warn(message, err) });
     // Before the window exists, so it never opens in the wrong theme.
     await theme.apply();

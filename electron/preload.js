@@ -66,5 +66,9 @@ contextBridge.exposeInMainWorld('vrs', {
     cancelExtract: (requestId) => ipcRenderer.invoke('llm:extract-cancel', requestId),
     conflictCheck: (requestId, request) => ipcRenderer.invoke('llm:conflict-check', requestId, request),
     cancelConflictCheck: (requestId) => ipcRenderer.invoke('llm:conflict-check-cancel', requestId),
+    // The writer's saved personas, kept app-wide in userData/settings.json.
+    listPersonas: () => ipcRenderer.invoke('llm:list-personas'),
+    savePersona: (preset) => ipcRenderer.invoke('llm:save-persona', preset),
+    deletePersona: (id) => ipcRenderer.invoke('llm:delete-persona', id),
   },
 });

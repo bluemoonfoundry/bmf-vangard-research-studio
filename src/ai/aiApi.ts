@@ -28,5 +28,8 @@ export function createAiApi(bridge: VrsApi): AiApi {
     cancelExtract: (requestId) => unwrap(raw.cancelExtract(requestId)),
     conflictCheck: (requestId, request) => unwrap(raw.conflictCheck(requestId, request)),
     cancelConflictCheck: (requestId) => unwrap(raw.cancelConflictCheck(requestId)),
+    listPersonas: () => unwrap(raw.listPersonas()),
+    savePersona: (preset) => unwrap(raw.savePersona(preset)),
+    deletePersona: (id) => unwrap(raw.deletePersona(id)),
   };
 }

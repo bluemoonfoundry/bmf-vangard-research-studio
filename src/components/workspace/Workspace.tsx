@@ -281,6 +281,7 @@ export function Workspace({ project, ai, aiApi }: WorkspaceProps) {
     { id: item.id, title: item.title },
   ];
 
+  const personaWiring = { presets: ai.personas, save: ai.savePersona, remove: ai.deletePersona };
   const bibleWiring = {
     items,
     bible: state.bible,
@@ -336,6 +337,7 @@ export function Workspace({ project, ai, aiApi }: WorkspaceProps) {
           chatOf={chatOf}
           onOpenLink={openLink}
           capture={{ bible: bibleWiring, addEntity }}
+          personas={personaWiring}
           highlight={h?.messageId !== undefined ? { messageId: h.messageId, start: h.start, end: h.end } : null}
         />
       );
