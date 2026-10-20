@@ -1,8 +1,8 @@
-import type { Bible, FactSource, StoryPosition, TreeItem } from '@/project/types';
+import type { Bible, FactSource, TreeItem } from '@/project/types';
 import type { Version } from '@/bible/contradictions';
 import type { ChatOf } from '@/chat/types';
 import { checkPosition } from '@/bible/ordering';
-import { formatPosition } from '@/bible/normalize';
+import { formatValue, isPosition } from '@/bible/normalize';
 import { resolveSource, sourceText } from '@/bible/sources';
 import { SourceLink } from '@/components/bible/SourceLink';
 import { btnPrimary } from '@/components/workspace/ui';
@@ -23,9 +23,9 @@ const MARK = { ok: '✓', violated: '✗ must come', unknown: '?' } as const;
 
 export function VersionCard({ version, checkEventId, bible, byId, contentOf, chatOf, onKeep, onOpenSource }: VersionCardProps) {
   const { value } = version;
-  const text = typeof value === 'string' ? value : formatPosition(value);
-  const checks = checkEventId && typeof value === 'object'
-    ? checkPosition(bible, checkEventId, value as StoryPosition)
+  const text = formatValue(value);
+  const checks = checkEventId && isPosition(value)
+    ? checkPosition(bible, checkEventId, value)
     : [];
   const sources = version.facts.flatMap(f => (f.source ? [f.source] : []));
 

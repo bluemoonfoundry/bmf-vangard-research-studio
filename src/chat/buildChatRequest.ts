@@ -2,7 +2,7 @@ import type { Capabilities, ChatRequest } from '@/ai/types';
 import type { Bible, Fact, StoryPosition, TreeItem } from '@/project/types';
 import { contradictionKey, findContradictions, groupVersions } from '@/bible/contradictions';
 import { ENTITY_KINDS, entityKindOf } from '@/bible/entities';
-import { attributeKey } from '@/bible/normalize';
+import { attributeKey, formatAge, isDatedAge } from '@/bible/normalize';
 import { AI_CHAT_TYPE } from '@/project/projectState';
 import { transcriptPlainText } from '@/chat/transcript';
 import type { ChatOf, ChatTranscript } from '@/chat/types';
@@ -37,7 +37,7 @@ function positionText(p: StoryPosition): string {
   return parts.join(', ');
 }
 
-const valueText = (v: Fact['value']): string => (typeof v === 'string' ? oneLine(v) : positionText(v));
+const valueText = (v: Fact['value']): string => (typeof v === 'string' ? oneLine(v) : isDatedAge(v) ? formatAge(v) : positionText(v));
 
 function kindName(entity: TreeItem): string {
   const kind = entityKindOf(entity);

@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import type { Strength } from '@/ai/types';
-import type { EntityKind, Fact, FactSource, StoryPosition, TreeItem } from '@/project/types';
+import type { EntityKind, Fact, FactSource, FactValue, TreeItem } from '@/project/types';
 import { sourceItemsOf } from '@/bible/cards';
 import type { SourceState } from '@/bible/sources';
-import { formatPosition } from '@/bible/normalize';
+import { formatValue } from '@/bible/normalize';
 import { FactForm } from '@/components/bible/FactForm';
 import { SourceLink } from '@/components/bible/SourceLink';
 import { btn } from '@/components/workspace/ui';
@@ -23,11 +23,11 @@ export interface FactRowProps {
   onSetAside(): void;
   onRestore(): void;
   onUnreview(): void;
-  onEdit(attribute: string, value: string | StoryPosition): void;
+  onEdit(attribute: string, value: FactValue): void;
   onOpenSource(source: FactSource): void;
 }
 
-export const valueText = (v: string | StoryPosition): string => (typeof v === 'string' ? v : formatPosition(v));
+export const valueText = formatValue;
 
 export const STRENGTH_LABEL: Record<Strength, string> = { said: 'You said this', built_on: 'Built on', suggested: 'Suggested' };
 const STRENGTH_ORDER: Strength[] = ['said', 'built_on', 'suggested'];

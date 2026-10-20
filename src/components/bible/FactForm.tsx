@@ -1,7 +1,7 @@
 import { useId, useState } from 'react';
-import type { EntityKind, FactSource, StoryPosition, TreeItem } from '@/project/types';
+import type { EntityKind, FactSource, FactValue, TreeItem } from '@/project/types';
 import { ENTITY_KINDS, entityKindOf } from '@/bible/entities';
-import { isWhenAttribute } from '@/bible/normalize';
+import { isPosition, isWhenAttribute } from '@/bible/normalize';
 import { PositionFields, emptyPositionDraft, parsePositionDraft, type PositionDraft } from '@/components/bible/PositionFields';
 import { btn, btnPrimary, fieldLabel, input } from '@/components/workspace/ui';
 
@@ -9,7 +9,7 @@ export interface FactFormValue {
   entityId?: string;
   newEntity?: { title: string; kind: EntityKind };
   attribute: string;
-  value: string | StoryPosition;
+  value: FactValue;
 }
 
 export interface FactFormProps {
@@ -17,7 +17,7 @@ export interface FactFormProps {
   fixedEntityId?: string;
   source?: FactSource;
   /** Prefill when editing an existing fact. */
-  initial?: { attribute: string; value: string | StoryPosition };
+  initial?: { attribute: string; value: FactValue };
   attributeSuggestions(kind: EntityKind | null): string[];
   onSubmit(f: FactFormValue): void;
   onCancel(): void;
@@ -25,8 +25,8 @@ export interface FactFormProps {
 
 const NEW = '__new__';
 
-const draftOf = (v: string | StoryPosition | undefined): PositionDraft =>
-  (v && typeof v === 'object'
+const draftOf = (v: FactValue | undefined): PositionDraft =>
+  (v !== undefined && isPosition(v)
     ? { season: String(v.season), episode: v.episode === undefined ? '' : String(v.episode), order: v.order === undefined ? '' : String(v.order) }
     : emptyPositionDraft());
 
@@ -48,7 +48,7 @@ export function FactForm({ entities, fixedEntityId, source, initial, attributeSu
     const attr = attribute.trim();
     if (!attr) return setError('Enter an attribute.');
     if (entityId === NEW && !newTitle.trim()) return setError('Name the new entity.');
-    let value: string | StoryPosition;
+    let value: FactValue;
     if (when) {
       const p = parsePositionDraft(position);
       if (!p) return setError('Season must be a whole number of 1 or more, episode likewise, and order a number.');

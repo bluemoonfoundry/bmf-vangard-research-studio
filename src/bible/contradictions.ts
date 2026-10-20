@@ -1,7 +1,7 @@
-import type { Bible, Decision, Fact, StoryPosition } from '@/project/types';
-import { attributeKey, normalizeText, positionsCompatible, specificity } from '@/bible/normalize';
+import type { Bible, Decision, Fact, FactValue, StoryPosition } from '@/project/types';
+import { attributeKey, isPosition, normalizeText, positionsCompatible, specificity } from '@/bible/normalize';
 
-export interface Version { value: string | StoryPosition; facts: Fact[] }
+export interface Version { value: FactValue; facts: Fact[] }
 
 export interface Contradiction {
   key: string;
@@ -16,13 +16,11 @@ export interface Contradiction {
 export const contradictionKey = (entityId: string, attribute: string): string =>
   `${entityId}\u0000${attributeKey(attribute)}`;
 
-const isPosition = (v: Fact['value']): v is StoryPosition => typeof v === 'object' && v !== null;
-
 /** Groups facts that agree: equal text after normalizing, or compatible story positions. */
 export function groupVersions(facts: Fact[]): Version[] {
   const versions: Version[] = [];
   const positional = facts.filter(f => isPosition(f.value));
-  const textual = facts.filter(f => !isPosition(f.value));
+  const textual = facts.filter(f => typeof f.value === 'string');
 
   for (const f of textual) {
     const norm = normalizeText(f.value as string);

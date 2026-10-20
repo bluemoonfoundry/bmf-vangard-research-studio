@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { Bible, Decision, Fact, StoryPosition, TreeItem } from '@/project/types';
 import {
-  comparePositions, emptyBible, formatPosition, isWhenAttribute, normalizeText, positionsCompatible, specificity,
+  comparePositions, emptyBible, formatAge, formatPosition, formatValue, isAgeAttribute, isDatedAge, isPosition, isWhenAttribute,
+  normalizeText, positionsCompatible, specificity,
 } from '@/bible/normalize';
 import {
   addDependency, addFact, keepAll, keepOne, pruneOrphans, removeDependency, removeEntities, reopen, setFactStatus, updateFact,
@@ -45,6 +46,19 @@ describe('normalize', () => {
     expect(specificity({ season: 1, episode: 2, order: 3 })).toBe(2);
     expect(formatPosition({ season: 3, episode: 4 })).toBe('S3 · E4');
     expect(emptyBible()).toEqual({ facts: [], dependencies: [], decisions: [] });
+  });
+  it('recognises and formats dated ages', () => {
+    expect(isAgeAttribute(' Age ')).toBe(true);
+    expect(isAgeAttribute('ages')).toBe(false);
+    expect(isDatedAge({ age: 18, year: 12 })).toBe(true);
+    expect(isDatedAge({ season: 1 })).toBe(false);
+    expect(isDatedAge('18')).toBe(false);
+    expect(isPosition({ age: 18, year: 12 })).toBe(false);
+    expect(isPosition({ season: 1 })).toBe(true);
+    expect(formatAge({ age: 18, year: 12 })).toBe('18 at year 12');
+    expect(formatValue({ age: 6, year: 0 })).toBe('6 at year 0');
+    expect(formatValue({ season: 2, episode: 3 })).toBe('S2 · E3');
+    expect(formatValue('green')).toBe('green');
   });
 });
 

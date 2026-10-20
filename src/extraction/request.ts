@@ -1,7 +1,7 @@
 import type { ExtractRequest, ProviderId } from '@/ai/types';
 import type { Bible, Fact, TreeItem } from '@/project/types';
 import { ENTITY_KINDS, attributeSuggestions, entityKindOf } from '@/bible/entities';
-import { attributeKey, formatPosition, normalizeText } from '@/bible/normalize';
+import { attributeKey, formatValue, normalizeText } from '@/bible/normalize';
 import type { ExtractionState } from '@/extraction/types';
 import { rejectedFingerprints } from '@/extraction/apply';
 import { sourceTextFor, type ExtractionSource, type SourceTurn } from '@/extraction/sourceText';
@@ -65,7 +65,7 @@ export function cacheKey(text: string, provider: ProviderId, model: string): str
 }
 
 const oneLine = (s: string): string => s.replace(/\s+/g, ' ').trim();
-const valueText = (v: Fact['value']): string => (typeof v === 'string' ? oneLine(v) : formatPosition(v));
+const valueText = (v: Fact['value']): string => (typeof v === 'string' ? oneLine(v) : formatValue(v));
 const kindName = (kind: string | null | undefined): string => (kind && ENTITY_KINDS.some(k => k.id === kind) ? kind : 'other');
 
 /** One canon block per entity: id, title, kind, then live values and rejected values per attribute. */

@@ -1,11 +1,11 @@
-import type { Bible, Fact, StoryPosition, TreeItem } from '@/project/types';
+import type { Bible, Fact, FactValue, TreeItem } from '@/project/types';
 import { ENTITY_KINDS, entityKindOf } from '@/bible/entities';
-import { attributeKey, formatPosition } from '@/bible/normalize';
+import { attributeKey, formatPosition, formatValue } from '@/bible/normalize';
 import { contradictionKey, findContradictions, groupVersions, openContradictions } from '@/bible/contradictions';
 import { buildTimeline } from '@/bible/timeline';
 
 const oneLine = (s: string): string => s.replace(/\s+/g, ' ').trim();
-const valueText = (v: string | StoryPosition): string => (typeof v === 'string' ? oneLine(v) : formatPosition(v));
+const valueText = (v: FactValue): string => (typeof v === 'string' ? oneLine(v) : formatValue(v));
 const titleOf = (i: TreeItem): string => oneLine(i.title) || 'Untitled';
 
 /** The Story Bible section of the dossier: kept facts per entity, open conflicts and the timeline. */

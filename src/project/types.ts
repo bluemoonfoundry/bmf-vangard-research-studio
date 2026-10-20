@@ -88,6 +88,11 @@ export type EntityKind = 'character' | 'location' | 'faction' | 'item' | 'lore' 
 
 export interface StoryPosition { season: number; episode?: number; order?: number }
 
+/** An age that held a number of years after the story's start (whole numbers, year 0 = the start). Only on `age` facts. */
+export interface DatedAge { age: number; year: number }
+
+export type FactValue = string | StoryPosition | DatedAge;
+
 export type FactStatus = 'proposed' | 'kept' | 'set_aside';
 
 /** Where a fact was captured. With `messageId` (an AI Chat message), offsets are into that message's stored text. */
@@ -100,7 +105,7 @@ export interface Fact {
   id: string;
   entityId: string;
   attribute: string;
-  value: string | StoryPosition;
+  value: FactValue;
   status: FactStatus;
   /** The primary source; with `evidence`, its first entry. */
   source?: FactSource;

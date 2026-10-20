@@ -1,5 +1,5 @@
 import type { Bible, Fact, TreeItem } from '@/project/types';
-import { formatPosition } from '@/bible/normalize';
+import { formatValue } from '@/bible/normalize';
 import type { Canon, EntityRef, ExtractionState, PendingCard, PendingProposal } from '@/extraction/types';
 import { AI_ORIGIN, cardFingerprint, entityKeyOf, fingerprint } from '@/extraction/apply';
 
@@ -22,7 +22,7 @@ export interface ReviewGroup {
 }
 
 const titleOrder = (a: TreeItem, b: TreeItem) => (a.title || '').localeCompare(b.title || '', undefined, { sensitivity: 'base' });
-const valueText = (v: Fact['value']) => (typeof v === 'string' ? v : formatPosition(v));
+const valueText = formatValue;
 const isAiProposal = (f: Fact) => f.status === 'proposed' && f.origin === AI_ORIGIN;
 
 /** What the review queue shows: per entity (by title), then per new card (oldest first). */

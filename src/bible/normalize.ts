@@ -1,6 +1,7 @@
-import type { Bible, StoryPosition } from '@/project/types';
+import type { Bible, DatedAge, FactValue, StoryPosition } from '@/project/types';
 
 export const WHEN = 'when';
+export const AGE = 'age';
 
 /** Matching rule for attribute names and values: trim, collapse whitespace runs, lower-case. */
 export function normalizeText(s: string): string {
@@ -10,6 +11,13 @@ export function normalizeText(s: string): string {
 export const attributeKey = (attr: string): string => normalizeText(attr);
 
 export const isWhenAttribute = (attr: string): boolean => attributeKey(attr) === WHEN;
+
+export const isAgeAttribute = (attr: string): boolean => attributeKey(attr) === AGE;
+
+export const isPosition = (v: FactValue): v is StoryPosition => typeof v === 'object' && v !== null && 'season' in v;
+
+export const isDatedAge = (v: FactValue): v is DatedAge =>
+  typeof v === 'object' && v !== null && typeof (v as DatedAge).age === 'number' && typeof (v as DatedAge).year === 'number';
 
 /** True when every part present in both positions is equal. */
 export function positionsCompatible(a: StoryPosition, b: StoryPosition): boolean {
@@ -38,6 +46,14 @@ export function formatPosition(p: StoryPosition): string {
   if (p.episode === undefined) return `Season ${p.season}`;
   const base = `S${p.season} · E${p.episode}`;
   return p.order === undefined ? base : `${base} · #${p.order}`;
+}
+
+export const formatAge = (a: DatedAge): string => `${a.age} at year ${a.year}`;
+
+/** How any fact value reads: text as is, a story position, or an age at a year. */
+export function formatValue(v: FactValue): string {
+  if (typeof v === 'string') return v;
+  return isDatedAge(v) ? formatAge(v) : formatPosition(v);
 }
 
 export const emptyBible = (): Bible => ({ facts: [], dependencies: [], decisions: [] });
