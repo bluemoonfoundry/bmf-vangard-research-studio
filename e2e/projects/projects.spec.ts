@@ -29,7 +29,7 @@ test('creates a project, saves a document, and reopens it after a restart', asyn
   await expect(window.getByText('Saved', { exact: true })).toBeVisible();
 
   // The folder is plain, readable files.
-  expect(await readJson(path.join(root, 'vrs.json'))).toMatchObject({ schemaVersion: 2, name: 'Dragon Saga' });
+  expect(await readJson(path.join(root, 'vrs.json'))).toMatchObject({ schemaVersion: 3, name: 'Dragon Saga' });
   const id = await docIdFor(root, 'Hoard');
   expect(await fs.readFile(path.join(root, 'docs', `${id}.md`), 'utf-8')).toBe('Dragons hoard words, not gold.');
 

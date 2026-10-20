@@ -36,7 +36,8 @@ async function addMara(window: Page) {
   for (const [attribute, value] of [['Age', '24'], ['Born', '40 years before the story']]) {
     await canon.getByRole('button', { name: 'Add fact' }).click();
     await canon.getByLabel('Attribute', { exact: true }).fill(attribute);
-    await canon.getByRole('textbox', { name: 'Value' }).fill(value);
+    // An age has its own field (plus an optional year); this one stays a plain-text age.
+    await canon.getByRole('textbox', { name: attribute === 'Age' ? 'Age' : 'Value' }).fill(value);
     await canon.getByRole('button', { name: 'Save fact' }).click();
   }
 }
