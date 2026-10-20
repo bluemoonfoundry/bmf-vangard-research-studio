@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Bible, DatedAge, Fact } from '@/project/types';
-import { ageAtStart, groupDatedAges, startAge, startAgeText } from '@/bible/ages';
+import { ageAtStart, groupDatedAges, parseDatedAge, startAge, startAgeText } from '@/bible/ages';
 
 let n = 0;
 const age = (value: Fact['value'], status: Fact['status'] = 'kept', entityId = 'e1'): Fact => ({
@@ -10,6 +10,17 @@ const bibleOf = (facts: Fact[]): Bible => ({ facts, dependencies: [], decisions:
 const at = (a: number, year: number): DatedAge => ({ age: a, year });
 
 describe('ages', () => {
+  it.each([
+    ['18 at year 12', at(18, 12)], ['Age 18 at Year 12', at(18, 12)], ['18 years old at year 12', at(18, 12)],
+    ['18 (year 12)', at(18, 12)], ['  0 at year 0 ', at(0, 0)],
+  ])('parses %s', (text, value) => {
+    expect(parseDatedAge(text)).toEqual(value);
+  });
+
+  it.each(['18', 'eighteen', '18 at year twelve', 'about 18 at year 12', '-1 at year 2', '18 at year 1.5'])('leaves %s as text', (text) => {
+    expect(parseDatedAge(text)).toBeNull();
+  });
+
   it('computes the implied start age', () => {
     expect(startAge(at(18, 12))).toBe(6);
     expect(startAge(at(3, 10))).toBe(-7);

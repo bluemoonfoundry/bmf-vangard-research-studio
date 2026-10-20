@@ -1,5 +1,5 @@
 import type { Bible, DatedAge } from '@/project/types';
-import { isAgeAttribute, isDatedAge } from '@/bible/normalize';
+import { isAgeAttribute, isDatedAge, normalizeText } from '@/bible/normalize';
 
 /**
  * Ages over story time. A dated age ("18 at year 12") implies an age at the story's start
@@ -25,6 +25,14 @@ export function groupDatedAges<T>(items: T[], ageOf: (t: T) => DatedAge): T[][] 
     else groups.push({ first: x.s, items: [x.t] });
   }
   return groups.map(g => g.items);
+}
+
+const DATED_AGE = /^(?:age )?(\d+)(?: years? old)?(?: at year (\d+)| \(year (\d+)\))$/;
+
+/** "18 at year 12", "age 18 at year 12", "18 years old at year 12" or "18 (year 12)"; anything else is null. */
+export function parseDatedAge(text: string): DatedAge | null {
+  const m = DATED_AGE.exec(normalizeText(text));
+  return m ? { age: Number(m[1]), year: Number(m[2] ?? m[3]) } : null;
 }
 
 const span = (lo: number, hi: number): string => (lo === hi ? String(lo) : `${lo}–${hi}`);

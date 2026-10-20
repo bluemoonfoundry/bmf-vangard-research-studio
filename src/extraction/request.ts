@@ -11,7 +11,7 @@ import { sourceTextFor, type ExtractionSource, type SourceTurn } from '@/extract
  * EXTRACTION_PROMPT_VERSION whenever EXTRACTION_SYSTEM or the request layout changes meaningfully.
  */
 
-export const EXTRACTION_PROMPT_VERSION = 1;
+export const EXTRACTION_PROMPT_VERSION = 2;
 
 /** Above this the canon keeps only entities the source mentions by name. */
 export const CANON_CAP_CHARS = 40_000;
@@ -45,6 +45,8 @@ export const EXTRACTION_SYSTEM = [
   '  value in replaces.',
   '- Never propose a value or a card the canon lists as rejected.',
   '- For a "when" attribute (events), write the value as "season N", optionally followed by ", episode N" and ", order N".',
+  '- For an "age" attribute, write "N at year Y" when the source makes clear how many years after the start of the story',
+  '  that age holds (year 0 is the start); otherwise write the age alone.',
   '- summary: a compact list of the entities and adopted facts established so far, for reading the next part.',
 ].join('\n');
 

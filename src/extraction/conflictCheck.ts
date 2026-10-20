@@ -26,6 +26,7 @@ export const CONFLICT_SYSTEM = [
   '- Only real contradictions. Not facts that merely differ, are vague, or could both be true with a little',
   '  explanation. When unsure, leave it out.',
   '- Skip pairs with the same entity and the same attribute name: those are already flagged.',
+  '- An age written "N at year Y" means age N, Y years after the story begins.',
   '- reason: one short sentence saying why the two cannot both be true.',
   '- If nothing conflicts, return an empty list.',
 ].join('\n');
