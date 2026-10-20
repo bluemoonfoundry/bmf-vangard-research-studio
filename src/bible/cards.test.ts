@@ -17,6 +17,22 @@ const item = (over: Partial<TreeItem> & { id: string }): TreeItem => ({
 });
 const mara = item({ id: 'e1', type: 'entity', entityKind: 'character', title: 'Mara' });
 
+describe('age lines', () => {
+  it('labels a dated age line with the start age', () => {
+    const bible = bibleOf([
+      fact({ attribute: 'Age', value: { age: 6, year: 0 } }),
+      fact({ attribute: 'age', value: { age: 18, year: 12 } }),
+    ]);
+    const [line] = canonLines(bible, mara);
+    expect(line.key).toBe('age');
+    expect(line.versions.map(v => v.label)).toEqual(['6 at the start']);
+  });
+
+  it('leaves text values unlabelled', () => {
+    expect(canonLines(bibleOf([fact({ attribute: 'Age', value: '6' })]), mara)[0].versions[0].label).toBeUndefined();
+  });
+});
+
 describe('wallTabs', () => {
   it('has a tab per known kind with its entities sorted by title, and Other only when needed', () => {
     const items = [

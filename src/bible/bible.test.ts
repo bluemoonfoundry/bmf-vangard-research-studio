@@ -63,6 +63,29 @@ describe('normalize', () => {
 });
 
 describe('contradictions', () => {
+  const ids = new Set(['e1']);
+  const age = (value: Fact['value'], over: Partial<Fact> = {}) => fact({ attribute: 'Age', value, ...over });
+
+  it('never compares plain-text ages', () => {
+    expect(findContradictions(bibleOf([age('6'), age('18')]), ids)).toEqual([]);
+    expect(findContradictions(bibleOf([age('6'), age({ age: 20, year: 12 })]), ids)).toEqual([]);
+  });
+
+  it('flags dated ages 2+ years apart and accepts 1', () => {
+    expect(findContradictions(bibleOf([age({ age: 6, year: 0 }), age({ age: 17, year: 12 })]), ids)).toEqual([]);
+    const [c, ...rest] = findContradictions(bibleOf([age({ age: 6, year: 0 }), age({ age: 20, year: 12 })]), ids);
+    expect(rest).toEqual([]);
+    expect(c.versions.map(v => v.value)).toEqual([{ age: 6, year: 0 }, { age: 20, year: 12 }]);
+  });
+
+  it('a plain age beside an age conflict does not change its fact set', () => {
+    const facts = [age({ age: 6, year: 0 }), age({ age: 20, year: 12 })];
+    const [c] = findContradictions(bibleOf(facts), ids);
+    const acknowledged = keepAll(bibleOf(facts), c, { id: 'd1', now: 'T1' });
+    const withPlain = { ...acknowledged, facts: [...acknowledged.facts, age('about 20')] };
+    expect(openContradictions(findContradictions(withPlain, ids))).toEqual([]);
+  });
+
   it('groups text values by normalized value', () => {
     const vs = groupVersions([fact({ value: 'Season 3' }), fact({ value: 'season  3' })]);
     expect(vs).toHaveLength(1);

@@ -198,7 +198,7 @@ export function EntityCard(props: EntityCardProps) {
                       <span className="flex min-w-0 flex-1 flex-col">
                         {l.versions.map((v, i) => (
                           <span key={i} className="flex flex-wrap items-baseline gap-2">
-                            <span>{valueText(v.value)}</span>
+                            <span>{v.label ?? valueText(v.value)}</span>
                             {v.sourceCount > 0 && <span className="text-[11px] text-content-muted">{plural(v.sourceCount, 'source')}</span>}
                           </span>
                         ))}

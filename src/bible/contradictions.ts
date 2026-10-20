@@ -1,5 +1,6 @@
-import type { Bible, Decision, Fact, FactValue, StoryPosition } from '@/project/types';
-import { attributeKey, isPosition, normalizeText, positionsCompatible, specificity } from '@/bible/normalize';
+import type { Bible, DatedAge, Decision, Fact, FactValue, StoryPosition } from '@/project/types';
+import { attributeKey, isAgeAttribute, isDatedAge, isPosition, normalizeText, positionsCompatible, specificity } from '@/bible/normalize';
+import { groupDatedAges } from '@/bible/ages';
 
 export interface Version { value: FactValue; facts: Fact[] }
 
@@ -16,7 +17,7 @@ export interface Contradiction {
 export const contradictionKey = (entityId: string, attribute: string): string =>
   `${entityId}\u0000${attributeKey(attribute)}`;
 
-/** Groups facts that agree: equal text after normalizing, or compatible story positions. */
+/** Groups facts that agree: equal text after normalizing, compatible story positions, or dated ages implying the same start age. */
 export function groupVersions(facts: Fact[]): Version[] {
   const versions: Version[] = [];
   const positional = facts.filter(f => isPosition(f.value));
@@ -36,6 +37,9 @@ export function groupVersions(facts: Fact[]): Version[] {
     if (hit) hit.facts.push(f);
     else versions.push({ value: p, facts: [f] });
   }
+
+  const dated = facts.filter(f => isDatedAge(f.value));
+  for (const group of groupDatedAges(dated, f => f.value as DatedAge)) versions.push({ value: group[0].value, facts: group });
   return versions;
 }
 
@@ -43,6 +47,8 @@ export function findContradictions(bible: Bible, entityIds: ReadonlySet<string>)
   const groups = new Map<string, { entityId: string; attribute: string; facts: Fact[] }>();
   for (const f of bible.facts) {
     if (f.status === 'set_aside' || !entityIds.has(f.entityId)) continue;
+    // An age without a year is never compared.
+    if (isAgeAttribute(f.attribute) && typeof f.value === 'string') continue;
     const key = contradictionKey(f.entityId, f.attribute);
     const g = groups.get(key);
     if (g) g.facts.push(f);
