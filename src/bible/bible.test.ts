@@ -335,6 +335,16 @@ describe('timeline', () => {
     expect(t.placed.map(e => [e.eventId, e.versionIndex, e.versionCount])).toEqual([['a', 0, 2], ['b', 0, 1], ['a', 1, 2]]);
     expect(t.placed.some(e => e.eventId === 'ch')).toBe(false);
   });
+  it('numbers versions in story order, whatever order the facts were added in', () => {
+    let b: Bible = {
+      facts: [when('a', { season: 3, episode: 2 }, { id: 'late' }), when('a', { season: 1, episode: 4 }, { id: 'early' })],
+      dependencies: [], decisions: [],
+    };
+    const c = findContradictions(b, new Set(['a']))[0];
+    if (!c) throw new Error('expected a contradiction');
+    b = keepAll(b, c, { id: 'dk', now: 'T1' });
+    expect(buildTimeline(b, items).placed.map(e => [e.position.season, e.versionIndex])).toEqual([[1, 0], [3, 1]]);
+  });
   it('flags violations and cycles, and drops them when the event is removed', () => {
     const b: Bible = {
       facts: [when('a', { season: 1, episode: 1 }), when('b', { season: 3, episode: 1 })],

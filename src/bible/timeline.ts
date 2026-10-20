@@ -24,7 +24,7 @@ export function buildTimeline(b: Bible, items: TreeItem[]): Timeline {
 
   for (const ev of events) {
     if (open.has(contradictionKey(ev.id, WHEN))) { timeline.contested.push(ev.id); continue; }
-    const positions = keptPositions(b, ev.id);
+    const positions = keptPositions(b, ev.id).sort(comparePositions);
     if (positions.length === 0) { timeline.unplaced.push(ev.id); continue; }
     positions.forEach((position, versionIndex) => {
       timeline.placed.push({

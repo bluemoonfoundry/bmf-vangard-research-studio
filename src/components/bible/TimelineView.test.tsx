@@ -68,6 +68,30 @@ describe('TimelineView', () => {
     expect(screen.getByText(/version 2 of 2/)).toBeTruthy();
   });
 
+  it('links each version to the others and jumps to the one chosen', () => {
+    const facts = [when('a', { season: 1, episode: 1 }), when('a', { season: 2, episode: 2 }), when('a', { season: 3 })];
+    const b: Bible = {
+      ...emptyBible(), facts,
+      decisions: [{ id: 'dec', entityId: 'a', attribute: 'when', kind: 'kept_all', factIds: facts.map(f => f.id), setAsideIds: [], at: 'T0' }],
+    };
+    const { onOpenEntity } = setup(b, [ev('a', 'Alpha')]);
+    const first = screen.getByRole('button', { name: /^S1 · E1.*version 1 of 3/ });
+    expect(screen.getAllByRole('button', { name: 'Go to version 1 of 3 of Alpha' })).toHaveLength(2);
+    const third = screen.getByRole('button', { name: /^Season 3.*version 3 of 3/ });
+    const links = screen.getAllByRole('button', { name: 'Go to version 3 of 3 of Alpha' });
+    expect(links).toHaveLength(2);
+    fireEvent.click(links[0]);
+    expect(document.activeElement).toBe(third);
+    expect(onOpenEntity).not.toHaveBeenCalled();
+    fireEvent.click(screen.getAllByRole('button', { name: 'Go to version 1 of 3 of Alpha' })[0]);
+    expect(document.activeElement).toBe(first);
+  });
+
+  it('shows no version links for an event with one position', () => {
+    setup();
+    expect(screen.queryByRole('button', { name: /^Go to version/ })).toBeNull();
+  });
+
   it('calls onOpenEntity when a row is clicked', () => {
     const { onOpenEntity } = setup();
     fireEvent.click(screen.getByRole('button', { name: /Alpha/ }));
